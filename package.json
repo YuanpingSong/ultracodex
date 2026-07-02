@@ -1,0 +1,34 @@
+{
+  "name": "ultracodex",
+  "version": "0.1.0",
+  "description": "Run Claude Code workflow scripts unmodified on the OpenAI Codex CLI",
+  "type": "module",
+  "bin": {
+    "ultracodex": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "packageManager": "pnpm@10.12.4",
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/react": "^19.2.17",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "acorn": "^8.17.0",
+    "ajv": "^8.20.0",
+    "commander": "^15.0.0",
+    "ink": "^7.1.0",
+    "picocolors": "^1.1.1",
+    "react": "^19.2.7",
+    "smol-toml": "^1.7.0"
+  }
+}

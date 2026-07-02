@@ -1,8 +1,22 @@
-# ultracodex — Context Handoff (v2)
+# ultracodex — Context Handoff (v3)
 
 **Goal:** a runner + CLI + TUI that executes Claude Code *workflow scripts* unmodified,
-but backed by the OpenAI Codex CLI (`codex exec`) instead of Claude subagents.
+but backed by the OpenAI Codex CLI (via `codex app-server`) instead of Claude subagents.
 Motivation: conserve Claude quota — "fable plans, codex executes, fable verifies."
+
+**v3 delta:** executor switched from `codex exec --json` to the `codex app-server`
+JSON-RPC protocol, plus steals from the official codex plugin for Claude Code
+(`/Users/user/Desktop/repos/codex-plugin-cc`, Apache-2.0 — our reference
+implementation for protocol handling). All protocol claims below were verified
+against that source and against the installed codex 0.142.4.
+
+**Build decisions (locked 2026-07-02):**
+- ultracodex source: **TypeScript** (tsc build, bin entry). User scripts stay plain JS.
+- Live codex calls during development: **allowed freely**.
+- Cadence: build **straight through M1–M3** before user review.
+- `budget.spent()` counts **output tokens only** (upstream parity); ledgers record
+  input+output for display.
+- Pins: codex CLI **0.142.4**, Node v22.
 
 **Design principles (locked):**
 1. Simple product shape; simple, reliable execution; ship value fast.
@@ -86,7 +100,16 @@ export const meta = {
   `.claude/skills/<name>/SKILL.md` per saved workflow (name/description from
   `meta`; body instructs Claude to run `ultracodex run <name> --args ... --json`
   via Bash). This mirrors upstream's workflows-register-as-skills behavior and
-  gives fable spontaneous triggering with zero server code.
+  gives fable spontaneous triggering with zero server code. Generated SKILL.md
+  bodies must include the codex plugin's **verbatim-relay discipline**: return
+  the command's stdout as-is; if the run failed, report the failure and stop —
+  never substitute a Claude-side answer (see codex-result-handling/SKILL.md in
+  the plugin for the exact language).
+- **Durability divergence (deliberate):** the codex plugin's jobs are
+  session-scoped (a SessionEnd hook kills them) and its state lives in
+  tmpdir/plugin-data keyed by workspace hash. Ours are the opposite by design:
+  runs are durable, state is project-local and inspectable. Do not import their
+  lifecycle model.
 - **Backend routing lives in config, never in scripts** (keeps scripts portable):
 
 ```toml
@@ -129,46 +152,112 @@ interface Executor {
 `agent()` wraps this: routes via config → acquires semaphore slot → emits journal
 events → maps failure to `null` → enforces budget/caps.
 
-### 3.3 Codex executor
-Spawn per call:
-```
-codex exec --json -C <cwd> --sandbox <profile> --ask-for-approval never \
-  [-m <mapped-model>] [-c model_reasoning_effort=<mapped-effort>] "<prompt>"
-```
-- Parse the `--json` JSONL stream: forward command-exec / file-patch / reasoning
-  events to `onActivity` (these power the TUI); token-usage events to `onUsage`;
-  capture the final agent message and the session id.
-- **Pin the codex CLI version and write an integration test against its event
-  schema on day one** — exact event type names must be verified empirically at
-  build time; do not trust docs or this handoff for field names.
-- `agentType` → config-defined profiles (e.g. `Explore` = `--sandbox read-only`
-  + read-only preamble). Auth is ambient (`codex login` / `OPENAI_API_KEY`).
+### 3.3 Codex executor — app-server protocol (v3)
+The official plugin never shells to `codex exec`; it speaks JSON-RPC (JSONL over
+stdio) to `codex app-server`. We do the same. **One app-server process per agent
+slot**, pooled by our semaphore (the plugin's "direct" mode). Do NOT build their
+broker: it busy-locks one active stream per server (rpc code -32001 on contention)
+precisely because multiplexing concurrent turns over one app-server is dicey —
+our calls are parallel, so isolation-per-slot is the simple correct shape.
 
-### 3.4 Schema pipeline (do NOT trust `--output-schema`)
-Known codex bugs: schema silently ignored when tools are active (openai/codex
-#15451), schema applied to intermediate messages (#19816), model-family guard
-skipping it (#4181). Therefore:
+Per agent call:
+```
+spawn: codex app-server            (stdio pipes; cwd = agent cwd)
+rpc:   initialize
+       thread/start                → threadId
+       turn/start {threadId, input, model, effort, outputSchema}
+       … notifications …          → turn/completed
+```
+- **Notifications:** `thread/started`, `turn/started`, `item/started`,
+  `item/completed`, `error`, `turn/completed`. Item types (all verified):
+  `commandExecution`, `fileChange`, `mcpToolCall`, `dynamicToolCall`,
+  `collabAgentToolCall`, `webSearch`, `reasoning`, `agentMessage`,
+  `enteredReviewMode`/`exitedReviewMode`. Map to `onActivity`; handle unknown
+  types gracefully (forward as `status`).
+- **Final message:** `agentMessage` with `phase: "final_answer"` (lifecycle
+  `completed`) — not "last text on stdout".
+- **Completion inference:** codex can spawn its own subagents mid-turn
+  (`collabAgentToolCall` items + `turn/started` on other threadIds). Copy the
+  plugin's `captureTurn` state machine (codex.mjs:559 — Apache-2.0): complete
+  only when final_answer seen ∧ no pending collabs ∧ no active subagent turns,
+  with a 250ms inference timer for a missing `turn/completed`. Buffer
+  notifications until turnId is known; route by `belongsToTurn()`.
+- **Protocol types:** generate from the pinned binary —
+  `codex app-server generate-ts` / `generate-json-schema` (verified in 0.142.4).
+  Don't hand-write the protocol layer's types.
+- **Effort:** valid values `none|minimal|low|medium|high|xhigh` → workflow map
+  gains `max → xhigh`. Model aliases are a config table (plugin ships
+  `spark → gpt-5.3-codex-spark`; re-derive our model_map from the live lineup).
+- **Compat:** tolerate older servers via the plugin's degradation check
+  (error message contains "unknown variant"/"unknown method" → feature off).
+- **Fallback transport:** `codex exec --json` behind the same Executor
+  interface, for environments where app-server misbehaves. Note for 0.142.4:
+  `codex exec` has NO `--ask-for-approval` flag (it's inherently non-interactive);
+  `-o/--output-last-message <FILE>` exists and is the robust final-message path.
+- `agentType` → config-defined profiles (e.g. `Explore` = sandbox read-only
+  + read-only preamble). Auth is ambient (`codex login` / `OPENAI_API_KEY`);
+  check via `account/read` + `config/read` RPCs (what the plugin's setup does).
+- **Test harness (day one):** steal the plugin's fake-codex fixture pattern —
+  a scripted fake `codex` binary implementing app-server, selected by PATH
+  prepend, driven by behavior flags (theirs has 17: `slow-task`, `invalid-json`,
+  `with-subagent`, `interruptible-slow-task`, `logged-out`,
+  `with-subagent-no-main-turn-completed`, …). Hermetic CI for the whole runtime
+  without touching the real API.
+
+### 3.4 Schema pipeline (belt AND suspenders)
+`turn/start` takes `outputSchema` directly — first-class, use it. But keep our
+own validation layer: the plugin itself does NO shape-validation (its
+`parseStructuredOutput` is a bare `JSON.parse` with error catch), and the CLI
+layer has known schema bugs (openai/codex #15451, #19816, #4181). Therefore:
 1. `strictify(schema)`: recursively add `additionalProperties: false`, make all
    properties required — upstream schemas must work unmodified.
-2. Append a JSON-only instruction + inlined schema to the prompt; optionally
-   also pass `--output-schema` (harmless when it works).
-3. Validate the final message with **ajv**. On failure: retry via
-   `codex exec resume <sessionId>` with the validation errors ("emit ONLY
-   corrected JSON") — context-preserving repair, up to N=3, then `null`.
+2. Pass strictified schema as `outputSchema` on `turn/start` AND append a
+   JSON-only instruction + inlined schema to the prompt (via the
+   `<structured_output_contract>` block, §3.7).
+3. Validate the final message with **ajv**. On failure: repair turn on the SAME
+   thread (`turn/start` again with the validation errors — "emit ONLY corrected
+   JSON"; the thread keeps context in-process), up to N=3, then `null`.
 4. Fallback config flag: two-call mode (agentic run writes JSON to a file;
    tool-less run reformats) for stubborn cases.
 
+Lighter-weight alternative for gate-style endcaps (steal from the plugin's
+stop-review-gate): a first-line `ALLOW: <reason>` / `BLOCK: <reason>` contract
+parsed by prefix — cheaper than full JSON schema when the answer is a verdict.
+
 ### 3.5 Budget
 Meter real token usage from codex events into **per-backend ledgers**.
-`--budget 500k` sets `budget.total` (interpreted against the codex ledger by
-default; configurable). Exceeded → subsequent `agent()` calls throw (upstream
-semantics). Totals surface in journal, TUI header, `show`, and `--json` output.
+`budget.spent()` counts **output tokens only** (locked — matches upstream, so
+budget-guarded loops behave identically in both runtimes); ledgers record
+input+output for display. `--budget 500k` sets `budget.total` (interpreted
+against the codex ledger by default; configurable). Exceeded → subsequent
+`agent()` calls throw (upstream semantics). Totals surface in journal, TUI
+header, `show`, and `--json` output.
+**Verify at build time:** where token usage arrives in the app-server stream
+(the plugin never meters tokens, so this is unverified — check `turn/completed`
+payload / item payloads / generated protocol schema; if absent, the
+`codex exec --json` fallback transport has usage events).
 
 ### 3.6 Worktree isolation
 `isolation: 'worktree'` → `git worktree add <runDir>/wt/<n> HEAD`, run codex
-with `-C` there. Teardown: `git status --porcelain` → clean: `worktree remove
+with cwd there. Teardown: `git status --porcelain` → clean: `worktree remove
 --force` + `prune`; dirty: **keep and report the path** in agent_end (v1 policy;
 merge-back strategies deferred).
+
+### 3.7 Prompt assembly (steal: gpt-5-4-prompting blocks)
+Build the executor's prompt preamble from the plugin's XML prompt-contract
+blocks (skills/gpt-5-4-prompting/references/prompt-blocks.md — 14 blocks
+available). Ship as per-profile templates in config; defaults:
+- `<task>` — the workflow agent prompt itself.
+- `<structured_output_contract>` — carries our "your final text IS the return
+  value consumed by a program — return raw data, not a chatty summary"
+  instruction (+ inlined schema when present); `<compact_output_contract>` for
+  schema-less calls.
+- `<default_follow_through_policy>` — essential headless: never stop to ask
+  questions, act on the stated defaults.
+- `<action_safety>` — for write-capable profiles; keep changes tightly scoped.
+- `<grounding_rules>` — for read/research profiles.
+Others (`<verification_loop>`, `<tool_persistence_rules>`, `<completeness_contract>`,
+`<missing_context_gating>`, …) opt-in per profile.
 
 ---
 
@@ -214,6 +303,11 @@ acks via journal events.
 {"cmd":"resume"}
 {"cmd":"skip","n":4}      // resolve agent n to null (kills its process)
 ```
+- **Graceful tier first:** `skip`/`stop` on a live agent issue
+  `turn/interrupt {threadId, turnId}` over the agent's app-server connection,
+  then escalate to `terminateProcessTree` (SIGTERM → SIGKILL) on timeout. (The
+  plugin exposes both pieces — interrupt as an RPC, terminateProcessTree for
+  teardown; the interrupt→kill escalation policy is ours.)
 - **Hard pause (SIGSTOP on child process groups) is deliberately excluded:** a
   frozen codex process holds a streaming API connection that times out within
   ~a minute, killing the agent. Soft pause covers the real use case (stop
@@ -235,14 +329,20 @@ ultracodex                           # no args: open TUI home view (see §6)
 ultracodex run <script.js|name> [--args '<json>'] [--budget 500k]
               [--watch] [--detach] [--strict] [--json] [--concurrency N]
 ultracodex ls                        # runs + statuses (pid-liveness checked)
-ultracodex show <runId> [--json]     # replay journal → static render / machine output
+ultracodex show <runId> [--json] [--wait [--timeout-ms N]]
+                                     # replay journal → static render / machine output;
+                                     # --wait blocks until run_end (fable's clean poll)
 ultracodex attach <runId>            # TUI onto a live run
 ultracodex pause <runId> | resume <runId>
 ultracodex kill <runId> | skip <runId> <n>
 ultracodex logs <runId> [<n>]        # raw agent events
 ultracodex validate <script.js>      # compat lint (see §8)
 ultracodex sync-skills               # generate .claude/skills/* from workflows/
+ultracodex doctor                    # node/codex-version/auth checks via
+                                     # account/read + config/read; actionable next-steps
 ```
+Every `<runId>` accepts a unique **prefix** (`uc_ab`); ambiguous → error listing
+matches, never a guess (plugin's `matchJobReference` pattern).
 `run` default: launch a **detached runner process** (`setsid`, stdio to files),
 print runId, attach TUI if TTY; `--watch` in a non-TTY (CI, or fable calling via
 Bash) = plain line-per-event output; `--json` = suppress decoration, print final
@@ -277,6 +377,11 @@ runs but never owns them — closing it affects nothing.
    tokens (ticking), tool count, elapsed; line 2 = **live activity line** (latest
    agent_activity, truncated). Completed: collapse to one dim ✔ line (grouped
    "(N more ✔)" beyond the last few). Failed: red, error snippet inline, sticky.
+   Activity lines follow the plugin's `describeStartedItem` style ("Running
+   command: …", "Applying 3 file change(s).", "Calling <server>/<tool>.") with
+   its **verification-phase inference**: a command matching
+   `/\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|cargo test|npm test|pnpm test|yarn test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i`
+   renders as *verifying* (distinct accent) instead of *running*.
 4. Narrator strip: recent log() lines, timestamped.
 5. Footer keybinds.
 
@@ -285,11 +390,15 @@ per-phase aggregate counts + only running agents listed. (The conservative
 mock is the degraded tier, not the default.)
 
 Views & keys: `↑↓` select · `enter` agent detail (prompt / live event stream /
-output; `o` opens output in $EDITOR) · `t` timeline (Gantt lanes per agent —
-makes pipeline() overlap visible) · `p` pause/resume (soft; header shows
-PAUSED, queued agents dimmed) · `x` stop (confirm) · `k` skip selected ·
-`s` export result · `esc` back to home view · `q` **detach/quit** (run
-continues) · run-end renders the returned result as markdown in a result pane.
+output; `o` opens output in $EDITOR; `c` copies `codex resume <threadId>` —
+any agent's session becomes interactively continuable by the human) · `t`
+timeline (Gantt lanes per agent — makes pipeline() overlap visible) · `p`
+pause/resume (soft; header shows PAUSED, queued agents dimmed) · `x` stop
+(confirm) · `k` skip selected · `s` export result · `esc` back to home view ·
+`q` **detach/quit** (run continues) · run-end renders the returned result as
+markdown in a result pane. (Requires storing each agent's threadId — journal
+agent_start gains a `threadId` field once known, and `show`/agent detail print
+the resume command, mirroring the plugin.)
 
 Fun, cheaply: braille spinners, per-phase accent colors, token tickers,
 tokens/sec heartbeat in header, brief flash on phase completion. Respect
@@ -322,11 +431,16 @@ Lint a script for dual-runnability; all rules mirror upstream:
 ## 9. Milestones
 
 - **M1 — runner core (target: end-to-end in days):** loader, codex executor
-  (--json parsing, activity/usage forwarding), agent/parallel/pipeline/phase/log/
-  args/caps, journal + run dirs + control.jsonl (stop/pause/resume/skip),
-  detached spawn, `run --watch` plain output, `ls/show/kill/pause/resume`.
+  (app-server client: generate-ts bindings, captureTurn state machine,
+  activity/usage forwarding, one server per slot), **fake-codex fixture +
+  hermetic runtime tests (day one)**, agent/parallel/pipeline/phase/log/
+  args/caps, journal + run dirs + control.jsonl (stop/pause/resume/skip with
+  turn/interrupt tier), detached spawn, `run --watch` plain output,
+  `ls/show/kill/pause/resume`.
   Exit criterion: a real 3-phase demo script (fan-out → synthesize → critique
   with schema) runs end-to-end and `show --json` returns the validated object.
+  (Note: `fixtures/sample_workflow_scripts/demo-doc-digest.js` references docs
+  that don't exist in this repo — add them or parameterize paths via `args`.)
 - **M2 — TUI + hardening:** Ink TUI (home view + launcher, run view, agent
   detail, timeline, density tiers, detach), schema strictify+ajv+resume-retry,
   budget ledgers, worktrees.
@@ -338,9 +452,15 @@ Lint a script for dual-runnability; all rules mirror upstream:
 
 ## 10. Risks / open questions
 
-- codex `--json` event schema stability → pin version; integration test; adapt layer isolated in the executor.
+- app-server protocol stability (subcommand is marked experimental) → pin 0.142.4;
+  generate protocol types/schema from the binary; fake-codex fixture for hermetic
+  tests; adapt layer isolated in the executor; `codex exec --json` as fallback transport.
+- **Token usage in the app-server stream is unverified** (the plugin doesn't meter
+  tokens) → verify at build time; budget metering depends on it (§3.5).
 - Rate limits under fan-out → per-backend semaphore + exponential backoff on 429; surface as `warn` events.
-- Model/effort mapping defaults (config placeholder above) → decide against current codex model lineup at build time.
+- Model/effort mapping defaults → decide against current codex model lineup at
+  build time (plugin evidence: `gpt-5.3-codex-spark` exists; effort enum is
+  `none|minimal|low|medium|high|xhigh`, so map `max → xhigh`).
 - Zombie runs → pidfile + liveness check in `ls`/TUI; `run` cleans stale dirs.
 - Windows: untested; worktrees, setsid, signals need care. Defer.
 - Multiple simultaneous runs: covered by the home view; per-run attach only (no split-screen multi-run in v1).
