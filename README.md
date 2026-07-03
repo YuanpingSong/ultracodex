@@ -5,14 +5,16 @@
 Claude Code's Workflow tool has a great orchestration format: plain-JS
 scripts that fan agents out in parallel, pipeline work through stages,
 enforce token budgets, and adversarially verify results. But running them
-upstream spends Claude quota on execution-grade work.
+upstream — under Claude Code itself — spends Claude quota on
+execution-grade work.
 
 ultracodex is a compatible runtime for those same scripts — byte-identical,
 no transpilation — that routes each `agent()` call to
 [Codex](https://github.com/openai/codex) instead (or to any configured
 backend, per label). The pattern it exists for:
 
-> **fable plans, codex executes, fable verifies.**
+> **fable plans, codex executes, fable verifies**
+> *(fable = Claude's frontier model; substitute your planner of choice)*
 
 Your most capable model authors and judges the work; cheaper/faster coding
 agents do the bulk of it; one script, one journal, one budget.
@@ -21,8 +23,8 @@ agents do the bulk of it; one script, one journal, one budget.
 fanout-critique · uc_mr47ssor917j6 · ok · 3m04s · 5/5 agents · 3.3k out tok
 ✔ Read 3/3 ── ✔ Synthesize 1/1 ── ✔ Critique 1/1
 
-  ✔ 1 read:docs/ARCHITECTURE.md · codex · 48s · 132 tok
-  ✔ 2 read:docs/PROGRESS.md     · codex · 37s · 110 tok
+  ✔ 1 read:README.md            · codex · 48s · 132 tok
+  ✔ 2 read:docs/ARCHITECTURE.md · codex · 37s · 110 tok
   ✔ 3 read:docs/OPERATIONS.md   · codex · 39s · 147 tok
   ✔ 4 synthesize                · codex · 1m00s · 248 tok
   ✔ 5 critique:synthesis        · codex · 1m15s · 2.6k tok
@@ -35,8 +37,9 @@ result: result.json
 - **Quota arbitrage.** Offload execution to Codex (or another backend);
   keep Claude for judgment. Zero Claude tokens spent on implementation.
 - **Cross-vendor verification.** Route `critique:*` to a different model
-  family than the one that did the work. Different-vendor judges catch what
-  self-review rubber-stamps — no single-vendor harness can offer this.
+  family than the one that did the work. Same-vendor self-review tends to
+  rubber-stamp; making the judge a different model family is one config
+  line here.
 - **Durable, inspectable runs.** No daemon. A run is a detached process and
   a directory of plain files; an append-only journal is the single source of
   truth for the TUI, the CLI, and machine consumers alike. Close your
@@ -45,14 +48,16 @@ result: result.json
 ## Agent Script in 60 seconds
 
 A script is an ES module: a pure-literal `meta` export, then a plain-JS
-async body over seven injected globals. No imports, no TypeScript.
+async body over eight injected globals. No imports, no TypeScript.
 
 ```js
 export const meta = {
-  name: 'review-prs',
+  name: 'review-files',
   description: 'Fan out reviewers, verify findings, report',
   phases: [{ title: 'Review' }, { title: 'Verify' }],
 }
+
+const FILES = args?.files ?? ['src/auth.ts', 'src/api.ts']
 
 phase('Review')
 const findings = (await parallel(FILES.map(f => () =>
@@ -66,17 +71,17 @@ phase('Verify')
 const verified = await pipeline(       // no barrier — each item flows independently
   findings.flatMap(f => f.bugs),
   (bug) => agent(`Try to refute: ${bug}`, { label: 'verify' }),
-  (verdict, bug) => ({ bug, verdict }),
+  (verdict, bug) => ({ bug, verdict }), // verdict may be null (failed verifier) — check it
 )
 
-return { verified }
+return { verified: verified.filter(v => v && v.verdict) }
 ```
 
 | global | what it does |
 |---|---|
 | `agent(prompt, opts?)` | run one agent; resolves final text, a schema-validated object, or `null` on failure (never rejects — except budget/caps, which throw) |
 | `parallel(thunks)` | barrier over concurrent thunks; a thrown thunk becomes `null` |
-| `pipeline(items, ...stages)` | per-item stage chains, no cross-item barrier; stages get `(prev, item, index)` |
+| `pipeline(items, ...stages)` | per-item stage chains, no cross-item barrier; stages get `(prev, item, index)`; the first stage's `prev` is the item itself. A stage that **throws** drops its item to `null`; a stage that **resolves `null`** (e.g. a failed agent) flows onward — later stages must null-check `prev` |
 | `phase(title)` | progress grouping for subsequent agents |
 | `log(msg)` | narrator line in the TUI / `--watch` output |
 | `args` | the run's `--args` input, verbatim |
@@ -88,47 +93,74 @@ return { verified }
 (fresh git worktree, auto-removed only if pristine), `agentType` (config
 profile, e.g. read-only explorer).
 
-The full normative definition — grammar, semantics, conformance — is in
-[docs/agent_script_spec.md](docs/agent_script_spec.md). The same file runs
-under Claude Code's Workflow tool and ultracodex; `ultracodex validate
---strict` checks a script stays in the portable subset.
+### Loops are the point
+
+Scripts are plain JavaScript, so **loops are native** — and builder→verifier
+loops are the pattern this tool is built to make easy. The runtime gives
+loops their guardrails: a hard output-token `budget` (further `agent()`
+calls throw once it's spent), a 1000-agent lifetime cap, and live
+pause/skip/stop controls on every run.
+
+```js
+let attempt = null, feedback = 'none — first attempt'
+while (budget.remaining() > 20_000) {                    // rail 1: budget governor
+  attempt = await agent(`Build X. Reviewer feedback: ${feedback}`, { label: 'build' })
+  if (attempt === null) continue                          // rail 2: builders can fail
+  const verdict = await agent(`Try to refute this: ${attempt}`, {
+    label: 'verify:attempt',                              // route to another vendor in config
+    schema: { type: 'object', properties: { pass: { type: 'boolean' }, issues: { type: 'array', items: { type: 'string' } } }, required: ['pass', 'issues'] },
+  })
+  if (verdict?.pass) break                                // rail 2 again: judge can fail too
+  feedback = verdict ? verdict.issues.join('; ') : 'verifier unavailable'
+}
+return { attempt }
+```
+
+Three axes, one format: `parallel()` is breadth, `pipeline()` is flow,
+**loops are depth** — iterate until verified good, with `budget` as the
+governor and the run's live controls (pause/skip/stop) as the brakes. The
+full pattern — max rounds, feedback threading, cross-vendor judging — is
+[examples/03-builder-verifier.js](examples/03-builder-verifier.js). Route
+`"verify:*" = "claude"` in config and the builder's judge is a different
+model family; the loop doesn't change.
+
+The full normative definition — grammar, semantics, loop patterns,
+conformance — is in [docs/agent_script_spec.md](docs/agent_script_spec.md).
+The same file runs under Claude Code's Workflow tool and ultracodex;
+`ultracodex validate --strict` checks a script stays in the portable subset.
 
 ## Quickstart
 
 Prerequisites: Node ≥ 20, [pnpm](https://pnpm.io), and the
 [Codex CLI](https://github.com/openai/codex) installed and authenticated
-(`codex login`). Optional: Claude Code for claude-routed agents.
+(`codex login`). Developed and tested against **codex-cli 0.142.4**
+(`ultracodex doctor` prints your version). Optional: Claude Code for
+claude-routed agents.
 
 ```bash
 git clone <this-repo> && cd ultracodex
 pnpm install && pnpm build
 node dist/cli.js doctor        # checks node, codex, auth, config
+pnpm link --global             # → `ultracodex` on PATH (or keep using node dist/cli.js)
 ```
 
-Add the binary to your PATH (or keep using `node dist/cli.js`):
+Run the bundled examples **from the ultracodex checkout** first:
 
 ```bash
-pnpm link --global             # → `ultracodex` on PATH
-```
-
-Run your first script from your project's root (agents work in your cwd):
-
-```bash
-ultracodex run examples/01-hello.js --watch
-```
-
-Then the real shape — parallel fan-out, schemas, adversarial critique:
-
-```bash
-ultracodex run examples/02-fanout-critique.js        # opens the TUI
-ultracodex ls                                        # every run, pid-checked
+ultracodex run examples/01-hello.js --watch          # one agent, streamed events
+ultracodex run examples/02-fanout-critique.js        # fan-out + schemas, opens the TUI
+ultracodex run examples/03-builder-verifier.js --watch --budget 200k   # the loop
+ultracodex ls                                        # every run, pid-liveness checked
 ultracodex show <runId> --json                       # machine-readable result
 ```
 
+For real work, run from **your project's root** — agents work in your cwd.
+
 `run` launches a **detached runner** — quitting the TUI never kills a run.
 `--json` blocks and prints the result (this is what a driving LLM calls);
-`--watch` streams events line-by-line; `--budget 500k` sets a hard
-output-token ceiling.
+`--watch` streams events line-by-line; `--detach` just prints the runId and
+exits; `--budget` takes output tokens as an integer with optional `k`/`m`
+suffixes (`--budget 500k`).
 
 ### Saved workflows + Claude Code integration
 
@@ -151,6 +183,7 @@ the "fable plans" half of the loop.
 ```toml
 [route]                        # first match wins: label, then phase
 "critique:*" = "claude"        # judgment goes to Claude
+"verify:*"   = "claude"        # loop verifiers too, if you want cross-vendor judging
 "*"          = "codex"         # execution goes to Codex
 
 [backends.codex]
@@ -203,14 +236,15 @@ script.js ──▶ loader (acorn meta parse + vm) ──▶ runtime (semantics,
 Structured output is belt-and-suspenders: schemas ride the wire where the
 backend supports it (Codex strict mode), and are always enforced on our side
 (prompt contract + ajv validation + repair turns on the same session). The
-entire test suite (330+ tests) runs hermetically against a scripted fake of
+entire test suite (340+ tests) runs hermetically against a scripted fake of
 the codex app-server — no API keys in CI.
 
 Deeper reading: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 [docs/OPERATIONS.md](docs/OPERATIONS.md) ·
 [docs/agent_script_spec.md](docs/agent_script_spec.md) ·
 [docs/agent-script-plan.md](docs/agent-script-plan.md) (roadmap: pluggable
-backends, OpenCode adapter, the Agent Script positioning).
+backends, OpenCode adapter, packaged loop workflows, loop-aware
+convergence display).
 
 ## Status
 

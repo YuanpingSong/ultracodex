@@ -138,9 +138,13 @@ The key words MUST, MUST NOT, SHOULD, MAY are per RFC 2119.
 - Each item flows through all stages **independently — no cross-item
   barrier**: stage k+1 for item i starts when stage k for item i settles,
   regardless of other items' progress.
-- Stage callback signature: `(prevResult, originalItem, index)`.
-- A stage that throws drops that item to `null` and skips its remaining
-  stages. Result order = input order. >4096 items: throws synchronously.
+- Stage callback signature: `(prevResult, originalItem, index)`. For the
+  **first** stage, `prevResult` is the item itself. [CLARIFICATION]
+- A stage that **throws** drops that item to `null` and skips its remaining
+  stages. A stage that **resolves `null`** — notably a failed `agent()` call
+  (§5.1) — does NOT drop the item: subsequent stages run and receive
+  `prev = null`, and SHOULD null-check it. [CLARIFICATION]
+- Result order = input order. >4096 items: throws synchronously.
 
 ### 5.4 `phase(title)`
 
@@ -176,6 +180,31 @@ structured inputs as real values, never re-encoded strings.
 - **Nesting depth is exactly 1**: a child calling `workflow()` throws.
 - Unknown name / unreadable path / child syntax error: throws (catchable).
 - Returns the child body's return value; child failures propagate as throws.
+
+### 5.9 Loops (convergence patterns)
+
+Loops are ordinary JavaScript — there is no dedicated loop primitive, and
+conforming engines MUST NOT add one (it would break portability). The
+format's three composition axes are: `parallel()` for breadth, `pipeline()`
+for flow, and **loops for depth** — iterating until a result converges.
+
+Normative requirements:
+- Engines MUST support long-running loops: agent admission is governed only
+  by the semaphore (§4.2) and caps (§4.3), and post-stop `null` resolution
+  MUST yield the event loop (§4.4) so `while (true)` loops cannot starve it.
+- Scripts SHOULD guard unbounded loops on `budget.total` — with no budget
+  set, `remaining()` is `Infinity` and the loop runs to the lifetime cap.
+- Loop bodies MUST null-check every agent result before use (§5.1): both
+  the builder and the verifier can resolve `null`.
+
+Canonical forms (non-normative): **builder–verifier** (draft → adversarial
+judge with a `{pass, issues}` schema → feed issues back → repeat until pass,
+max rounds, or budget floor); **until-dry** (keep spawning finders until K
+consecutive rounds surface nothing new); **until-count** (accumulate to a
+target); **budget-scaled fleet** (size the fan-out from `budget.total`).
+Reference implementation: `examples/03-builder-verifier.js`. Routing the
+verifier label to a different backend (§9) yields cross-vendor judging with
+no script change.
 
 ## 6. Structured output
 
@@ -255,6 +284,7 @@ executor conformance suite.
 | 3.4 | EXTENSION | non-strict leniency for banned time/random calls |
 | 4.4 | CLARIFICATION | post-stop null resolution yields the event loop |
 | 5.1 | CLARIFICATION | `String()` prompt coercion; engine I/O errors → null |
+| 5.3 | CLARIFICATION | first-stage `prev` = item; resolved `null` flows through stages (only a throw drops the item) |
 | 5.1 | (verified) | `meta.phases[].model` is display metadata, not override |
 | 5.7 | EXTENSION | per-backend ledgers/config |
 | 6.3 | CLARIFICATION | wire strictification + repair mechanism |

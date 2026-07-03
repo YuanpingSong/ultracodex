@@ -570,11 +570,19 @@ function logsAction(ref: string, nArg?: string): void {
     }
     return;
   }
+  let content: string;
   try {
-    process.stdout.write(fs.readFileSync(path.join(runDir, RUNNER_LOG_FILE), "utf8"));
+    content = fs.readFileSync(path.join(runDir, RUNNER_LOG_FILE), "utf8");
   } catch {
     throw new CliError(`no runner.log for ${runId}`);
   }
+  if (content.length === 0) {
+    process.stderr.write(
+      `runner log for ${runId} is empty (a clean run writes nothing here) — try \`logs ${runId} <n>\` for per-agent events\n`,
+    );
+    return;
+  }
+  process.stdout.write(content);
 }
 
 function validateAction(script: string, opts: { strict?: boolean }): void {
@@ -829,6 +837,13 @@ export function buildProgram(): Command {
 
 export async function main(argv: string[] = process.argv): Promise<void> {
   if (argv.length <= 2) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      process.stderr.write(
+        "the TUI needs an interactive terminal — try `ultracodex ls`, `ultracodex show <ref>`, or `ultracodex --help`\n",
+      );
+      process.exitCode = 1;
+      return;
+    }
     await runTui({ projectDir: process.cwd() });
     return;
   }

@@ -49,9 +49,11 @@ Everything is inspectable text; `journal.jsonl` is append-only and replayable.
 "*"          = "codex"    # execution goes to Codex
 
 [backends.codex]
-sandbox = "workspace-write"
-default_model = "gpt-5.4"
-model_map = { opus = "gpt-5.5", sonnet = "gpt-5.4", haiku = "gpt-5.4-mini" }
+sandbox        = "workspace-write"
+default_model  = "gpt-5.5"
+default_effort = "xhigh"
+service_tier   = "standard"    # never inherit fast mode from ~/.codex
+model_map      = { opus = "gpt-5.5", sonnet = "gpt-5.4", haiku = "gpt-5.4-mini" }
 ```
 
 ## Failure playbook

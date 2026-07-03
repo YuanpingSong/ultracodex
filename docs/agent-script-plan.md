@@ -91,6 +91,24 @@ the conformance kit.
    (keep `ultracodex` vs generalize) deferred to here. README repositioning,
    npm publish decision.
 
+## Loop engineering (future work, decided 2026-07-03)
+
+Loops (builder–verifier convergence) are a first-class positioning pillar —
+docs, `examples/03-builder-verifier.js`, and spec §5.9 shipped with the
+publish pass. Two follow-ups are deliberately deferred:
+
+1. **Packaged loop workflows.** Ship builder–verifier (and until-dry) as
+   saved workflows invocable via `workflow('builder-verifier', {requirements,
+   maxRounds})` — a byte-compatible "loop library" using the existing
+   `workflow()` global; no new script primitives (adding a `loop()` global
+   would break dual-runnability and is permanently out of scope).
+2. **Loop-aware observability** (engine-side EXTENSION — never touches the
+   script surface). Today an N-round loop renders as N sequential agents;
+   convergence is invisible. Add journal/TUI awareness: group iterations
+   (e.g. by repeated label prefixes like `build:round-N`), show a verdict
+   trend / "converged after 3 rounds" in the run view and `show`, and expose
+   per-round token cost so loop tuning is data-driven.
+
 ## Discipline / non-goals
 
 - Upstream Claude Code remains the **reference implementation**; ambiguities
