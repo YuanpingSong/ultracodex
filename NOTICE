@@ -1,0 +1,7 @@
+ultracodex
+Copyright 2026 ultracodex contributors
+
+The codex app-server turn-completion state machine in src/appserver/turn.ts
+adapts patterns from the OpenAI "Codex plugin for Claude Code"
+(https://github.com/openai/codex-plugin-claude-code), licensed under the
+Apache License, Version 2.0.

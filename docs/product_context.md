@@ -6,7 +6,7 @@ Motivation: conserve Claude quota — "fable plans, codex executes, fable verifi
 
 **v3 delta:** executor switched from `codex exec --json` to the `codex app-server`
 JSON-RPC protocol, plus steals from the official codex plugin for Claude Code
-(`/Users/user/Desktop/repos/codex-plugin-cc`, Apache-2.0 — our reference
+(`<codex-plugin-cc checkout>`, Apache-2.0 — our reference
 implementation for protocol handling). All protocol claims below were verified
 against that source and against the installed codex 0.142.4.
 

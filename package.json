@@ -1,11 +1,29 @@
 {
   "name": "ultracodex",
   "version": "0.1.0",
-  "description": "Run Claude Code workflow scripts unmodified on the OpenAI Codex CLI",
+  "description": "Run Claude Code workflow scripts unmodified on the OpenAI Codex CLI — fable plans, codex executes, fable verifies",
+  "license": "Apache-2.0",
+  "keywords": [
+    "agents",
+    "orchestration",
+    "codex",
+    "claude-code",
+    "workflow",
+    "agent-script",
+    "multi-agent",
+    "cli",
+    "tui"
+  ],
   "type": "module",
   "bin": {
     "ultracodex": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
   "engines": {
     "node": ">=20"
   },
