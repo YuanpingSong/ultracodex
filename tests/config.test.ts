@@ -118,13 +118,21 @@ describe("loadConfig — project overrides", () => {
     const globalDir = makeTmpDir();
     writeToml(
       projectDir,
-      '[backends.codex]\nbinary = "mycodex"\ndefault_model = "gpt-5.5"\nschema_retries = 5\nsandbox = "read-only"',
+      '[backends.codex]\nbinary = "mycodex"\ndefault_model = "gpt-5.5"\ndefault_effort = "high"\nservice_tier = "fast"\nschema_retries = 5\nsandbox = "read-only"',
     );
     const cfg = loadConfig(projectDir, { globalDir });
     expect(cfg.codex.binary).toBe("mycodex");
     expect(cfg.codex.defaultModel).toBe("gpt-5.5");
+    expect(cfg.codex.defaultEffort).toBe("high");
+    expect(cfg.codex.serviceTier).toBe("fast");
     expect(cfg.codex.schemaRetries).toBe(5);
     expect(cfg.codex.sandbox).toBe("read-only");
+  });
+
+  it("defaults: effort xhigh, service tier standard (fast mode off)", () => {
+    const cfg = loadConfig(makeTmpDir(), { globalDir: makeTmpDir() });
+    expect(cfg.codex.defaultEffort).toBe("xhigh");
+    expect(cfg.codex.serviceTier).toBe("standard");
   });
 
   it("project backends.claude overrides snake_case fields", () => {

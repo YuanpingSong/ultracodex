@@ -6,6 +6,8 @@
 [backends.codex]
 sandbox = "workspace-write"
 default_model = "gpt-5.5"
+default_effort = "xhigh"
+service_tier = "standard"   # never inherit fast mode from ~/.codex/config.toml
 
 [backends.codex.model_map]
 fable = "gpt-5.5"

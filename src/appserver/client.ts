@@ -5,6 +5,8 @@ export interface AppServerClientOptions {
   binary: string;
   cwd: string;
   env?: NodeJS.ProcessEnv;
+  /** Extra argv after "app-server" (e.g. -c config overrides). */
+  extraArgs?: string[];
 }
 
 export class RpcError extends Error {
@@ -60,7 +62,7 @@ export class AppServerClient {
   }
 
   static async start(opts: AppServerClientOptions): Promise<AppServerClient> {
-    const proc = spawn(opts.binary, ["app-server"], {
+    const proc = spawn(opts.binary, ["app-server", ...(opts.extraArgs ?? [])], {
       cwd: opts.cwd,
       env: opts.env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"],

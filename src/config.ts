@@ -46,6 +46,10 @@ function mergeCodexConfig(
     result.sandbox = raw["sandbox"] as CodexBackendConfig["sandbox"];
   if (typeof raw["default_model"] === "string")
     result.defaultModel = raw["default_model"];
+  if (typeof raw["default_effort"] === "string")
+    result.defaultEffort = raw["default_effort"];
+  if (typeof raw["service_tier"] === "string")
+    result.serviceTier = raw["service_tier"];
   if (typeof raw["schema_retries"] === "number")
     result.schemaRetries = raw["schema_retries"];
   if (raw["model_map"] !== null && typeof raw["model_map"] === "object") {

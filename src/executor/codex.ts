@@ -70,7 +70,9 @@ export class CodexExecutor implements Executor {
   private async execute(req: ExecutorRequest, ctx: ExecutorContext): Promise<ExecutorResult> {
     const profile = req.agentProfile ? this.profiles[req.agentProfile] : undefined;
     const model = req.model ? (this.cfg.modelMap[req.model] ?? req.model) : this.cfg.defaultModel;
-    const effort = req.effort ? (this.cfg.effortMap[req.effort] ?? req.effort) : null;
+    const effort = req.effort
+      ? (this.cfg.effortMap[req.effort] ?? req.effort)
+      : this.cfg.defaultEffort;
     const schema = req.schema ? strictify(req.schema) : null;
     const validate = schema ? createValidator(schema) : null;
     const prompt = assemblePrompt({
@@ -81,7 +83,16 @@ export class CodexExecutor implements Executor {
 
     let client: AppServerClient;
     try {
-      client = await AppServerClient.start({ binary: this.cfg.binary, cwd: req.cwd });
+      client = await AppServerClient.start({
+        binary: this.cfg.binary,
+        cwd: req.cwd,
+        // Pin the service tier (default "standard") so a user-level
+        // service_tier = "fast" in ~/.codex/config.toml can't silently
+        // burn increased usage on every agent.
+        extraArgs: this.cfg.serviceTier
+          ? ["-c", `service_tier="${this.cfg.serviceTier}"`]
+          : [],
+      });
     } catch (err) {
       return { ok: false, error: `failed to start codex app-server: ${message(err)}` };
     }

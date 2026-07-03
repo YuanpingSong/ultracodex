@@ -121,6 +121,8 @@ export const meta = {
 [backends.codex]
 sandbox = "workspace-write"
 default_model = "gpt-5.5"   # codex's own default (live lineup, probe 2026-07-02)
+default_effort = "xhigh"    # unpinned agents get max effort, not codex's medium
+service_tier = "standard"   # fast mode OFF by default even if ~/.codex enables it
 model_map = { fable = "gpt-5.5", opus = "gpt-5.5", sonnet = "gpt-5.4", haiku = "gpt-5.4-mini", spark = "gpt-5.3-codex-spark" }
 effort_map = { low = "low", medium = "medium", high = "high", xhigh = "xhigh", max = "xhigh" }
 

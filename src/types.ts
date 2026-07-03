@@ -314,6 +314,11 @@ export interface CodexBackendConfig {
   modelMap: Record<string, string>;
   /** workflow effort → codex effort (max → xhigh). */
   effortMap: Record<string, string>;
+  /** Effort used when the script omits opts.effort (null → model default). */
+  defaultEffort: string | null;
+  /** codex service tier pinned per spawn; "standard" disables fast mode even
+   *  when the user's ~/.codex/config.toml enables it. null → inherit. */
+  serviceTier: string | null;
   /** ajv-validation repair attempts on the same thread. Default 3. */
   schemaRetries: number;
 }
