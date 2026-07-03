@@ -45,7 +45,7 @@ Status as of 2026-07-02. **M1–M3 complete and shipped.**
   returns the validated result object.
 - Acceptance: run the same workflow script under Claude Code's Workflow tool
   and under ultracodex; compare quality and cost.
-- First real workload: `chatgpt-corpus-synthesis` over /tmp/corpus-dir.
+- First real workload: `chatgpt-corpus-synthesis` over a prior session's corpus directory.
 
 ## Deliberately deferred
 

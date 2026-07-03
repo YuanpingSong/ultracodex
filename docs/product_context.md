@@ -482,4 +482,4 @@ Claude Code's; the user has it saved from a prior session. Semantics in §1 were
 transcribed from it and are authoritative for compatibility. First real
 workload: `chatgpt-corpus-synthesis` — a 3-agent Draft→Critique script (two
 parallel report writers + one schema'd adversarial critique) over files in
-/tmp/corpus-dir; treat it as the acceptance test after the demo script.
+<corpus-dir>; treat it as the acceptance test after the demo script.
