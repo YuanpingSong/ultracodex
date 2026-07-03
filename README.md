@@ -166,13 +166,14 @@ suffixes (`--budget 500k`).
 
 The "fable plans" half of the loop runs in the other direction too: **Claude
 authors the workflow and runs it** — no setup, no skill, just prompting,
-because Claude Code can already write files and run commands.
+because Claude Code can already write files and run commands. Two prompting
+approaches, depending on what's in your session's context:
 
-**Best path — Claude already knows the format.** If your Claude session has
-the Workflow tool available (e.g. ultracode mode), Claude carries the
-complete script format natively as that tool's schema — it is already a
-fluent Agent Script author, because Agent Script *is* that format. The
-prompt is a one-line redirection:
+**Option A — schema-native (Workflow tool in context).** If your Claude
+session has the Workflow tool available (e.g. ultracode mode), Claude
+carries the complete script format natively as that tool's schema — it is
+already a fluent Agent Script author, because Agent Script *is* that format.
+The prompt is a one-line redirection:
 
 > Author the workflow exactly as you would for the Workflow tool — same
 > script, byte for byte — but instead of invoking the tool, save it to a
@@ -184,8 +185,9 @@ execution moves off Claude quota. The override is deliberate: ultracode's
 default is to call the Workflow tool, so you're telling Claude to keep the
 authoring habit and swap the executor.
 
-**Fallback — teach from the spec.** In sessions without the Workflow tool
-(plain sessions, headless `claude -p`), point Claude at the format docs:
+**Option B — teach from the spec.** In sessions without the Workflow tool
+(plain sessions, headless `claude -p`, other agents entirely), point Claude
+at the format docs:
 
 > Using the Agent Script format (docs/agent_script_spec.md — `export const
 > meta = {...}` + a plain-JS body over the eight injected globals), write a
