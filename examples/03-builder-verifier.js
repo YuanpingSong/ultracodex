@@ -54,9 +54,13 @@ for (let round = 1; round <= MAX_ROUNDS; round++) {
   artifact = built
 
   phase('Verify')
+  // Verifier calibration matters: anchor the judge to the STATED requirements,
+  // or an adversarial verifier will invent new ones every round and the loop
+  // never converges (ask us how we know).
   verdict = await agent(
     `Requirements:\n${REQUIREMENTS}\n\nCandidate:\n${artifact}\n\n` +
-    `Be adversarial: hunt for any requirement not met, any edge case that breaks it. Return via the schema.`,
+    `Be adversarial about the stated requirements: hunt for any listed requirement that is not met. ` +
+    `Do NOT invent requirements beyond the list. Return via the schema.`,
     { label: `verify:round-${round}`, phase: 'Verify', schema: VERDICT },
   )
   if (verdict === null) {                     // rail 1: the judge can fail too
