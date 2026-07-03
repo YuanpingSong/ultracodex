@@ -24,7 +24,7 @@ import { Timeline } from "./Timeline.js";
 
 const CARD_TIER_MAX = 8;
 const ROW_TIER_MAX = 30;
-const CARD_OK_KEEP = 3;
+const CARD_OK_KEEP = 5;
 const NARRATOR_TAIL = 4;
 
 /** How long a live runner may go without a pidfile before we call it dead. */
