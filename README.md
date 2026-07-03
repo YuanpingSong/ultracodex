@@ -1,5 +1,9 @@
 # ultracodex
 
+[![ci](https://github.com/YuanpingSong/ultracodex/actions/workflows/ci.yml/badge.svg)](https://github.com/YuanpingSong/ultracodex/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/ultracodex)](https://www.npmjs.com/package/ultracodex)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 **Run Claude Code workflow scripts, unmodified, on the OpenAI Codex CLI.**
 
 Claude Code's Workflow tool has a great orchestration format: plain-JS
@@ -138,13 +142,20 @@ Prerequisites: Node ≥ 20, [pnpm](https://pnpm.io), and the
 claude-routed agents.
 
 ```bash
-git clone <this-repo> && cd ultracodex
+npm install -g ultracodex      # or: pnpm add -g ultracodex
+ultracodex doctor              # checks node, codex, auth, config
+```
+
+From source instead:
+
+```bash
+git clone https://github.com/YuanpingSong/ultracodex && cd ultracodex
 pnpm install && pnpm build
-node dist/cli.js doctor        # checks node, codex, auth, config
 pnpm link --global             # → `ultracodex` on PATH (or keep using node dist/cli.js)
 ```
 
-Run the bundled examples **from the ultracodex checkout** first:
+The examples ship with the package — run them first (from the checkout, or
+from the installed package via `$(npm root -g)/ultracodex/`):
 
 ```bash
 ultracodex run examples/01-hello.js --watch          # one agent, streamed events

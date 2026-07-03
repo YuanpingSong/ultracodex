@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Run Claude Code workflow scripts unmodified on the OpenAI Codex CLI — fable plans, codex executes, fable verifies",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YuanpingSong/ultracodex.git"
+  },
+  "homepage": "https://github.com/YuanpingSong/ultracodex#readme",
+  "bugs": {
+    "url": "https://github.com/YuanpingSong/ultracodex/issues"
+  },
   "keywords": [
     "agents",
     "orchestration",
@@ -20,6 +28,8 @@
   },
   "files": [
     "dist",
+    "examples",
+    "docs/agent_script_spec.md",
     "README.md",
     "LICENSE",
     "NOTICE"
@@ -31,7 +41,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm build && pnpm test"
   },
   "packageManager": "pnpm@10.12.4",
   "devDependencies": {
