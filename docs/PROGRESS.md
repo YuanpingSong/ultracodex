@@ -13,6 +13,11 @@ Status as of 2026-07-02. **M1–M3 complete and shipped.**
 - 338 hermetic tests (fake-codex fixture) + live end-to-end on real codex.
 - Adversarial review pass: 5-dimension review → dual-skeptic verification →
   27 confirmed findings fixed → re-verified green.
+- Clean-room validation complete: Codex agents rebuilt the project from spec
+  via ultracodex itself (3 stages, 22 agents, 125 tests); an independent
+  fable verifier issued **ACCEPT-WITH-NOTES** against the M1 exit criterion,
+  empirically confirming null-on-failure, parallel-barrier, and budget-throw
+  semantics through the rebuilt product's own CLI.
 
 ## Earlier foundation work
 
