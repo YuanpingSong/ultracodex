@@ -201,13 +201,18 @@ export function routeBackend(
   label: string,
   phase: string | null,
 ): string {
-  for (const rule of config.route) {
+  // Label is matched first against every specific rule in order, then phase.
+  // The "*" catch-all is the FINAL fallback after both passes — otherwise it
+  // would always match the label and phase rules would be unreachable.
+  const specific = config.route.filter((r) => r.pattern !== "*");
+  for (const rule of specific) {
     if (matchGlob(rule.pattern, label)) return rule.backend;
   }
   if (phase !== null) {
-    for (const rule of config.route) {
+    for (const rule of specific) {
       if (matchGlob(rule.pattern, phase)) return rule.backend;
     }
   }
-  return "codex";
+  const catchAll = config.route.find((r) => r.pattern === "*");
+  return catchAll ? catchAll.backend : "codex";
 }

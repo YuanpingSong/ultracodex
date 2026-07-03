@@ -267,6 +267,39 @@ describe("tailJournal", () => {
     expect(received.length).toBe(count);
   });
 
+  it("does not corrupt a multi-byte UTF-8 character split across read boundaries", async () => {
+    const dir = tmpDir();
+    const filePath = path.join(dir, JOURNAL_FILE);
+    const text = "日本語テスト 🎉";
+    const line = Buffer.from(JSON.stringify({ t: "log", ts: 1, text }) + "\n", "utf8");
+    // Split INSIDE the first multi-byte character (日 is 3 bytes in UTF-8).
+    const splitAt = line.indexOf(Buffer.from("日", "utf8")) + 1;
+
+    const received: JournalEvent[] = [];
+    const stop = tailJournal(dir, (ev) => received.push(ev), { pollMs: 30 });
+
+    fs.appendFileSync(filePath, line.subarray(0, splitAt));
+    // Let the tail consume the first (partial) chunk before completing the line.
+    await new Promise((r) => setTimeout(r, 150));
+    fs.appendFileSync(filePath, line.subarray(splitAt));
+
+    await new Promise<void>((resolve) => {
+      const deadline = Date.now() + 800;
+      const check = setInterval(() => {
+        if (received.length >= 1 || Date.now() > deadline) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 20);
+    });
+    stop();
+
+    expect(received).toHaveLength(1);
+    const got = (received[0] as { text: string }).text;
+    expect(got).toBe(text); // exact — no U+FFFD replacement chars
+    expect(got).not.toContain("�");
+  });
+
   it("handles file appearing after tail starts", async () => {
     const dir = tmpDir();
 

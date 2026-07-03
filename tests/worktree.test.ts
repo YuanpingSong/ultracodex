@@ -97,6 +97,29 @@ describe("cleanupWorktree", () => {
     expect(await worktreePaths(repo)).toContain(fs.realpathSync(wt));
   });
 
+  test("keeps a worktree with committed agent work (clean tree, commits beyond base)", async () => {
+    const repo = await initRepo();
+    const runDir = tempRunDir();
+    const wt = await createWorktree(repo, runDir, 5);
+    fs.writeFileSync(path.join(wt, "work.txt"), "committed work\n");
+    await git(wt, ["add", "."]);
+    await git(wt, [
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@example.com",
+      "commit",
+      "-qm",
+      "agent work",
+    ]);
+    // Tree is clean (porcelain empty) but the detached HEAD has a new commit.
+    const res = await cleanupWorktree(repo, wt);
+
+    expect(res).toEqual({ kept: true });
+    expect(fs.existsSync(path.join(wt, "work.txt"))).toBe(true);
+    expect(await worktreePaths(repo)).toContain(fs.realpathSync(wt));
+  });
+
   test("treats modified tracked files as dirty too", async () => {
     const repo = await initRepo();
     const runDir = tempRunDir();

@@ -1,6 +1,6 @@
 import type { AppServerClient } from "./client.js";
 import type { ActivityEvent, Usage } from "../types.js";
-import { ZERO_USAGE } from "../types.js";
+import { ZERO_USAGE, addUsage } from "../types.js";
 import { INFER_COMPLETION_MS, INTERRUPT_GRACE_MS, VERIFICATION_COMMAND_RE } from "../constants.js";
 
 export interface RunTurnOptions {
@@ -81,6 +81,16 @@ function describeItem(item: Params, lifecycle: "started" | "completed"): Activit
   }
 }
 
+function subUsage(a: Usage, b: Usage): Usage {
+  return {
+    totalTokens: Math.max(0, a.totalTokens - b.totalTokens),
+    inputTokens: Math.max(0, a.inputTokens - b.inputTokens),
+    cachedInputTokens: Math.max(0, a.cachedInputTokens - b.cachedInputTokens),
+    outputTokens: Math.max(0, a.outputTokens - b.outputTokens),
+    reasoningOutputTokens: Math.max(0, a.reasoningOutputTokens - b.reasoningOutputTokens),
+  };
+}
+
 function toUsage(raw: Params | null | undefined): Usage | null {
   if (!raw || typeof raw !== "object") return null;
   return {
@@ -102,6 +112,8 @@ export function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
     let lastAgentMessage: string | null = null;
     let finalAnswerSeen = false;
     let usage: Usage = ZERO_USAGE;
+    /** Thread-cumulative usage before this turn (tokenUsage `total` minus the first `last` delta). */
+    let usageBaseline: Usage | null = null;
     let inferTimer: NodeJS.Timeout | null = null;
     let graceTimer: NodeJS.Timeout | null = null;
     let aborted = false;
@@ -199,17 +211,40 @@ export function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
           break;
         }
         case "thread/tokenUsage/updated": {
+          // `total` is thread-cumulative, `last` is the most recent model request
+          // (probe-capture.jsonl). A multi-step turn produces several updates, so
+          // the turn's usage is total-so-far minus the total at turn start
+          // (equivalently: the sum of the `last` deltas seen during the turn).
           if (params?.threadId !== threadId) break;
           const last = toUsage(params?.tokenUsage?.last);
-          if (last) {
-            usage = last;
-            opts.onUsage(usage);
+          const total = toUsage(params?.tokenUsage?.total);
+          if (!last && !total) break;
+          if (total) {
+            if (usageBaseline === null) usageBaseline = subUsage(total, last ?? ZERO_USAGE);
+            usage = subUsage(total, usageBaseline);
+          } else if (last) {
+            usage = addUsage(usage, last);
           }
+          opts.onUsage(usage);
           break;
         }
-        case "error":
-          settle("failed", String(params?.error?.message ?? "codex error"));
+        case "error": {
+          // ErrorNotification: { error: TurnError, willRetry, threadId, turnId }.
+          // codex retries transient errors itself (willRetry) — don't fail the turn.
+          // Errors on subagent threads must not settle the MAIN turn either.
+          const msg = String(params?.error?.message ?? "codex error");
+          if (params?.willRetry) {
+            opts.onActivity({ kind: "status", text: `codex error (retrying): ${shorten(msg)}` });
+            break;
+          }
+          const errThreadId: string | null = params?.threadId ?? null;
+          if (errThreadId !== null && errThreadId !== threadId) {
+            opts.onActivity({ kind: "status", text: `subagent error: ${shorten(msg)}` });
+            break;
+          }
+          settle("failed", msg);
           break;
+        }
         case "turn/completed": {
           const tid: string | null = params?.threadId ?? null;
           if (tid !== threadId) {

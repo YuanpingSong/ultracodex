@@ -263,6 +263,19 @@ describe("run_end", () => {
     expect(s.outputTokens).toBe(250);
   });
 
+  it("clears currentPhase so the final phase counts as finished, not active", () => {
+    const s = fold([
+      runStart(),
+      { t: "phase", ts: 1001, title: "Critique" },
+      agentStart(1, "critic", "Critique"),
+      agentEnd(1, "ok", u(10), 1100),
+      { t: "run_end", ts: 10_000, status: "ok", resultRef: "result.json", error: null, totals },
+    ]);
+    expect(s.currentPhase).toBeNull();
+    // phase counts themselves are untouched
+    expect(s.phases.find((p) => p.title === "Critique")).toMatchObject({ done: 1, running: 0, total: 1 });
+  });
+
   it("records failed and stopped runs", () => {
     const sf = fold([runStart(), { t: "run_end", ts: 2, status: "failed", resultRef: null, error: "kaput", totals }]);
     expect(sf.status).toBe("failed");

@@ -17,6 +17,33 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** A stalled app-server must never hang the workflow: bound thread/start. */
+const THREAD_START_TIMEOUT_MS = 30_000;
+
+/** Reject with "interrupted" as soon as `signal` aborts (the promise itself keeps its own timeout). */
+function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    // The abandoned request may still reject later (e.g. when the client
+    // exits); swallow it so it cannot become an unhandled rejection.
+    promise.catch(() => {});
+    return Promise.reject(new Error("interrupted"));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new Error("interrupted"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
 function repairPrompt(errors: string, originalPrompt: string): string {
   return [
     `Your previous reply was not valid JSON for the required schema. Errors: ${errors}. Respond with ONLY the corrected JSON object.`,
@@ -62,12 +89,19 @@ export class CodexExecutor implements Executor {
     let threadId: string | undefined;
     let total: Usage = ZERO_USAGE;
     try {
-      const started = await client.request<{ thread: { id: string } }>("thread/start", {
-        cwd: req.cwd,
-        approvalPolicy: "never",
-        sandbox: profile?.sandbox ?? this.cfg.sandbox,
-        ephemeral: false,
-      });
+      const started = await withAbort(
+        client.request<{ thread: { id: string } }>(
+          "thread/start",
+          {
+            cwd: req.cwd,
+            approvalPolicy: "never",
+            sandbox: profile?.sandbox ?? this.cfg.sandbox,
+            ephemeral: false,
+          },
+          { timeoutMs: THREAD_START_TIMEOUT_MS },
+        ),
+        ctx.signal,
+      );
       threadId = started.thread.id;
       if (ctx.onThread) ctx.onThread(threadId);
 

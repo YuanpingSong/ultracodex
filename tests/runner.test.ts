@@ -223,6 +223,55 @@ throw new Error('kaboom from the body')
     expect(end.status).toBe("failed");
     expect(end.error).toBeTruthy();
   });
+
+  it("bad config.toml → run_start + run_end failed, not a dead run with an empty journal", async () => {
+    const script = `export const meta = { name: 'cfg-fail', description: 'config failure' }
+return 'unreachable'
+`;
+    const { runDir, projectDir, runId } = setupRun(script);
+    fs.writeFileSync(
+      path.join(projectDir, ".ultracodex", "config.toml"),
+      "[route\nthis is broken toml",
+    );
+
+    await runnerMain(runDir);
+
+    const events = readJournal(runDir);
+    expect(events.length).toBeGreaterThan(0); // journal must not be empty
+    const start = events[0] as RunStartEvent;
+    expect(start.t).toBe("run_start");
+    expect(start.runId).toBe(runId);
+    const end = lastEvent(runDir);
+    expect(end.status).toBe("failed");
+    expect(end.error).toMatch(/toml/i);
+  });
+
+  it("body returning with an agent still in flight → agent aborted + agent_end before run_end", async () => {
+    const script = `export const meta = { name: 'stray', description: 'fire-and-forget agent' }
+agent('background [[slow:10000]]', { label: 'stray' }) // intentionally not awaited
+return await agent('quick [[reply:done]]', { label: 'quick' })
+`;
+    const { runDir } = setupRun(script);
+    const t0 = Date.now();
+    await runnerMain(runDir);
+    expect(Date.now() - t0).toBeLessThan(8000); // stray was interrupted, not run out
+
+    const events = readJournal(runDir);
+    expect(events.at(-1)!.t).toBe("run_end"); // nothing journaled after run_end
+    const end = lastEvent(runDir);
+    expect(end.status).toBe("ok");
+    expect(JSON.parse(fs.readFileSync(path.join(runDir, "result.json"), "utf8"))).toBe("done");
+
+    // every agent_start got its agent_end; the stray one was skipped
+    const agentStarts = events.filter((e) => e.t === "agent_start") as AgentStartEvent[];
+    const agentEnds = events.filter((e) => e.t === "agent_end") as AgentEndEvent[];
+    expect(agentStarts).toHaveLength(2);
+    expect(agentEnds).toHaveLength(2);
+    const strayStart = agentStarts.find((e) => e.label === "stray")!;
+    const strayEnd = agentEnds.find((e) => e.n === strayStart.n)!;
+    expect(strayEnd.status).toBe("skipped");
+    expect(end.totals.agents).toBe(2);
+  }, 15000);
 });
 
 describe("runnerMain workflow() child loading", () => {

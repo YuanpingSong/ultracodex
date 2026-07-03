@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { CONTROL_FILE } from "./constants.js";
 import type { ControlCommand } from "./types.js";
 
@@ -18,6 +19,7 @@ export function tailControl(
   const pollMs = opts?.pollMs ?? 500;
   let offset = 0;
   let buffer = "";
+  const decoder = new StringDecoder("utf8");
   let stopped = false;
   let watcher: fs.FSWatcher | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -37,7 +39,7 @@ export function tailControl(
       const buf = Buffer.allocUnsafe(toRead);
       const bytesRead = fs.readSync(fd, buf, 0, toRead, offset);
       offset += bytesRead;
-      buffer += buf.subarray(0, bytesRead).toString("utf8");
+      buffer += decoder.write(buf.subarray(0, bytesRead));
     } finally {
       fs.closeSync(fd);
     }

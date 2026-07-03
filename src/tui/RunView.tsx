@@ -27,6 +27,29 @@ const ROW_TIER_MAX = 30;
 const CARD_OK_KEEP = 3;
 const NARRATOR_TAIL = 4;
 
+/** How long a live runner may go without a pidfile before we call it dead. */
+export const RUNNER_START_GRACE_MS = 5000;
+
+/**
+ * Dead-runner heuristic while the journal still says "running":
+ * - pidfile present → dead iff the pid is gone;
+ * - no pidfile → the runner writes it right after run_start, so a runner that
+ *   died first never will. Dead once run_start (or, before run_start, the
+ *   attach time) is older than a small grace period.
+ */
+export function runnerLooksDead(opts: {
+  pid: number | null;
+  alive: boolean;
+  runStartTs: number | null;
+  attachedTs: number;
+  now: number;
+  graceMs?: number;
+}): boolean {
+  if (opts.pid !== null) return !opts.alive;
+  const since = opts.runStartTs ?? opts.attachedTs;
+  return opts.now - since > (opts.graceMs ?? RUNNER_START_GRACE_MS);
+}
+
 type Mode =
   | { kind: "main" }
   | { kind: "detail"; n: number }
@@ -53,6 +76,8 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
   const [flash, showFlash] = useFlash(2500);
 
   const [runnerDead, setRunnerDead] = useState(false);
+  const [attachedTs] = useState(() => Date.now());
+  const startTs = state.startTs;
   useEffect(() => {
     if (!running) {
       setRunnerDead(false);
@@ -60,12 +85,20 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
     }
     const check = (): void => {
       const pid = readPid(runDir);
-      setRunnerDead(pid !== null && !pidAlive(pid));
+      setRunnerDead(
+        runnerLooksDead({
+          pid,
+          alive: pid !== null && pidAlive(pid),
+          runStartTs: startTs,
+          attachedTs,
+          now: Date.now(),
+        }),
+      );
     };
     check();
     const t = setInterval(check, 2000);
     return () => clearInterval(t);
-  }, [runDir, running]);
+  }, [runDir, running, startTs, attachedTs]);
 
   const controlsEnabled = running && !runnerDead;
 

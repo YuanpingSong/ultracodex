@@ -4,7 +4,7 @@ import { assemblePrompt } from "../src/executor/prompt.js";
 import { RETURN_VALUE_CONTRACT } from "../src/constants.js";
 
 describe("strictify", () => {
-  it("strictifies nested objects, array items, anyOf/oneOf/allOf and $defs/definitions", () => {
+  it("closes nested objects, array items, anyOf/oneOf/allOf and $defs/definitions", () => {
     const schema = {
       type: "object",
       properties: {
@@ -32,37 +32,68 @@ describe("strictify", () => {
     };
     const out = strictify(schema) as any;
     expect(out.additionalProperties).toBe(false);
-    expect(out.required).toEqual(["name", "items", "pick", "one", "all", "linked"]);
     expect(out.properties.items.items.additionalProperties).toBe(false);
-    expect(out.properties.items.items.required).toEqual(["id"]);
     expect(out.properties.pick.anyOf[0].additionalProperties).toBe(false);
-    expect(out.properties.pick.anyOf[0].required).toEqual(["x", "y"]);
     expect(out.properties.pick.anyOf[1].additionalProperties).toBeUndefined();
-    expect(out.properties.one.oneOf[0].required).toEqual(["q"]);
-    expect(out.properties.all.allOf[0].required).toEqual(["r"]);
+    expect(out.properties.one.oneOf[0].additionalProperties).toBe(false);
+    expect(out.properties.all.allOf[0].additionalProperties).toBe(false);
     expect(out.$defs.thing.additionalProperties).toBe(false);
-    expect(out.$defs.thing.required).toEqual(["deep"]);
     expect(out.$defs.thing.properties.deep.additionalProperties).toBe(false);
-    expect(out.$defs.thing.properties.deep.required).toEqual(["z"]);
     expect(out.definitions.legacy.additionalProperties).toBe(false);
-    expect(out.definitions.legacy.required).toEqual(["w"]);
   });
 
-  it("completes required to ALL property keys even when partially present", () => {
+  it("leaves `required` exactly as authored (optional properties stay optional)", () => {
     const schema = {
       type: "object",
       properties: { a: { type: "number" }, b: { type: "number" } },
       required: ["a"],
     };
     const out = strictify(schema) as any;
-    expect(out.required).toEqual(["a", "b"]);
+    expect(out.required).toEqual(["a"]);
+    const validate = createValidator(out);
+    expect(validate('{"a": 1}')).toEqual({ ok: true, object: { a: 1 } }); // b optional, as authored
+    const missing = validate('{"b": 2}');
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.errors).toMatch(/required/);
+  });
+
+  it("does not invent a `required` list when the schema has none", () => {
+    const out = strictify({ type: "object", properties: { a: { type: "number" } } }) as any;
+    expect(out.required).toBeUndefined();
+  });
+
+  it("preserves a map-style additionalProperties sub-schema and recurses into it", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        tags: {
+          type: "object",
+          additionalProperties: { type: "object", properties: { v: { type: "number" } } },
+        },
+      },
+      required: ["tags"],
+    };
+    const out = strictify(schema) as any;
+    const ap = out.properties.tags.additionalProperties;
+    expect(typeof ap).toBe("object");
+    expect(ap.additionalProperties).toBe(false); // recursed into the sub-schema
+    const validate = createValidator(out);
+    expect(validate('{"tags": {"anyKey": {"v": 1}, "other": {}}}').ok).toBe(true);
+    expect(validate('{"tags": {"anyKey": {"v": 1, "extra": 2}}}').ok).toBe(false);
+  });
+
+  it("preserves an explicit additionalProperties boolean", () => {
+    const open = strictify({ type: "object", properties: { a: { type: "number" } }, additionalProperties: true }) as any;
+    expect(open.additionalProperties).toBe(true);
+    const closed = strictify({ type: "object", additionalProperties: false }) as any;
+    expect(closed.additionalProperties).toBe(false);
   });
 
   it("treats bare `properties` (no explicit type) as an object node", () => {
     const schema = { properties: { a: { type: "string" } } };
     const out = strictify(schema) as any;
     expect(out.additionalProperties).toBe(false);
-    expect(out.required).toEqual(["a"]);
+    expect(out.required).toBeUndefined();
   });
 
   it("never mutates the input schema", () => {
@@ -152,7 +183,11 @@ describe("createValidator", () => {
 
   it("reports missing required keys", () => {
     const validate = createValidator(
-      strictify({ type: "object", properties: { a: { type: "number" }, b: { type: "string" } } }),
+      strictify({
+        type: "object",
+        properties: { a: { type: "number" }, b: { type: "string" } },
+        required: ["a", "b"],
+      }),
     );
     const res = validate("{}");
     expect(res.ok).toBe(false);

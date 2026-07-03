@@ -4,6 +4,7 @@ import {
   ACTIVITY_TEXT_MAX,
   ACTIVITY_THROTTLE_MS,
   FANOUT_ITEM_CAP,
+  INTERRUPT_GRACE_MS,
   LIFETIME_AGENT_CAP,
 } from "./constants.js";
 import { routeBackend } from "./config.js";
@@ -247,7 +248,16 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     prompt: string,
     opts: AgentOpts = {},
   ): Promise<unknown> {
-    if (stopped) return null;
+    // Scripts are plain JS: coerce non-string prompts / null opts instead of
+    // throwing (agent() never throws except budget/caps).
+    prompt = typeof prompt === "string" ? prompt : String(prompt);
+    opts = opts ?? {};
+    if (stopped) {
+      // Yield a macrotask so a null-tolerant `while (true)` loop over agent()
+      // can't starve timers/signals by spinning the microtask queue.
+      await yieldMacrotask();
+      return null;
+    }
     counter.n += 1;
     const n = counter.n;
     if (n > LIFETIME_AGENT_CAP) {
@@ -276,9 +286,20 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     try {
       acquired = await sem.acquire(ac.signal);
 
-      const dir = agentDir(runDir, n, label);
-      const promptPath = path.join(dir, "prompt.md");
-      fs.writeFileSync(promptPath, prompt, "utf8");
+      // Agent-dir/prompt snapshot I/O must never throw out of agent(): degrade
+      // to a warn + failed agent instead.
+      let dir: string | null = null;
+      let promptRef = "";
+      let snapshotError: string | null = null;
+      try {
+        dir = agentDir(runDir, n, label);
+        const promptPath = path.join(dir, "prompt.md");
+        fs.writeFileSync(promptPath, prompt, "utf8");
+        promptRef = path.relative(runDir, promptPath);
+      } catch (err) {
+        snapshotError = `agent dir/prompt snapshot failed: ${errMsg(err)}`;
+        journal.append({ t: "warn", ts: Date.now(), text: `agent ${n}: ${snapshotError}` });
+      }
       const startTs = Date.now();
       journal.append({
         t: "agent_start",
@@ -290,10 +311,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         model: display.model,
         effort: display.effort,
         promptSha: sha256Hex(prompt),
-        promptRef: path.relative(runDir, promptPath),
+        promptRef,
         hasSchema: opts.schema !== undefined,
       });
 
+      let ended = false;
       const end = (
         status: AgentStatus,
         usage: Usage,
@@ -301,6 +323,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         error: string | null,
         worktreePath?: string,
       ): void => {
+        ended = true;
         actThrottle.cancel();
         usageThrottle.cancel();
         statusCounts[status] += 1;
@@ -319,6 +342,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
       if (!acquired || ac.signal.aborted) {
         end("skipped", ledgerGet(backend, n), null, null);
+        return null;
+      }
+      if (snapshotError !== null || dir === null) {
+        end("failed", ZERO_USAGE, null, snapshotError ?? "agent dir setup failed");
         return null;
       }
       if (!executor) {
@@ -349,6 +376,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           } catch {
             // raw stream is best-effort
           }
+          if (ended) return; // never journal activity after agent_end
           actThrottle.push(() =>
             journal.append({
               t: "agent_activity",
@@ -362,12 +390,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         },
         onUsage(usage) {
           ledgerSet(backend, n, usage);
+          if (ended) return; // never journal usage after agent_end
           usageThrottle.push(() =>
             journal.append({ t: "agent_usage", ts: Date.now(), n, usage }),
           );
         },
         onThread(threadId) {
-          if (threadSeen) return;
+          if (threadSeen || ended) return;
           threadSeen = true;
           journal.append({ t: "agent_thread", ts: Date.now(), n, threadId });
         },
@@ -393,6 +422,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
       let outcome = await Promise.race([runP, abortP]);
       if (ac.signal.aborted) outcome = ABORTED;
+      if (outcome === ABORTED) {
+        // The executor handles the AbortSignal (interrupt → kill) and settles.
+        // Wait (bounded) for that settlement so we never tear down the
+        // worktree or free the concurrency slot under a live process.
+        await Promise.race([runP, sleep(INTERRUPT_GRACE_MS)]);
+      }
 
       let worktreePath: string | undefined;
       if (wtPath !== null) {
@@ -429,18 +464,30 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
       ledgerSet(backend, n, outcome.usage);
       let value: unknown;
-      let outPath: string;
-      if (outcome.object !== undefined) {
-        outPath = path.join(dir, "output.json");
-        fs.writeFileSync(outPath, JSON.stringify(outcome.object, null, 2), "utf8");
-        value = outcome.object;
-      } else {
-        const text = outcome.text ?? "";
-        outPath = path.join(dir, "output.txt");
-        fs.writeFileSync(outPath, text, "utf8");
-        value = text;
+      let resultRef: string | null = null;
+      try {
+        let outPath: string;
+        if (outcome.object !== undefined) {
+          outPath = path.join(dir, "output.json");
+          fs.writeFileSync(outPath, JSON.stringify(outcome.object, null, 2), "utf8");
+          value = outcome.object;
+        } else {
+          const text = outcome.text ?? "";
+          outPath = path.join(dir, "output.txt");
+          fs.writeFileSync(outPath, text, "utf8");
+          value = text;
+        }
+        resultRef = path.relative(runDir, outPath);
+      } catch (err) {
+        // Output snapshot is best-effort: the value is in memory, keep going.
+        value = outcome.object !== undefined ? outcome.object : (outcome.text ?? "");
+        journal.append({
+          t: "warn",
+          ts: Date.now(),
+          text: `agent ${n}: output snapshot failed: ${errMsg(err)}`,
+        });
       }
-      end("ok", outcome.usage, path.relative(runDir, outPath), null, worktreePath);
+      end("ok", outcome.usage, resultRef, null, worktreePath);
       return value;
     } finally {
       actThrottle.cancel();
@@ -578,4 +625,15 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => {
+    const t = setTimeout(r, ms);
+    t.unref?.();
+  });
+}
+
+function yieldMacrotask(): Promise<void> {
+  return new Promise((r) => setImmediate(r));
 }

@@ -46,6 +46,26 @@ function loadWorkflows(projectDir: string): WorkflowItem[] {
   });
 }
 
+/**
+ * Launch-form budget validation, mirroring `cli run --budget` semantics:
+ * empty → no budget; "500k" / "1.5m" / plain count → tokens; anything else
+ * (or a non-positive amount) is an error — never silently launch unbounded.
+ */
+export function validateBudgetInput(
+  text: string,
+): { ok: true; budgetTotal: number | null } | { ok: false; error: string } {
+  const trimmed = text.trim();
+  if (trimmed === "") return { ok: true, budgetTotal: null };
+  const n = parseBudget(trimmed);
+  if (n === null || n <= 0) {
+    return {
+      ok: false,
+      error: `invalid budget "${trimmed}" (use e.g. 500k, 1.5m, or a plain token count)`,
+    };
+  }
+  return { ok: true, budgetTotal: n };
+}
+
 function runGlyph(r: RunSummary): { glyph: string; color: string | undefined; dim: boolean } {
   switch (r.status) {
     case "running":
@@ -228,7 +248,13 @@ function LaunchForm({
           return;
         }
       }
-      onSubmit(parsed, parseBudget(budget));
+      const b = validateBudgetInput(budget);
+      if (!b.ok) {
+        setError(b.error);
+        setField(1);
+        return;
+      }
+      onSubmit(parsed, b.budgetTotal);
       return;
     }
     if (key.tab) {

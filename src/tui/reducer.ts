@@ -205,6 +205,9 @@ export function reduce(state: TuiState, ev: JournalEvent): TuiState {
         ...state,
         status: ev.status,
         endTs: ev.ts,
+        // The run is over: no phase is "current" any more, so fully-done phases
+        // (including the last one) render as finished (✔) instead of active (●).
+        currentPhase: null,
         resultRef: ev.resultRef,
         error: ev.error,
         totals: ev.totals,

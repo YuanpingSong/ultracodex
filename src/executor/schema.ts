@@ -4,7 +4,20 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** Deep-clone `schema`, then make every object node strict: no additional properties, all properties required. */
+/**
+ * Deep-clone `schema`, then harden every object node for codex structured output.
+ *
+ * Decision (dual-runnability over aggressive strictness):
+ * - `additionalProperties: false` is added ONLY where the schema left it
+ *   unspecified (codex needs closed objects to keep the model on-schema). An
+ *   explicit boolean is preserved, and a map-style sub-schema
+ *   (`additionalProperties: { ... }`) is preserved AND recursed into —
+ *   clobbering it would make map objects unsatisfiable except `{}`.
+ * - `required` is left exactly as authored. Upstream Claude Code validates the
+ *   user's schema as written (optional properties stay optional), so promoting
+ *   every property to required would force agents to fabricate values and
+ *   diverge from upstream semantics.
+ */
 export function strictify(schema: Record<string, unknown>): Record<string, unknown> {
   const clone = structuredClone(schema);
   strictifyNode(clone);
@@ -19,8 +32,11 @@ function strictifyNode(node: unknown): void {
   if (!isRecord(node)) return;
   const props = isRecord(node.properties) ? node.properties : null;
   if (node.type === "object" || props) {
-    node.additionalProperties = false;
-    node.required = props ? Object.keys(props) : [];
+    if (node.additionalProperties === undefined) {
+      node.additionalProperties = false;
+    } else {
+      strictifyNode(node.additionalProperties); // sub-schema recursed; booleans no-op
+    }
   }
   if (props) for (const value of Object.values(props)) strictifyNode(value);
   if (node.items !== undefined) strictifyNode(node.items);

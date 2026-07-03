@@ -336,7 +336,7 @@ describe("routeBackend", () => {
     expect(routeBackend(cfg, "summarize", "Critique")).toBe("codex");
   });
 
-  it("phase tested against all rules when no label match (before catch-all catches phase)", () => {
+  it("phase rules are reachable despite the '*' catch-all (catch-all is the final fallback)", () => {
     const cfg = {
       ...DEFAULT_CONFIG,
       route: [
@@ -344,10 +344,13 @@ describe("routeBackend", () => {
         { pattern: "*", backend: "codex" },
       ],
     };
-    // label "summarize" doesn't match "Critique"; since "*" matches label first, returns "codex"
-    // Phase is only tested when no rule matches label
-    // With a catch-all "*" present, label always matches — no phase testing needed
-    expect(routeBackend(cfg, "summarize", "Critique")).toBe("codex");
+    // label "summarize" doesn't match "Critique"; the "*" catch-all must NOT
+    // swallow the label pass — the phase pass runs and "Critique" fires.
+    expect(routeBackend(cfg, "summarize", "Critique")).toBe("claude");
+    // no phase → both passes miss → catch-all fallback
+    expect(routeBackend(cfg, "summarize", null)).toBe("codex");
+    // phase matches nothing specific → catch-all fallback
+    expect(routeBackend(cfg, "summarize", "Draft")).toBe("codex");
   });
 
   it("phase fallback used when no rule matches label (no catch-all before phase test)", () => {

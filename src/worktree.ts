@@ -32,8 +32,22 @@ export async function cleanupWorktree(
   projectDir: string,
   wtPath: string,
 ): Promise<{ kept: boolean }> {
+  // Upstream contract: worktree "auto-removed if unchanged". Changed means
+  // uncommitted changes (dirty tree) OR commits the agent made on the detached
+  // HEAD — a clean `status --porcelain` alone would destroy committed work.
   const { stdout } = await git(wtPath, ["status", "--porcelain"]);
   if (stdout.trim() !== "") return { kept: true };
+  // (--all would include HEAD itself, making the count always 0)
+  const { stdout: unreachable } = await git(wtPath, [
+    "rev-list",
+    "--count",
+    "HEAD",
+    "--not",
+    "--branches",
+    "--tags",
+    "--remotes",
+  ]);
+  if (parseInt(unreachable.trim(), 10) > 0) return { kept: true };
   await git(projectDir, ["worktree", "remove", "--force", wtPath]);
   await git(projectDir, ["worktree", "prune"]);
   return { kept: false };

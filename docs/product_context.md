@@ -209,8 +209,11 @@ rpc:   initialize
 own validation layer: the plugin itself does NO shape-validation (its
 `parseStructuredOutput` is a bare `JSON.parse` with error catch), and the CLI
 layer has known schema bugs (openai/codex #15451, #19816, #4181). Therefore:
-1. `strictify(schema)`: recursively add `additionalProperties: false`, make all
-   properties required — upstream schemas must work unmodified.
+1. `strictify(schema)`: recursively add `additionalProperties: false` only where
+   absent (preserve explicit booleans and map-style sub-schemas, recursing into
+   them). Leave `required` **as authored** — upstream schemas are validated as
+   written; promoting optional fields to required would force agents to fabricate
+   values and diverges from upstream.
 2. Pass strictified schema as `outputSchema` on `turn/start` AND append a
    JSON-only instruction + inlined schema to the prompt (via the
    `<structured_output_contract>` block, §3.7).
@@ -232,16 +235,20 @@ input+output for display. `--budget 500k` sets `budget.total` (interpreted
 against the codex ledger by default; configurable). Exceeded → subsequent
 `agent()` calls throw (upstream semantics). Totals surface in journal, TUI
 header, `show`, and `--json` output.
-**Verify at build time:** where token usage arrives in the app-server stream
-(the plugin never meters tokens, so this is unverified — check `turn/completed`
-payload / item payloads / generated protocol schema; if absent, the
-`codex exec --json` fallback transport has usage events).
+**Resolved (probe 2026-07-02):** usage arrives via `thread/tokenUsage/updated`
+notifications carrying `{total, last}` TokenUsageBreakdown
+`{totalTokens, inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens}`.
+Per-turn usage = the turn's `last` deltas summed (a multi-step turn emits several
+updates; `total` is thread-cumulative). `budget.spent()` sums `outputTokens`.
 
 ### 3.6 Worktree isolation
 `isolation: 'worktree'` → `git worktree add <runDir>/wt/<n> HEAD`, run codex
-with cwd there. Teardown: `git status --porcelain` → clean: `worktree remove
---force` + `prune`; dirty: **keep and report the path** in agent_end (v1 policy;
-merge-back strategies deferred).
+with cwd there. Teardown keeps the worktree when it holds real work — dirty tree
+(`git status --porcelain` non-empty) **or** commits on the detached HEAD
+unreachable from any ref (`git rev-list --count HEAD --not --branches --tags
+--remotes` > 0): **keep and report the path** in agent_end (v1 policy; merge-back
+deferred). Only a truly pristine worktree is removed (`worktree remove --force`
++ `prune`).
 
 ### 3.7 Prompt assembly (steal: gpt-5-4-prompting blocks)
 Build the executor's prompt preamble from the plugin's XML prompt-contract

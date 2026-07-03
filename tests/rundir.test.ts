@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,12 +10,14 @@ import {
   writePidFile,
   readPid,
   pidAlive,
+  runnerPidAlive,
+  isRunDead,
   agentDir,
   listRuns,
   resolveRunId,
 } from "../src/rundir.js";
 import { JournalWriter } from "../src/journal.js";
-import { AGENTS_DIR, STATE_DIR_NAME, RUNS_DIR_NAME } from "../src/constants.js";
+import { AGENTS_DIR, PID_FILE, STATE_DIR_NAME, RUNS_DIR_NAME } from "../src/constants.js";
 import type { JournalEvent } from "../src/types.js";
 
 const cleanups: string[] = [];
@@ -24,7 +27,27 @@ function tmpDir(): string {
   return d;
 }
 
+const children: ChildProcess[] = [];
+/**
+ * Long-lived child whose argv carries `marker` — mimics the real runner, whose
+ * command line is `node .../runner.js <runDir>` (so it contains the runId).
+ */
+function spawnMarkerChild(marker: string): ChildProcess {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", marker], {
+    stdio: "ignore",
+  });
+  children.push(child);
+  return child;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 afterEach(() => {
+  for (const c of children.splice(0)) {
+    try { c.kill("SIGKILL"); } catch {}
+  }
   for (const d of cleanups.splice(0)) {
     try { fs.rmSync(d, { recursive: true }); } catch {}
   }
@@ -79,6 +102,103 @@ describe("pidAlive", () => {
 
   it("returns false for a bogus pid (9999999)", () => {
     expect(pidAlive(9999999)).toBe(false);
+  });
+});
+
+describe("runnerPidAlive", () => {
+  it("returns false for a dead pid", () => {
+    const proj = tmpDir();
+    const runDir = createRunDir(proj, "uc_rpa1");
+    expect(runnerPidAlive(runDir, 9999999)).toBe(false);
+  });
+
+  it("returns false for an alive pid that is not this run's runner", () => {
+    const proj = tmpDir();
+    const runDir = createRunDir(proj, "uc_rpa2");
+    // The vitest process is alive, but its command line lacks the runId.
+    expect(runnerPidAlive(runDir, process.pid)).toBe(false);
+  });
+
+  it("returns true for an alive process whose argv mentions the run dir", async () => {
+    const proj = tmpDir();
+    const runDir = createRunDir(proj, "uc_rpa3");
+    const child = spawnMarkerChild(runDir);
+    await sleep(80);
+    expect(runnerPidAlive(runDir, child.pid!)).toBe(true);
+  });
+});
+
+describe("isRunDead", () => {
+  function writeStart(runDir: string, runId: string): void {
+    const w = new JournalWriter(runDir);
+    w.append({
+      t: "run_start",
+      ts: 1,
+      runId,
+      meta: { name: runId, description: "d" },
+      scriptSha: "s",
+      argsRef: null,
+      budgetTotal: null,
+      concurrency: 1,
+    });
+    w.close();
+  }
+
+  it("true: run_start, no run_end, no pid", () => {
+    const proj = tmpDir();
+    const runDir = createRunDir(proj, "uc_ird1");
+    writeStart(runDir, "uc_ird1");
+    expect(isRunDead(runDir)).toBe(true);
+  });
+
+  it("true: run_start, no run_end, pid recycled by a foreign process", () => {
+    const proj = tmpDir();
+    const runDir = createRunDir(proj, "uc_ird2");
+    writeStart(runDir, "uc_ird2");
+    writePidFile(runDir, process.pid);
+    expect(isRunDead(runDir)).toBe(true);
+  });
+
+  it("false: run_end present", () => {
+    const proj = tmpDir();
+    const runDir = createRunDir(proj, "uc_ird3");
+    const w = new JournalWriter(runDir);
+    w.append({
+      t: "run_start",
+      ts: 1,
+      runId: "uc_ird3",
+      meta: { name: "n", description: "d" },
+      scriptSha: "s",
+      argsRef: null,
+      budgetTotal: null,
+      concurrency: 1,
+    });
+    w.append({
+      t: "run_end",
+      ts: 2,
+      status: "ok",
+      resultRef: null,
+      error: null,
+      totals: { agents: 0, ok: 0, failed: 0, skipped: 0, usage: {}, ms: 1 },
+    });
+    w.close();
+    expect(isRunDead(runDir)).toBe(false);
+  });
+
+  it("false: no run_start yet (runner still starting)", () => {
+    const proj = tmpDir();
+    const runDir = createRunDir(proj, "uc_ird4");
+    expect(isRunDead(runDir)).toBe(false);
+  });
+
+  it("false: live runner (argv mentions the run dir)", async () => {
+    const proj = tmpDir();
+    const runDir = createRunDir(proj, "uc_ird5");
+    writeStart(runDir, "uc_ird5");
+    const child = spawnMarkerChild(runDir);
+    writePidFile(runDir, child.pid!);
+    await sleep(80);
+    expect(isRunDead(runDir)).toBe(false);
   });
 });
 
@@ -226,12 +346,15 @@ describe("listRuns", () => {
     expect(r.status).toBe("dead");
   });
 
-  it("marks run as 'running' when no run_end and pid is alive", () => {
+  it("marks run as 'running' when no run_end and its runner pid is alive", async () => {
     const proj = tmpDir();
     const runId = "uc_alive1";
     const runDir = createRunDir(proj, runId);
 
-    writePidFile(runDir, process.pid);
+    // A real runner's command line carries the runDir; simulate that.
+    const child = spawnMarkerChild(runDir);
+    writePidFile(runDir, child.pid!);
+    await sleep(80); // let the child exec
 
     const w = new JournalWriter(runDir);
     w.append({
@@ -250,6 +373,56 @@ describe("listRuns", () => {
     const r = runs[0]!;
     expect(r.status).toBe("running");
     expect(r.pidAlive).toBe(true);
+  });
+
+  it("marks run as 'dead' when the pid was recycled by an unrelated process", () => {
+    const proj = tmpDir();
+    const runId = "uc_recycled1";
+    const runDir = createRunDir(proj, runId);
+
+    // process.pid (the test runner) is alive but is NOT this run's runner:
+    // its command line does not mention the runId.
+    writePidFile(runDir, process.pid);
+
+    const w = new JournalWriter(runDir);
+    w.append({
+      t: "run_start",
+      ts: 300,
+      runId,
+      meta: { name: "recycled-run", description: "..." },
+      scriptSha: "z",
+      argsRef: null,
+      budgetTotal: null,
+      concurrency: 1,
+    });
+    w.close();
+
+    const runs = listRuns(proj);
+    expect(runs[0]!.status).toBe("dead");
+  });
+
+  it("cleans a stale pidfile (dead pid, no run_end) when listing", () => {
+    const proj = tmpDir();
+    const runId = "uc_stalepid1";
+    const runDir = createRunDir(proj, runId);
+    writePidFile(runDir, 9999999);
+
+    const w = new JournalWriter(runDir);
+    w.append({
+      t: "run_start",
+      ts: 400,
+      runId,
+      meta: { name: "stale", description: "..." },
+      scriptSha: "s",
+      argsRef: null,
+      budgetTotal: null,
+      concurrency: 1,
+    });
+    w.close();
+
+    const runs = listRuns(proj);
+    expect(runs[0]!.status).toBe("dead");
+    expect(fs.existsSync(path.join(runDir, PID_FILE))).toBe(false);
   });
 
   it("sorts newest startedAt first", () => {

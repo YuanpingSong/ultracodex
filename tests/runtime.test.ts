@@ -277,6 +277,32 @@ describe("agent()", () => {
     const bare = makeRuntime({});
     expect(bare.g.args).toBeUndefined();
   });
+
+  it("coerces non-string prompts and null opts instead of throwing", async () => {
+    const executor = okExecutor("coerced-ok");
+    const { g, runDir } = makeRuntime({ executor });
+    await expect(
+      g.agent(12345 as unknown as string, null as unknown as undefined),
+    ).resolves.toBe("coerced-ok");
+    expect(executor.invocations[0]!.prompt).toBe("12345");
+    expect(starts(runDir)[0]!.promptSha).toBe(sha256Hex("12345"));
+  });
+
+  it("degrades agent-dir/prompt snapshot fs failures to warn + failed agent, never a throw", async () => {
+    const { g, runDir } = makeRuntime();
+    // Make agents/ a FILE so agentDir's mkdir fails.
+    fs.rmSync(path.join(runDir, "agents"), { recursive: true, force: true });
+    fs.writeFileSync(path.join(runDir, "agents"), "not a dir", "utf8");
+
+    await expect(g.agent("doomed", { label: "doomed" })).resolves.toBeNull();
+
+    const events = readJournal(runDir);
+    const warn = events.find((e) => e.t === "warn") as { text: string } | undefined;
+    expect(warn?.text).toMatch(/snapshot failed/);
+    const end = ends(runDir)[0]!;
+    expect(end.status).toBe("failed");
+    expect(end.error).toMatch(/snapshot failed/);
+  });
 });
 
 describe("journal sequence", () => {
@@ -509,19 +535,16 @@ describe("control: pause / resume / skip / stop", () => {
     const p = g.agent("victim");
     await until(() => calls.length === 1);
     controller.skip(1);
+    // Abort waits for the executor to settle; it settling ok AFTER the abort
+    // must not change the outcome.
+    calls[0]!.resolve({ ok: true, text: "too late", usage: usage(9) });
     expect(await p).toBeNull();
 
-    let end = ends(runDir);
+    await sleep(30);
+    const end = ends(runDir);
     expect(end).toHaveLength(1);
     expect(end[0]!.status).toBe("skipped");
     expect(end[0]!.error).toBeNull();
-
-    // executor finishing late must not change the outcome
-    calls[0]!.resolve({ ok: true, text: "too late", usage: usage(9) });
-    await sleep(30);
-    end = ends(runDir);
-    expect(end).toHaveLength(1);
-    expect(end[0]!.status).toBe("skipped");
   });
 
   it("skip on a queued agent resolves it null without dispatching", async () => {
@@ -550,6 +573,8 @@ describe("control: pause / resume / skip / stop", () => {
     expect(controller.stopped).toBe(false);
     controller.stop();
     expect(controller.stopped).toBe(true);
+    // in-flight executor settles in response to the abort; late ok is ignored
+    calls[0]!.resolve({ ok: true, text: "late", usage: usage(0) });
     expect(await p1).toBeNull();
     expect(await p2).toBeNull();
 
@@ -563,6 +588,84 @@ describe("control: pause / resume / skip / stop", () => {
     const totals = controller.totals();
     expect(totals.skipped).toBe(2);
     expect(totals.ok).toBe(0);
+  });
+
+  it("post-stop agent() yields a macrotask so tight null-tolerant loops can't starve timers", async () => {
+    const { g, controller } = makeRuntime();
+    controller.stop();
+
+    let timerFired = false;
+    setTimeout(() => {
+      timerFired = true;
+    }, 20);
+
+    // A null-tolerant unbounded loop: without a macrotask yield in the
+    // post-stop path this spins the microtask queue and the timer never runs.
+    let iterations = 0;
+    while (!timerFired) {
+      iterations += 1;
+      if (iterations > 100_000) break; // safety valve: fail instead of hanging
+      await g.agent("spin");
+    }
+    expect(timerFired).toBe(true);
+    expect(iterations).toBeLessThanOrEqual(100_000);
+  });
+
+  it("abort waits for executor settlement before agent_end and before freeing the slot", async () => {
+    // Executor that honors the abort signal but takes 60ms to wind down.
+    const calls: DeferredCall[] = [];
+    const executor: Executor = {
+      backend: "codex",
+      run(req, ctx) {
+        return new Promise<ExecutorResult>((resolve) => {
+          calls.push({ req, ctx, resolve });
+          ctx.signal.addEventListener(
+            "abort",
+            () => setTimeout(() => resolve({ ok: false, error: "interrupted" }), 60),
+            { once: true },
+          );
+        });
+      },
+    };
+    const { g, controller, runDir } = makeRuntime({ executor, concurrency: 1 });
+    const p1 = g.agent("victim");
+    await until(() => calls.length === 1);
+    const p2 = g.agent("next-in-line");
+
+    controller.skip(1);
+    await sleep(20); // abort delivered, executor still winding down
+    expect(ends(runDir)).toHaveLength(0); // no agent_end while process is live
+    expect(calls.length).toBe(1); // slot not freed → agent 2 not dispatched
+
+    expect(await p1).toBeNull();
+    expect(ends(runDir)[0]!.status).toBe("skipped");
+
+    await until(() => calls.length === 2); // slot freed only after settlement
+    calls[1]!.resolve({ ok: true, text: "second", usage: usage(1) });
+    expect(await p2).toBe("second");
+  });
+
+  it("drops activity/usage arriving after agent_end (no journal events past the end)", async () => {
+    let captured: ExecutorContext | null = null;
+    const executor: Executor = {
+      backend: "codex",
+      async run(_req, ctx) {
+        captured = ctx;
+        return { ok: true, text: "done", usage: usage(1) };
+      },
+    };
+    const { g, runDir } = makeRuntime({ executor });
+    await g.agent("quick");
+    expect(ends(runDir)).toHaveLength(1);
+
+    captured!.onActivity({ kind: "exec", text: "late activity" });
+    captured!.onUsage(usage(999));
+    await sleep(300); // let any throttle timer flush
+
+    const events = readJournal(runDir);
+    const endIdx = events.findIndex((e) => e.t === "agent_end");
+    expect(events.slice(endIdx + 1).filter((e) => e.t === "agent_activity")).toHaveLength(0);
+    expect(events.slice(endIdx + 1).filter((e) => e.t === "agent_usage")).toHaveLength(0);
   });
 
   it("totals() folds statuses and per-backend usage ledgers", async () => {

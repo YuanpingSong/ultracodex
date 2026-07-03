@@ -135,6 +135,22 @@ describe("CodexExecutor", () => {
     if (!res.ok) expect(res.error).toBe("interrupted");
   });
 
+  it("a stalled thread/start does not hang: abort returns {ok:false, error:'interrupted'}", async () => {
+    process.env.FAKE_CODEX_STALL_THREAD_START = "1";
+    try {
+      const exec = new CodexExecutor(cfg(), {});
+      const { ctx, ac } = makeCtx();
+      setTimeout(() => ac.abort(), 100);
+      const start = Date.now();
+      const res = await exec.run({ prompt: "[[reply:never delivered]]", cwd: tmpDir(), label: "stall" }, ctx);
+      expect(Date.now() - start).toBeLessThan(5000); // abort + close grace, never the full stall
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("interrupted");
+    } finally {
+      delete process.env.FAKE_CODEX_STALL_THREAD_START;
+    }
+  });
+
   it("forwards exec activity with verification phase", async () => {
     const exec = new CodexExecutor(cfg(), {});
     const { ctx, activities } = makeCtx();

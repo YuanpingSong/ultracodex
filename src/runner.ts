@@ -11,7 +11,7 @@ import {
 } from "./constants.js";
 import { loadConfig } from "./config.js";
 import { loadScript } from "./loader.js";
-import { JournalWriter } from "./journal.js";
+import { JournalWriter, readJournal } from "./journal.js";
 import { stateDir, writePidFile } from "./rundir.js";
 import { tailControl } from "./control.js";
 import { createRuntime } from "./runtime.js";
@@ -28,6 +28,13 @@ export async function runnerMain(runDir: string): Promise<void> {
   let options: RunOptions;
   let source: string;
   let script: ReturnType<typeof loadScript>;
+  let config: ReturnType<typeof loadConfig>;
+  let executors: ReturnType<typeof createExecutors>;
+  let loaded: {
+    options: RunOptions;
+    source: string;
+    script: ReturnType<typeof loadScript>;
+  } | null = null;
   try {
     options = JSON.parse(
       fs.readFileSync(path.join(runDir, OPTIONS_SNAPSHOT), "utf8"),
@@ -35,10 +42,27 @@ export async function runnerMain(runDir: string): Promise<void> {
     options.runDir = runDir;
     source = fs.readFileSync(path.join(runDir, SCRIPT_SNAPSHOT), "utf8");
     script = loadScript(source, { strict: options.strict });
+    loaded = { options, source, script };
+    // Config/executor init must sit inside the startup guard too: a bad
+    // config.toml would otherwise throw before any journal exists ("dead").
+    config = loadConfig(options.projectDir);
+    executors = createExecutors(config);
   } catch (err) {
     // Startup failure: journal a run_end so consumers see "failed", not "dead".
     try {
       const journal = new JournalWriter(runDir);
+      if (loaded) {
+        journal.append({
+          t: "run_start",
+          ts: Date.now(),
+          runId: loaded.options.runId,
+          meta: loaded.script.meta,
+          scriptSha: sha256Hex(loaded.source),
+          argsRef: loaded.options.argsPath,
+          budgetTotal: loaded.options.budgetTotal,
+          concurrency: loaded.options.concurrency,
+        });
+      }
       journal.append({
         t: "run_end",
         ts: Date.now(),
@@ -54,8 +78,6 @@ export async function runnerMain(runDir: string): Promise<void> {
     return;
   }
 
-  const config = loadConfig(options.projectDir);
-  const executors = createExecutors(config);
   const journal = new JournalWriter(runDir);
   journal.append({
     t: "run_start",
@@ -122,12 +144,16 @@ export async function runnerMain(runDir: string): Promise<void> {
   );
 
   let outcome = await Promise.race([bodySettled, external]);
-  if (outcome.kind === "stopped") {
-    // Let aborted agents journal their agent_end before we seal the journal.
-    await Promise.race([bodySettled, sleep(INTERRUPT_GRACE_MS)]);
-  } else if (outcome.kind === "ok" && controller.stopped) {
+  if (outcome.kind === "ok" && controller.stopped) {
     outcome = { kind: "stopped" };
   }
+
+  // Teardown: whether the body returned, threw, or the run was stopped, abort
+  // any agents still in flight (e.g. fire-and-forget agent() calls) and wait
+  // (bounded) for every agent_start to journal its agent_end — otherwise we
+  // leak worktrees/processes and seal the journal with dangling agents.
+  controller.stop();
+  await drainAgents(runDir, INTERRUPT_GRACE_MS);
 
   stopTail();
   process.off("SIGTERM", onSignal);
@@ -217,6 +243,24 @@ function errMsg(err: unknown): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Wait (bounded) until every journaled agent_start has a matching agent_end. */
+async function drainAgents(runDir: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    let open = 0;
+    try {
+      for (const ev of readJournal(runDir)) {
+        if (ev.t === "agent_start") open += 1;
+        else if (ev.t === "agent_end") open -= 1;
+      }
+    } catch {
+      return; // journal unreadable — nothing more we can do
+    }
+    if (open <= 0 || Date.now() >= deadline) return;
+    await sleep(25);
+  }
 }
 
 function isMain(): boolean {

@@ -142,8 +142,10 @@ export class AppServerClient {
         timer.unref?.();
         await this.exited;
         clearTimeout(timer);
-        return;
       }
+      // Reap any surviving process-group members (the leader exiting does not
+      // kill its children); no-op (ESRCH) when the group is already gone.
+      this.killTree("SIGKILL");
     }
     await this.exited;
   }
@@ -154,10 +156,19 @@ export class AppServerClient {
 
   private killTree(sig: NodeJS.Signals): void {
     const pid = this.proc.pid;
-    if (pid == null || this.exitedFlag) return;
-    try {
-      process.kill(-pid, sig); // detached spawn -> own process group
-    } catch {
+    if (pid == null) return;
+    let groupKilled = false;
+    if (process.platform !== "win32") {
+      // detached spawn -> own process group. Kill the GROUP even when the
+      // leader has already exited: orphaned members keep the pgid alive.
+      try {
+        process.kill(-pid, sig);
+        groupKilled = true;
+      } catch {
+        // ESRCH: no such process group — nothing left to kill.
+      }
+    }
+    if (!groupKilled && !this.exitedFlag) {
       try {
         this.proc.kill(sig);
       } catch {}

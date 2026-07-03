@@ -171,8 +171,11 @@ export function runTurn(opts: RunTurnOptions): Promise<TurnResult>;
 Depends on: ajv, types.
 ```ts
 export function strictify(schema: Record<string, unknown>): Record<string, unknown>;
-// deep clone; on every object node with type "object"/properties: additionalProperties: false,
-// required = all property keys. Recurse into properties/items/anyOf/oneOf/allOf/$defs/definitions.
+// deep clone; on every object node with type "object"/properties: add additionalProperties: false
+// ONLY when the key is absent (preserve an explicit boolean; preserve AND recurse into a map-style
+// sub-schema so map objects stay satisfiable). Leave `required` exactly as authored — upstream
+// schemas are validated as written; do NOT promote optional properties to required.
+// Recurse into properties/items/anyOf/oneOf/allOf/$defs/definitions.
 export function schemaInstruction(schema: Record<string, unknown>): string;
 // "<structured_output_contract>...respond ONLY with a single JSON object valid against this
 //  JSON Schema (no markdown fences, no commentary): <inlined schema>...</structured_output_contract>"

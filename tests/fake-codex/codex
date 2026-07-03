@@ -13,9 +13,16 @@
 //   [[collab]]       collabAgentToolCall + subagent turn; drained 150ms later.
 //   [[no-turn-completed]]  suppress the main turn/completed (inference path).
 //   [[usage:IN,OUT]] tokenUsage numbers (default 100,10).
+//   [[midusage:IN,OUT]]  extra tokenUsage update BEFORE the final one (multi-step turn).
+//   [[retry-error:MSG]]  error notification with willRetry:true, then normal completion.
+//   [[suberror:MSG]] subagent thread whose turn fails (error willRetry:false on the
+//                    SUB thread + its turn/completed failed); main turn completes.
 //   [[approval]]     server->client approval request before answering.
 // Env: FAKE_CODEX_LOGGED_OUT=1  -> account/read returns {account: null, ...}
 //      FAKE_CODEX_CRASH_MID_TURN=1 -> process.exit(1) after turn/started.
+//      FAKE_CODEX_STALL_THREAD_START=1 -> never respond to thread/start.
+//      FAKE_CODEX_ORPHAN_CHILD=1 -> spawn a long-lived child process at startup
+//        (same process group); writes its pid to FAKE_CODEX_CHILD_PID_FILE.
 
 const argv = process.argv.slice(2);
 if (argv[0] === "--version") {
@@ -26,6 +33,23 @@ if (argv[0] !== "app-server") process.exit(2);
 
 const LOGGED_OUT = process.env.FAKE_CODEX_LOGGED_OUT === "1";
 const CRASH_MID_TURN = process.env.FAKE_CODEX_CRASH_MID_TURN === "1";
+const STALL_THREAD_START = process.env.FAKE_CODEX_STALL_THREAD_START === "1";
+
+if (process.env.FAKE_CODEX_ORPHAN_CHILD === "1") {
+  // A long-lived child in the SAME process group: survives the leader's death
+  // unless the client kills the whole group. Dynamic import() keeps this file
+  // runnable under any module mode (no top-level imports).
+  Promise.all([import("node:child_process"), import("node:fs")])
+    .then(function (mods) {
+      const child = mods[0].spawn(process.execPath, ["-e", "setInterval(function () {}, 1000);"], {
+        stdio: "ignore",
+      });
+      if (process.env.FAKE_CODEX_CHILD_PID_FILE) {
+        mods[1].writeFileSync(process.env.FAKE_CODEX_CHILD_PID_FILE, String(child.pid));
+      }
+    })
+    .catch(function () {});
+}
 
 let seq = 0;
 let serverReqId = 9000;
@@ -212,6 +236,39 @@ function handleTurnStart(msg) {
       return;
     }
 
+    const retryErr = directive(prompt, "retry-error");
+    if (retryErr !== null) {
+      send({
+        method: "error",
+        params: {
+          error: { message: retryErr, codexErrorInfo: "other", additionalDetails: null },
+          willRetry: true,
+          threadId: t.id,
+          turnId: turnId,
+        },
+      });
+    }
+
+    const subErr = directive(prompt, "suberror");
+    if (subErr !== null) {
+      const sub = createThread(t.cwd, true, "suberr-worker");
+      const subTurnId = "fake-turn-" + ++seq;
+      const err = { message: subErr, codexErrorInfo: "other", additionalDetails: null };
+      send({ method: "thread/started", params: { thread: threadObj(sub) } });
+      send({ method: "turn/started", params: { threadId: sub.id, turn: turnObj(subTurnId, "inProgress", { startedAt: now() }) } });
+      send({ method: "error", params: { error: err, willRetry: false, threadId: sub.id, turnId: subTurnId } });
+      send({
+        method: "turn/completed",
+        params: { threadId: sub.id, turn: turnObj(subTurnId, "failed", { error: err, startedAt: now(), completedAt: now() }) },
+      });
+    }
+
+    const midUsage = directive(prompt, "midusage");
+    if (midUsage !== null) {
+      const parts = midUsage.split(",");
+      emitUsage(t, turnId, Number(parts[0]) || 0, Number(parts[1]) || 0);
+    }
+
     if (execCmd !== null) {
       const cmdItem = (status, exitCode, out, dur) => ({
         type: "commandExecution",
@@ -340,6 +397,7 @@ function handle(msg) {
       });
       break;
     case "thread/start": {
+      if (STALL_THREAD_START) break; // never respond (stalled app-server)
       const p = msg.params || {};
       const t = createThread(p.cwd || "/tmp", p.ephemeral, null);
       send({

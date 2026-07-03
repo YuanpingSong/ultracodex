@@ -1,5 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { openInEditor, parseEditorCommand } from "../src/tui/clipboard.js";
+import { validateBudgetInput } from "../src/tui/HomeView.js";
 import { initialState, reduce, type TuiState } from "../src/tui/reducer.js";
+import { RUNNER_START_GRACE_MS, runnerLooksDead } from "../src/tui/RunView.js";
 import { renderRunStatic } from "../src/tui/static.js";
 import type { JournalEvent, Usage, WorkflowMeta } from "../src/types.js";
 
@@ -232,5 +238,133 @@ describe("renderRunStatic — finished runs", () => {
     const out = renderRunStatic(initialState(), { color: false });
     expect(out).toContain("(unknown workflow)");
     expect(out).toContain("0/0 agents");
+  });
+
+  it("renders the final phase as finished (✔), not active (●), after run_end", () => {
+    const events: JournalEvent[] = [
+      ...midRunEvents(),
+      { t: "agent_end", ts: 2900, n: 4, status: "ok", ms: 1894, usage: u(40), resultRef: null, error: null },
+      {
+        t: "run_end",
+        ts: 3000,
+        status: "ok",
+        resultRef: "result.json",
+        error: null,
+        totals: { agents: 4, ok: 2, failed: 1, skipped: 1, usage: { codex: u(210) }, ms: 2000 },
+      },
+    ];
+    const out = renderRunStatic(fold(events), { color: false });
+    // "Summarize" was the currentPhase when the run ended; it must show ✔.
+    expect(out).toContain("✔ Summarize 3/4");
+    expect(out).not.toContain("● Summarize");
+  });
+});
+
+describe("LaunchForm budget validation (HomeView.validateBudgetInput)", () => {
+  it("accepts empty as 'no budget'", () => {
+    expect(validateBudgetInput("")).toEqual({ ok: true, budgetTotal: null });
+    expect(validateBudgetInput("   ")).toEqual({ ok: true, budgetTotal: null });
+  });
+
+  it("parses k/m suffixes and plain counts like the CLI", () => {
+    expect(validateBudgetInput("500k")).toEqual({ ok: true, budgetTotal: 500_000 });
+    expect(validateBudgetInput("1.5m")).toEqual({ ok: true, budgetTotal: 1_500_000 });
+    expect(validateBudgetInput("12345")).toEqual({ ok: true, budgetTotal: 12_345 });
+  });
+
+  it("rejects garbage instead of silently launching without a ceiling", () => {
+    const r = validateBudgetInput("5ook");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('invalid budget "5ook"');
+    expect(validateBudgetInput("500 tokens").ok).toBe(false);
+    expect(validateBudgetInput("0").ok).toBe(false); // CLI parity: non-positive is invalid
+  });
+});
+
+describe("dead-runner heuristic (RunView.runnerLooksDead)", () => {
+  const base = { runStartTs: 10_000, attachedTs: 10_000 };
+
+  it("pidfile present: dead iff the pid is gone", () => {
+    expect(runnerLooksDead({ ...base, pid: 123, alive: true, now: 999_999 })).toBe(false);
+    expect(runnerLooksDead({ ...base, pid: 123, alive: false, now: 10_001 })).toBe(true);
+  });
+
+  it("no pidfile: alive within the startup grace, dead after it", () => {
+    const opts = { ...base, pid: null, alive: false };
+    expect(runnerLooksDead({ ...opts, now: 10_000 + RUNNER_START_GRACE_MS })).toBe(false);
+    expect(runnerLooksDead({ ...opts, now: 10_001 + RUNNER_START_GRACE_MS })).toBe(true);
+  });
+
+  it("no pidfile and no run_start yet: grace runs from attach time", () => {
+    const opts = { pid: null, alive: false, runStartTs: null, attachedTs: 50_000 };
+    expect(runnerLooksDead({ ...opts, now: 51_000 })).toBe(false);
+    expect(runnerLooksDead({ ...opts, now: 50_000 + RUNNER_START_GRACE_MS + 1 })).toBe(true);
+  });
+
+  it("honors a custom grace", () => {
+    const opts = { pid: null, alive: false, runStartTs: 0, attachedTs: 0, graceMs: 100 };
+    expect(runnerLooksDead({ ...opts, now: 99 })).toBe(false);
+    expect(runnerLooksDead({ ...opts, now: 101 })).toBe(true);
+  });
+});
+
+describe("$EDITOR handling (clipboard)", () => {
+  it("parseEditorCommand splits shell-style with quotes and escapes", () => {
+    expect(parseEditorCommand("vi")).toEqual(["vi"]);
+    expect(parseEditorCommand("code --wait")).toEqual(["code", "--wait"]);
+    expect(parseEditorCommand('"/opt/My Editor/bin" -n')).toEqual(["/opt/My Editor/bin", "-n"]);
+    expect(parseEditorCommand("emacsclient -c -a ''")).toEqual(["emacsclient", "-c", "-a", ""]);
+    expect(parseEditorCommand("open\\ me now")).toEqual(["open me", "now"]);
+    expect(parseEditorCommand("   ")).toEqual([]);
+  });
+
+  describe("openInEditor", () => {
+    let tmp: string;
+    let savedEditor: string | undefined;
+    let savedVisual: string | undefined;
+    beforeEach(() => {
+      tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ucx-editor-"));
+      savedEditor = process.env.EDITOR;
+      savedVisual = process.env.VISUAL;
+      delete process.env.VISUAL;
+    });
+    afterEach(() => {
+      fs.rmSync(tmp, { recursive: true, force: true });
+      if (savedEditor === undefined) delete process.env.EDITOR;
+      else process.env.EDITOR = savedEditor;
+      if (savedVisual === undefined) delete process.env.VISUAL;
+      else process.env.VISUAL = savedVisual;
+      vi.restoreAllMocks();
+    });
+
+    it("supports a multi-word $EDITOR (command + args) and passes the file last", () => {
+      const script = path.join(tmp, "fake-editor.cjs");
+      const sentinel = path.join(tmp, "opened.json");
+      fs.writeFileSync(
+        script,
+        `require("node:fs").writeFileSync(${JSON.stringify(sentinel)}, JSON.stringify(process.argv.slice(2)));\n`,
+        "utf8",
+      );
+      const target = path.join(tmp, "output.txt");
+      fs.writeFileSync(target, "hello", "utf8");
+      process.env.EDITOR = `"${process.execPath}" "${script}" --wait`;
+      expect(openInEditor(target)).toBe(true);
+      expect(JSON.parse(fs.readFileSync(sentinel, "utf8"))).toEqual(["--wait", target]);
+    });
+
+    it("surfaces a missing editor (ENOENT) instead of failing silently", () => {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      process.env.EDITOR = "definitely-not-a-real-editor-xyz --wait";
+      expect(openInEditor(path.join(tmp, "whatever.txt"))).toBe(false);
+      expect(err).toHaveBeenCalledTimes(1);
+      expect(String(err.mock.calls[0]?.[0])).toContain("failed to open $EDITOR");
+    });
+
+    it("surfaces an empty $EDITOR", () => {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      process.env.EDITOR = "''";
+      expect(openInEditor(path.join(tmp, "whatever.txt"))).toBe(false);
+      expect(err).toHaveBeenCalledTimes(1);
+    });
   });
 });

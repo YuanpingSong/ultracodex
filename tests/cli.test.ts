@@ -1,15 +1,32 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { execFile } from "node:child_process";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildProgram, parseBudget, resolveScript } from "../src/cli.js";
+import {
+  buildProgram,
+  fmtEvent,
+  lsElapsed,
+  parseBudget,
+  resolveScript,
+  sanitizeText,
+} from "../src/cli.js";
+import { JournalWriter } from "../src/journal.js";
+import { createRunDir, pidAlive, writePidFile } from "../src/rundir.js";
+import { fmtDuration } from "../src/tui/format.js";
+import type { JournalEvent } from "../src/types.js";
 import { fakeCodexPath } from "./helpers.js";
 
 const dirs: string[] = [];
+const children: ChildProcess[] = [];
 
 afterEach(() => {
+  for (const c of children.splice(0)) {
+    try {
+      c.kill("SIGKILL");
+    } catch {}
+  }
   for (const d of dirs.splice(0)) {
     try {
       fs.rmSync(d, { recursive: true, force: true });
@@ -119,6 +136,261 @@ describe("buildProgram", () => {
         "--concurrency",
       ]),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Journal-text sanitization (--watch / ls rendering)
+// ---------------------------------------------------------------------------
+
+describe("sanitizeText", () => {
+  it("strips CSI color/clear sequences", () => {
+    expect(sanitizeText("\u001b[31mred\u001b[0m")).toBe("red");
+    expect(sanitizeText("\u001b[2Jcleared")).toBe("cleared");
+  });
+
+  it("strips OSC sequences (BEL- and ST-terminated, and unterminated)", () => {
+    expect(sanitizeText("\u001b]0;evil title\u0007ok")).toBe("ok");
+    expect(sanitizeText("\u001b]8;;http://x\u001b\\link")).toBe("link");
+    expect(sanitizeText("before\u001b]0;never terminated")).toBe("before");
+  });
+
+  it("maps raw newlines/CR/tabs and other control chars to spaces", () => {
+    expect(sanitizeText("a\r\nb\tc")).toBe("a  b c");
+    expect(sanitizeText("x\u0000y\u009bz")).toBe("x y z");
+  });
+
+  it("removes lone/other ESC sequences", () => {
+    expect(sanitizeText("esc\u001bc")).toBe("esc");
+    expect(sanitizeText("tail\u001b")).toBe("tail");
+  });
+
+  it("leaves plain unicode text untouched", () => {
+    expect(sanitizeText("\u65e5\u672c\u8a9e \u2714 ok")).toBe("\u65e5\u672c\u8a9e \u2714 ok");
+  });
+});
+
+describe("fmtEvent", () => {
+  it("sanitizes agent-controlled text (no ANSI escapes or line forgery)", () => {
+    const evil = "safe\u001b[31mred\u001b]0;t\u0007\nagent 9 ok (forged)";
+    const line = fmtEvent({ t: "log", ts: 1, text: evil })!;
+    expect(line).not.toContain("\u001b");
+    expect(line).not.toContain("\n");
+    expect(line).toContain("safe");
+    const act = fmtEvent({ t: "agent_activity", ts: 1, n: 2, kind: "exec", text: evil })!;
+    expect(act).not.toContain("\u001b");
+    expect(act).not.toContain("\n");
+  });
+
+  it("sanitizes labels and errors", () => {
+    const start = fmtEvent({
+      t: "agent_start",
+      ts: 1,
+      n: 1,
+      label: "bad\u001b[31mlabel",
+      phase: null,
+      backend: "codex",
+      model: "m\u001b[0m",
+      effort: null,
+      promptSha: "x",
+      promptRef: "agents/1-x/prompt.md",
+      hasSchema: false,
+    })!;
+    expect(start).not.toContain("\u001b");
+    const end = fmtEvent({
+      t: "agent_end",
+      ts: 1,
+      n: 1,
+      status: "failed",
+      ms: 10,
+      usage: {
+        totalTokens: 0,
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+        reasoningOutputTokens: 0,
+      },
+      resultRef: null,
+      error: "boom\u001b[2J\r\nfake line",
+    })!;
+    expect(end).not.toContain("\u001b");
+    expect(end).not.toContain("\n");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dead-run handling: show / show --wait / kill / ls (in-process)
+// ---------------------------------------------------------------------------
+
+function runStartEvent(runId: string, ts = 1000): JournalEvent {
+  return {
+    t: "run_start",
+    ts,
+    runId,
+    meta: { name: "wf", description: "d" },
+    scriptSha: "sha",
+    argsRef: null,
+    budgetTotal: null,
+    concurrency: 1,
+  };
+}
+
+function makeRun(projectDir: string, runId: string, events: JournalEvent[], pid?: number): string {
+  const runDir = createRunDir(projectDir, runId);
+  const w = new JournalWriter(runDir);
+  for (const ev of events) w.append(ev);
+  w.close();
+  if (pid !== undefined) writePidFile(runDir, pid);
+  return runDir;
+}
+
+async function runCliInProc(
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  const prevCwd = process.cwd();
+  const prevExit = process.exitCode;
+  let out = "";
+  let err = "";
+  const so = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+    out += String(chunk);
+    return true;
+  }) as never);
+  const se = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+    err += String(chunk);
+    return true;
+  }) as never);
+  process.chdir(cwd);
+  process.exitCode = undefined;
+  try {
+    await buildProgram().parseAsync(["node", "ultracodex", ...args]);
+    const code = typeof process.exitCode === "number" ? process.exitCode : 0;
+    return { stdout: out, stderr: err, code };
+  } finally {
+    so.mockRestore();
+    se.mockRestore();
+    process.exitCode = prevExit;
+    process.chdir(prevCwd);
+  }
+}
+
+describe("show on dead runs", () => {
+  it("show --json reports status dead and exits non-zero for a crashed run", async () => {
+    const proj = tmpProject();
+    makeRun(proj, "uc_deadshow1", [runStartEvent("uc_deadshow1")]); // no pid file
+    const res = await runCliInProc(["show", "uc_deadshow1", "--json"], proj);
+    expect(res.code).toBe(1);
+    const parsed = JSON.parse(res.stdout) as { status: string; error: string };
+    expect(parsed.status).toBe("dead");
+    expect(parsed.error).toMatch(/runner exited/);
+  });
+
+  it("show (static) flags a dead run on stderr and exits non-zero", async () => {
+    const proj = tmpProject();
+    makeRun(proj, "uc_deadshow2", [runStartEvent("uc_deadshow2")], 9999999);
+    const res = await runCliInProc(["show", "uc_deadshow2"], proj);
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/dead/);
+  });
+
+  it("show --wait returns immediately (dead, non-zero) when the pid was recycled", async () => {
+    const proj = tmpProject();
+    // process.pid is alive but is NOT this run's runner → dead, don't wait.
+    makeRun(proj, "uc_waitdead1", [runStartEvent("uc_waitdead1")], process.pid);
+    const t0 = Date.now();
+    const res = await runCliInProc(["show", "uc_waitdead1", "--wait", "--json"], proj);
+    expect(Date.now() - t0).toBeLessThan(2500);
+    expect(res.code).toBe(1);
+    expect((JSON.parse(res.stdout) as { status: string }).status).toBe("dead");
+  }, 10_000);
+
+  it("show --json still exits 0 for a completed run", async () => {
+    const proj = tmpProject();
+    makeRun(proj, "uc_okshow1", [
+      runStartEvent("uc_okshow1"),
+      {
+        t: "run_end",
+        ts: 2000,
+        status: "ok",
+        resultRef: null,
+        error: null,
+        totals: { agents: 0, ok: 0, failed: 0, skipped: 0, usage: {}, ms: 1000 },
+      },
+    ]);
+    const res = await runCliInProc(["show", "uc_okshow1", "--json"], proj);
+    expect(res.code).toBe(0);
+    expect((JSON.parse(res.stdout) as { status: string }).status).toBe("ok");
+  });
+});
+
+describe("show --wait --timeout-ms validation", () => {
+  it("rejects non-numeric values instead of arming a NaN timer", async () => {
+    const proj = tmpProject();
+    const res = await runCliInProc(["show", "nope", "--wait", "--timeout-ms", "abc"], proj);
+    expect(res.code).toBe(1); // clear error, not the bogus instant "timed out" exit 2
+    expect(res.stderr).toMatch(/--timeout-ms must be a positive integer/);
+  });
+
+  it("rejects zero/negative values", async () => {
+    const proj = tmpProject();
+    const res = await runCliInProc(["show", "nope", "--wait", "--timeout-ms", "0"], proj);
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/--timeout-ms must be a positive integer/);
+  });
+});
+
+describe("kill pid-reuse guard", () => {
+  it("refuses to signal a recycled pid that belongs to another process", async () => {
+    const proj = tmpProject();
+    const decoy = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      stdio: "ignore",
+    });
+    children.push(decoy);
+    await new Promise((r) => setTimeout(r, 80));
+    makeRun(proj, "uc_killrec1", [runStartEvent("uc_killrec1")], decoy.pid!);
+    const res = await runCliInProc(["kill", "uc_killrec1"], proj);
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/runner exited|another process/);
+    expect(pidAlive(decoy.pid!)).toBe(true); // decoy untouched — no stray SIGTERM/SIGKILL
+  }, 15_000);
+});
+
+describe("lsElapsed", () => {
+  it("freezes dead runs at the last journal event instead of ticking", () => {
+    const proj = tmpProject();
+    const runDir = makeRun(proj, "uc_el1", [
+      runStartEvent("uc_el1", 1000),
+      { t: "log", ts: 6000, text: "last sign of life" },
+    ]);
+    expect(lsElapsed({ runDir, status: "dead", startedAt: 1000, endedAt: null })).toBe(
+      fmtDuration(5000),
+    );
+  });
+
+  it("shows a dash for a dead run with no activity after run_start", () => {
+    const proj = tmpProject();
+    const runDir = makeRun(proj, "uc_el2", [runStartEvent("uc_el2", 1000)]);
+    expect(lsElapsed({ runDir, status: "dead", startedAt: 1000, endedAt: null })).toBe("-");
+  });
+
+  it("uses endedAt for finished runs", () => {
+    expect(lsElapsed({ runDir: "/nope", status: "ok", startedAt: 1000, endedAt: 11000 })).toBe(
+      fmtDuration(10000),
+    );
+  });
+
+  it("ls output for a dead run does not grow from Date.now()", async () => {
+    const proj = tmpProject();
+    const start = Date.now() - 3_600_000; // an hour ago
+    makeRun(proj, "uc_lsdead1", [
+      runStartEvent("uc_lsdead1", start),
+      { t: "log", ts: start + 5000, text: "bye" },
+    ]);
+    const res = await runCliInProc(["ls"], proj);
+    const row = res.stdout.split("\n").find((l) => l.includes("uc_lsdead1"))!;
+    expect(row).toContain("dead");
+    expect(row).toContain(fmtDuration(5000));
+    expect(row).not.toContain("1h00m");
   });
 });
 

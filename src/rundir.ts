@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -46,6 +47,55 @@ export function pidAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+/** Best-effort command line of a live process; null when it cannot be read. */
+function pidCommandLine(pid: number): string | null {
+  try {
+    // Linux: NUL-separated argv (empty for zombies → fall through to ps).
+    const raw = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8");
+    if (raw.length > 0) return raw.split("\0").join(" ");
+  } catch {
+    // no /proc (macOS/BSD) or unreadable
+  }
+  try {
+    const out = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
+    if (out.status === 0 && typeof out.stdout === "string" && out.stdout.trim().length > 0) {
+      return out.stdout.trim();
+    }
+  } catch {
+    // ps unavailable
+  }
+  return null;
+}
+
+/**
+ * True when `pid` is alive AND verifiably this run's runner process — its
+ * command line mentions the run directory's basename (the runId, which the
+ * CLI passes as the runner's argv). Guards against the OS recycling a crashed
+ * runner's pid: an alive-but-foreign pid is NOT a live runner. When the
+ * command line cannot be inspected, falls back to plain pid liveness.
+ */
+export function runnerPidAlive(runDir: string, pid: number): boolean {
+  if (!pidAlive(pid)) return false;
+  const cmd = pidCommandLine(pid);
+  if (cmd === null) return true;
+  return cmd.includes(path.basename(runDir));
+}
+
+/**
+ * Shared "dead" rule (cli.ts reuses this): a run is dead iff its journal has
+ * run_start, no run_end, and its pid is not verifiably a live runner.
+ */
+export function isRunDead(runDir: string): boolean {
+  let hasStart = false;
+  for (const ev of readJournal(runDir)) {
+    if (ev.t === "run_start") hasStart = true;
+    else if (ev.t === "run_end") return false;
+  }
+  if (!hasStart) return false;
+  const pid = readPid(runDir);
+  return pid === null || !runnerPidAlive(runDir, pid);
 }
 
 export function agentDir(runDir: string, n: number, label: string): string {
@@ -128,7 +178,22 @@ export function listRuns(projectDir: string): RunSummary[] {
     }
 
     const pid = readPid(runDir);
-    const alive = pid !== null ? pidAlive(pid) : false;
+    const rawAlive = pid !== null && pidAlive(pid);
+    // Without a run_end, "alive" additionally requires the pid to verifiably
+    // be this run's runner (guards OS pid reuse flipping a dead run back to
+    // "running").
+    const alive =
+      pid !== null && rawAlive && (runStatus !== null || runnerPidAlive(runDir, pid));
+
+    if (runStatus === null && pid !== null && !rawAlive) {
+      // Crashed runner left a stale pidfile; clean it so the pid can never be
+      // mistaken for a recycled live process later.
+      try {
+        fs.rmSync(path.join(runDir, PID_FILE), { force: true });
+      } catch {
+        // pidfile is advisory
+      }
+    }
 
     let status: RunSummary["status"];
     if (runStatus !== null) {

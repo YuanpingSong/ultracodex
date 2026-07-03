@@ -116,6 +116,34 @@ describe("AppServerClient", () => {
     expect(() => process.kill(pid, 0)).toThrow();
   });
 
+  it("kill() reaps surviving process-group members after the leader already exited", async () => {
+    const pidFile = path.join(tmpDir(), "child.pid");
+    const client = await startClient({ FAKE_CODEX_ORPHAN_CHILD: "1", FAKE_CODEX_CHILD_PID_FILE: pidFile });
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const deadline = Date.now() + 5_000;
+    while (!fs.existsSync(pidFile) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    const childPid = Number(fs.readFileSync(pidFile, "utf8"));
+    expect(childPid).toBeGreaterThan(0);
+    expect(alive(childPid)).toBe(true);
+
+    // Kill ONLY the leader; the group member survives it.
+    process.kill(client.pid!, "SIGKILL");
+    await client.exited;
+    expect(alive(childPid)).toBe(true);
+
+    client.kill(); // must kill the process GROUP even though the leader is gone
+    const killDeadline = Date.now() + 3_000;
+    while (alive(childPid) && Date.now() < killDeadline) await new Promise((r) => setTimeout(r, 20));
+    expect(alive(childPid)).toBe(false);
+  });
+
   it("auto-denies server->client requests and surfaces them via onNotification", async () => {
     const client = await startClient();
     const seen: string[] = [];
@@ -158,6 +186,9 @@ describe("runTurn", () => {
     expect(first.finalText).toBe("first answer");
     const second = await turnOn(client, threadId, prompt).promise;
     expect(second.finalText).toBe("second answer");
+    // Second turn's usage is ITS OWN delta, not the thread-cumulative total.
+    expect(second.usage.totalTokens).toBe(110);
+    expect(second.usage.inputTokens).toBe(100);
   });
 
   it("maps commandExecution items to exec activity with running phase", async () => {
@@ -189,6 +220,44 @@ describe("runTurn", () => {
     expect(result.usage.outputTokens).toBe(56);
     expect(result.usage.totalTokens).toBe(1290);
     expect(usages.at(-1)).toEqual(result.usage);
+  });
+
+  it("accumulates usage across multiple tokenUsage updates in one multi-step turn", async () => {
+    const client = await startClient();
+    const threadId = await startThread(client);
+    const { promise, usages } = turnOn(client, threadId, "[[midusage:50,5]] [[usage:100,10]] [[reply:multi]]");
+    const result = await promise;
+    expect(result.status).toBe("completed");
+    // 50+5 from the mid-turn request PLUS 100+10 from the final request.
+    expect(result.usage).toEqual({
+      totalTokens: 165,
+      inputTokens: 150,
+      cachedInputTokens: 0,
+      outputTokens: 15,
+      reasoningOutputTokens: 0,
+    });
+    expect(usages.length).toBeGreaterThanOrEqual(2);
+    expect(usages.at(-1)).toEqual(result.usage);
+  });
+
+  it("ignores error notifications with willRetry:true and still completes", async () => {
+    const client = await startClient();
+    const threadId = await startThread(client);
+    const { promise, activities } = turnOn(client, threadId, "[[retry-error:rate limited]] [[reply:recovered]]");
+    const result = await promise;
+    expect(result.status).toBe("completed");
+    expect(result.finalText).toBe("recovered");
+    expect(result.error).toBeNull();
+    expect(activities.some((a) => a.kind === "status" && a.text.includes("rate limited"))).toBe(true);
+  });
+
+  it("subagent-thread errors do not fail the MAIN turn", async () => {
+    const client = await startClient();
+    const threadId = await startThread(client);
+    const result = await turnOn(client, threadId, "[[suberror:sub exploded]] [[reply:main ok]]").promise;
+    expect(result.status).toBe("completed");
+    expect(result.finalText).toBe("main ok");
+    expect(result.error).toBeNull();
   });
 
   it("[[fail:msg]] resolves failed with the error message", async () => {

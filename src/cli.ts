@@ -20,10 +20,12 @@ import { newRunId } from "./ids.js";
 import { readJournal, tailJournal } from "./journal.js";
 import {
   createRunDir,
+  isRunDead,
   listRuns,
   pidAlive,
   readPid,
   resolveRunId,
+  runnerPidAlive,
   runsDir,
   stateDir,
 } from "./rundir.js";
@@ -34,7 +36,13 @@ import { fmtDuration, fmtTokens } from "./tui/format.js";
 import { initialState, reduce, type TuiState } from "./tui/reducer.js";
 import { renderRunStatic } from "./tui/static.js";
 import { runTui } from "./tui/index.js";
-import type { JournalEvent, RunEndEvent, RunOptions, UltracodexConfig } from "./types.js";
+import type {
+  JournalEvent,
+  RunEndEvent,
+  RunOptions,
+  RunSummary,
+  UltracodexConfig,
+} from "./types.js";
 
 class CliError extends Error {}
 
@@ -152,7 +160,7 @@ function tailRun(
     );
     const liveness = setInterval(() => {
       const pid = readPid(runDir);
-      if (pid !== null && pidAlive(pid)) {
+      if (pid !== null && runnerPidAlive(runDir, pid)) {
         deadChecks = 0;
         return;
       }
@@ -168,32 +176,47 @@ function tailRun(
   });
 }
 
-function fmtEvent(ev: JournalEvent): string | null {
+/**
+ * Journal-sourced text (labels, activity, log lines, errors) is agent/script
+ * controlled — untrusted for terminals. Strip ANSI escape sequences (CSI, OSC,
+ * other ESC-prefixed) and map raw control characters (including CR/LF) to
+ * spaces so it can neither forge output lines nor restyle the terminal.
+ */
+export function sanitizeText(text: string): string {
+  return text
+    .replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\|$)/g, "") // OSC ... BEL/ST
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]?/g, "") // CSI
+    .replace(/\u001b[\s\S]?/g, "") // any other ESC sequence
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " "); // raw control chars (incl. CR/LF) -> space
+}
+
+export function fmtEvent(ev: JournalEvent): string | null {
+  const s = sanitizeText;
   switch (ev.t) {
     case "run_start":
-      return `run ${ev.runId} [${ev.meta.name}] started (concurrency ${ev.concurrency}${ev.budgetTotal !== null ? `, budget ${fmtTokens(ev.budgetTotal)}` : ""})`;
+      return `run ${ev.runId} [${s(ev.meta.name)}] started (concurrency ${ev.concurrency}${ev.budgetTotal !== null ? `, budget ${fmtTokens(ev.budgetTotal)}` : ""})`;
     case "phase":
-      return `phase ▸ ${ev.title}`;
+      return `phase ▸ ${s(ev.title)}`;
     case "agent_start":
-      return `agent ${ev.n} [${ev.label}] started (${ev.backend}${ev.model ? ` ${ev.model}` : ""}${ev.effort ? ` ${ev.effort}` : ""})`;
+      return `agent ${ev.n} [${s(ev.label)}] started (${s(ev.backend)}${ev.model ? ` ${s(ev.model)}` : ""}${ev.effort ? ` ${s(ev.effort)}` : ""})`;
     case "agent_thread":
-      return `agent ${ev.n} thread ${ev.threadId}`;
+      return `agent ${ev.n} thread ${s(ev.threadId)}`;
     case "agent_activity":
-      return `agent ${ev.n} ${ev.kind}: ${ev.text}`;
+      return `agent ${ev.n} ${ev.kind}: ${s(ev.text)}`;
     case "agent_usage":
       return null;
     case "agent_end":
-      return `agent ${ev.n} ${ev.status}${ev.error ? `: ${ev.error}` : ""} (${fmtDuration(ev.ms)}, ${fmtTokens(ev.usage.outputTokens)} out tok)`;
+      return `agent ${ev.n} ${ev.status}${ev.error ? `: ${s(ev.error)}` : ""} (${fmtDuration(ev.ms)}, ${fmtTokens(ev.usage.outputTokens)} out tok)`;
     case "log":
-      return `log: ${ev.text}`;
+      return `log: ${s(ev.text)}`;
     case "warn":
-      return `warn: ${ev.text}`;
+      return `warn: ${s(ev.text)}`;
     case "paused":
       return "paused";
     case "resumed":
       return "resumed";
     case "run_end":
-      return `run ${ev.status}${ev.error ? `: ${ev.error}` : ""} (${ev.totals.ok} ok / ${ev.totals.failed} failed / ${ev.totals.skipped} skipped, ${fmtDuration(ev.totals.ms)})`;
+      return `run ${ev.status}${ev.error ? `: ${s(ev.error)}` : ""} (${ev.totals.ok} ok / ${ev.totals.failed} failed / ${ev.totals.skipped} skipped, ${fmtDuration(ev.totals.ms)})`;
   }
 }
 
@@ -327,6 +350,21 @@ function table(rows: string[][]): string {
     .join("\n");
 }
 
+/**
+ * ELAPSED cell for `ls`. Dead runs (crashed, no run_end) freeze at the last
+ * journal event instead of ticking from Date.now() forever.
+ */
+export function lsElapsed(r: Pick<RunSummary, "runDir" | "status" | "startedAt" | "endedAt">): string {
+  if (r.startedAt === null) return "-";
+  if (r.endedAt !== null) return fmtDuration(r.endedAt - r.startedAt);
+  if (r.status === "dead") {
+    const events = readJournal(r.runDir);
+    const last = events.length > 0 ? events[events.length - 1]!.ts : r.startedAt;
+    return last > r.startedAt ? fmtDuration(last - r.startedAt) : "-";
+  }
+  return fmtDuration(Date.now() - r.startedAt);
+}
+
 function lsAction(): void {
   const runs = listRuns(process.cwd());
   if (runs.length === 0) {
@@ -335,13 +373,11 @@ function lsAction(): void {
   }
   const rows: string[][] = [["RUN ID", "NAME", "STATUS", "ELAPSED", "AGENTS", "TOKENS"]];
   for (const r of runs) {
-    const elapsed =
-      r.startedAt !== null ? fmtDuration((r.endedAt ?? Date.now()) - r.startedAt) : "-";
     rows.push([
       r.runId,
-      r.name ?? "-",
+      r.name !== null ? sanitizeText(r.name) : "-",
       r.status,
-      elapsed,
+      lsElapsed(r),
       `${r.agentsDone}/${r.agentsTotal}`,
       fmtTokens(r.outputTokens),
     ]);
@@ -356,18 +392,27 @@ interface ShowCliOpts {
 }
 
 async function showAction(ref: string, opts: ShowCliOpts): Promise<void> {
+  let timeoutMs: number | undefined;
+  if (opts.timeoutMs !== undefined) {
+    timeoutMs = Number(opts.timeoutMs);
+    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+      throw new CliError(`--timeout-ms must be a positive integer (got "${opts.timeoutMs}")`);
+    }
+  }
   const projectDir = process.cwd();
   const { runId, runDir } = runDirOf(projectDir, ref);
-  if (opts.wait && !hasRunEnd(runDir)) {
-    const timeoutMs = opts.timeoutMs !== undefined ? Number(opts.timeoutMs) : undefined;
+  // A dead run (run_start, no run_end, runner pid gone) is terminal: never wait on it.
+  if (opts.wait && !hasRunEnd(runDir) && !isRunDead(runDir)) {
     const end = await tailRun(runDir, timeoutMs !== undefined ? { timeoutMs } : {});
     if (end === "timeout") {
       process.stderr.write(`timed out waiting for run ${runId} to end\n`);
       process.exitCode = 2;
       return;
     }
+    // end === "dead" (or run_end): fall through — the fold below reports it.
   }
   const state = foldJournal(runDir);
+  const dead = state.status === "running" && isRunDead(runDir);
   if (opts.json) {
     let result: unknown = null;
     if (state.resultRef !== null) {
@@ -379,14 +424,25 @@ async function showAction(ref: string, opts: ShowCliOpts): Promise<void> {
     }
     process.stdout.write(
       JSON.stringify(
-        { runId, status: state.status, result, error: state.error, totals: state.totals },
+        {
+          runId,
+          status: dead ? "dead" : state.status,
+          result,
+          error: dead ? (state.error ?? "runner exited before run_end") : state.error,
+          totals: state.totals,
+        },
         null,
         2,
       ) + "\n",
     );
+    if (dead) process.exitCode = 1;
     return;
   }
   process.stdout.write(renderRunStatic(state) + "\n");
+  if (dead) {
+    process.stderr.write(`run ${runId} is dead: runner exited before run_end\n`);
+    process.exitCode = 1;
+  }
 }
 
 async function attachAction(ref: string): Promise<void> {
@@ -402,7 +458,8 @@ async function attachAction(ref: string): Promise<void> {
 function requireAliveRun(ref: string): { runId: string; runDir: string; pid: number } {
   const { runId, runDir } = runDirOf(process.cwd(), ref);
   const pid = readPid(runDir);
-  if (pid === null || !pidAlive(pid)) {
+  // runnerPidAlive also rejects a recycled pid now owned by a foreign process.
+  if (pid === null || !runnerPidAlive(runDir, pid)) {
     throw new CliError(`runner exited (run ${runId})`);
   }
   return { runId, runDir, pid };
@@ -449,9 +506,20 @@ async function killAction(ref: string): Promise<void> {
   if (pid === null || !pidAlive(pid)) {
     throw new CliError(`runner exited (run ${runId})`);
   }
+  // Never signal a pid we cannot verify as this run's runner: after a crash
+  // the OS may have recycled it for an unrelated process.
+  if (!runnerPidAlive(runDir, pid)) {
+    throw new CliError(
+      `runner exited (run ${runId}); pid ${pid} now belongs to another process — not signaling`,
+    );
+  }
   appendControl(runDir, { cmd: "stop" });
   if (await waitEnded(runDir, pid, SIGTERM_GRACE_MS)) {
     process.stdout.write(`run ${runId} stopped gracefully\n`);
+    return;
+  }
+  if (!runnerPidAlive(runDir, pid)) {
+    process.stdout.write(`run ${runId} runner exited\n`);
     return;
   }
   try {
@@ -461,6 +529,10 @@ async function killAction(ref: string): Promise<void> {
   }
   if (await waitEnded(runDir, pid, SIGTERM_GRACE_MS)) {
     process.stdout.write(`run ${runId} terminated (SIGTERM)\n`);
+    return;
+  }
+  if (!runnerPidAlive(runDir, pid)) {
+    process.stdout.write(`run ${runId} runner exited\n`);
     return;
   }
   try {
