@@ -15,6 +15,21 @@ verifies). Each item is a candidate improvement to this repo.
 
 ## Fixed in this repo during the second build
 
+- **Wire schemas must be OpenAI-strict; fake-codex didn't enforce it.**
+  Stage 1 of the rebuild failed instantly: all 11 agents got
+  `400 invalid_json_schema` because the review pass had changed `strictify`
+  to preserve the authored `required` — but OpenAI strict structured output
+  demands `required` = every property key + `additionalProperties: false`
+  on every object node. The dual-skeptic verification missed it because the
+  repro ran against the fake, which accepted loose schemas. Fixes:
+  (1) `strictifyForWire()` — strict-completed wire form, or omitted entirely
+  when not strict-representable (map-style `additionalProperties`), while ajv
+  keeps validating against the authored schema; (2) the fake now emulates
+  the API's strict-schema validation and returns the real error shape, so
+  this class of bug fails hermetically. Lesson: **fake fidelity is a spec
+  concern — every live-API rejection class the executor relies on must be
+  mirrored in the fixture.**
+
 - **Fast-tier inheritance.** The operator's `~/.codex/config.toml` had
   `service_tier = "fast"` — every spawned app-server silently ran on the
   increased-usage fast tier. Added `[backends.codex] service_tier`

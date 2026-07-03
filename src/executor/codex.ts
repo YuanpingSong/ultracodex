@@ -1,7 +1,7 @@
 import { AppServerClient } from "../appserver/client.js";
 import { runTurn, type TurnResult } from "../appserver/turn.js";
 import { assemblePrompt } from "./prompt.js";
-import { createValidator, strictify } from "./schema.js";
+import { createValidator, strictify, strictifyForWire } from "./schema.js";
 import { addUsage, ZERO_USAGE } from "../types.js";
 import type {
   AgentProfileConfig,
@@ -73,11 +73,18 @@ export class CodexExecutor implements Executor {
     const effort = req.effort
       ? (this.cfg.effortMap[req.effort] ?? req.effort)
       : this.cfg.defaultEffort;
-    const schema = req.schema ? strictify(req.schema) : null;
-    const validate = schema ? createValidator(schema) : null;
+    // Two schema forms (observed live: OpenAI strict mode 400s unless every
+    // object node has required=all keys + additionalProperties:false):
+    // - wireSchema: strict-compliant form for turn/start outputSchema, or null
+    //   when the authored schema can't be expressed strictly (then the
+    //   prompt-inlined contract + ajv repair loop carries it alone).
+    // - validation/prompt use the AUTHORED schema — upstream semantics
+    //   (optional properties stay optional) are judged as written.
+    const wireSchema = req.schema ? strictifyForWire(req.schema) : null;
+    const validate = req.schema ? createValidator(strictify(req.schema)) : null;
     const prompt = assemblePrompt({
       prompt: req.prompt,
-      schema: schema ?? undefined,
+      schema: req.schema ? strictify(req.schema) : undefined,
       profilePreamble: profile?.preamble,
     });
 
@@ -124,7 +131,7 @@ export class CodexExecutor implements Executor {
           prompt: turnPrompt,
           model,
           effort,
-          outputSchema: schema,
+          outputSchema: wireSchema,
           signal: ctx.signal,
           onActivity: (ev) => ctx.onActivity(ev),
           onUsage: (u) => ctx.onUsage(addUsage(before, u)),

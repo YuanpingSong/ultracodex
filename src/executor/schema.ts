@@ -49,6 +49,53 @@ function strictifyNode(node: unknown): void {
   }
 }
 
+/**
+ * Produce the schema sent as `outputSchema` over the wire, or null when the
+ * schema cannot be expressed in OpenAI strict structured-output form.
+ *
+ * OpenAI strict mode REQUIRES on every object node: `required` listing EVERY
+ * key in `properties`, and `additionalProperties: false` (a map-style
+ * sub-schema is not strict-representable). Sending anything looser fails the
+ * whole turn with 400 invalid_json_schema — observed live 2026-07-02.
+ * Semantic optionality is preserved by validating the model's reply against
+ * the AUTHORED schema (createValidator), never this wire form.
+ */
+export function strictifyForWire(
+  schema: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const clone = structuredClone(schema);
+  return wireNode(clone) ? clone : null;
+}
+
+function wireNode(node: unknown): boolean {
+  if (Array.isArray(node)) return node.every(wireNode);
+  if (!isRecord(node)) return true;
+  const props = isRecord(node.properties) ? node.properties : null;
+  if (node.type === "object" || props) {
+    // map-style objects (additionalProperties sub-schema, or open objects with
+    // no enumerable properties) cannot be made strict — caller omits outputSchema
+    if (isRecord(node.additionalProperties)) return false;
+    if (!props) return false;
+    node.additionalProperties = false;
+    node.required = Object.keys(props);
+  }
+  if (props) {
+    for (const value of Object.values(props)) if (!wireNode(value)) return false;
+  }
+  if (node.items !== undefined && !wireNode(node.items)) return false;
+  for (const key of ["anyOf", "oneOf", "allOf"] as const) {
+    const list = node[key];
+    if (Array.isArray(list) && !list.every(wireNode)) return false;
+  }
+  for (const key of ["$defs", "definitions"] as const) {
+    const defs = node[key];
+    if (isRecord(defs)) {
+      for (const value of Object.values(defs)) if (!wireNode(value)) return false;
+    }
+  }
+  return true;
+}
+
 export function schemaInstruction(schema: Record<string, unknown>): string {
   return [
     "<structured_output_contract>",

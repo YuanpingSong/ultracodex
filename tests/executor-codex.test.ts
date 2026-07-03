@@ -74,6 +74,40 @@ describe("CodexExecutor", () => {
     expect(schema).toEqual(snapshot);
   });
 
+  it("schema with optional properties succeeds (wire form is strict-completed; live 400 regression)", async () => {
+    const exec = new CodexExecutor(cfg(), {});
+    const { ctx } = makeCtx();
+    // 'filesModified' is deliberately NOT in required — the live API 400s
+    // unless the WIRE schema promotes it; validation still honors optionality.
+    const schema = {
+      type: "object",
+      properties: { done: { type: "boolean" }, filesModified: { type: "array", items: { type: "string" } } },
+      required: ["done"],
+    };
+    const res = await exec.run(
+      { prompt: 'report [[reply:{"done":true}]]', schema, cwd: tmpDir(), label: "optional" },
+      ctx,
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.object).toEqual({ done: true });
+  });
+
+  it("map-style additionalProperties schema falls back to prompt+ajv (no wire outputSchema)", async () => {
+    const exec = new CodexExecutor(cfg(), {});
+    const { ctx } = makeCtx();
+    const schema = {
+      type: "object",
+      properties: { counts: { type: "object", additionalProperties: { type: "number" } } },
+      required: ["counts"],
+    };
+    const res = await exec.run(
+      { prompt: 'tally [[reply:{"counts":{"x":1,"y":2}}]]', schema, cwd: tmpDir(), label: "map" },
+      ctx,
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.object).toEqual({ counts: { x: 1, y: 2 } });
+  });
+
   it("repairs invalid JSON on the same thread and accumulates usage across turns", async () => {
     const exec = new CodexExecutor(cfg(), {});
     const { ctx, usages, threads } = makeCtx();

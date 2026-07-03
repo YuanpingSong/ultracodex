@@ -1,7 +1,60 @@
 import { describe, it, expect } from "vitest";
-import { createValidator, extractJson, schemaInstruction, strictify } from "../src/executor/schema.js";
+import {
+  createValidator,
+  extractJson,
+  schemaInstruction,
+  strictify,
+  strictifyForWire,
+} from "../src/executor/schema.js";
 import { assemblePrompt } from "../src/executor/prompt.js";
 import { RETURN_VALUE_CONTRACT } from "../src/constants.js";
+
+describe("strictifyForWire", () => {
+  it("promotes every property to required and closes objects (OpenAI strict mode)", () => {
+    const wire = strictifyForWire({
+      type: "object",
+      properties: { a: { type: "number" }, b: { type: "string" } },
+      required: ["a"],
+    });
+    expect(wire).not.toBeNull();
+    expect((wire as Record<string, unknown>).required).toEqual(["a", "b"]);
+    expect((wire as Record<string, unknown>).additionalProperties).toBe(false);
+  });
+
+  it("recurses into nested objects and arrays", () => {
+    const wire = strictifyForWire({
+      type: "object",
+      properties: {
+        items: { type: "array", items: { type: "object", properties: { x: { type: "number" } } } },
+      },
+    }) as Record<string, unknown>;
+    const items = (wire.properties as Record<string, Record<string, unknown>>).items;
+    const inner = items.items as Record<string, unknown>;
+    expect(inner.required).toEqual(["x"]);
+    expect(inner.additionalProperties).toBe(false);
+  });
+
+  it("returns null for map-style additionalProperties (not strict-representable)", () => {
+    expect(
+      strictifyForWire({
+        type: "object",
+        properties: { m: { type: "object", additionalProperties: { type: "number" } } },
+        required: ["m"],
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null for open objects with no enumerable properties", () => {
+    expect(strictifyForWire({ type: "object" })).toBeNull();
+  });
+
+  it("does not mutate its input", () => {
+    const input = { type: "object", properties: { a: { type: "number" } } };
+    const snapshot = structuredClone(input);
+    strictifyForWire(input);
+    expect(input).toEqual(snapshot);
+  });
+});
 
 describe("strictify", () => {
   it("closes nested objects, array items, anyOf/oneOf/allOf and $defs/definitions", () => {

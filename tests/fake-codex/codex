@@ -164,6 +164,59 @@ function emitUsage(t, turnId, inTok, outTok) {
   });
 }
 
+function strictSchemaProblem(node) {
+  if (Array.isArray(node)) {
+    for (const n of node) {
+      const p = strictSchemaProblem(n);
+      if (p) return p;
+    }
+    return null;
+  }
+  if (node === null || typeof node !== "object") return null;
+  const props =
+    node.properties && typeof node.properties === "object" && !Array.isArray(node.properties)
+      ? node.properties
+      : null;
+  if (node.type === "object" || props) {
+    if (node.additionalProperties && typeof node.additionalProperties === "object")
+      return "In context=(), 'additionalProperties' is required to be supplied and to be false.";
+    if (node.additionalProperties !== false)
+      return "In context=(), 'additionalProperties' is required to be supplied and to be false.";
+    const keys = props ? Object.keys(props) : [];
+    const required = Array.isArray(node.required) ? node.required : [];
+    for (const k of keys) {
+      if (!required.includes(k))
+        return "In context=(), 'required' is required to be supplied and to be an array including every key in properties. Missing '" + k + "'.";
+    }
+  }
+  if (props) {
+    for (const v of Object.values(props)) {
+      const p = strictSchemaProblem(v);
+      if (p) return p;
+    }
+  }
+  if (node.items !== undefined) {
+    const p = strictSchemaProblem(node.items);
+    if (p) return p;
+  }
+  for (const key of ["anyOf", "oneOf", "allOf"]) {
+    if (Array.isArray(node[key])) {
+      const p = strictSchemaProblem(node[key]);
+      if (p) return p;
+    }
+  }
+  for (const key of ["$defs", "definitions"]) {
+    const defs = node[key];
+    if (defs && typeof defs === "object") {
+      for (const v of Object.values(defs)) {
+        const p = strictSchemaProblem(v);
+        if (p) return p;
+      }
+    }
+  }
+  return null;
+}
+
 function handleTurnStart(msg) {
   const p = msg.params || {};
   const t = threads.get(p.threadId);
@@ -190,6 +243,37 @@ function handleTurnStart(msg) {
   if (CRASH_MID_TURN) {
     setTimeout(() => process.exit(1), 25);
     return;
+  }
+
+  // Emulate OpenAI strict structured-output validation (observed live
+  // 2026-07-02): every object node must carry required = ALL property keys
+  // and additionalProperties: false; a map-style additionalProperties
+  // sub-schema is not strict-representable. Loose schemas fail the turn
+  // with the real API's invalid_json_schema error shape.
+  if (p.outputSchema !== null && p.outputSchema !== undefined) {
+    const problem = strictSchemaProblem(p.outputSchema);
+    if (problem) {
+      const apiError = {
+        type: "error",
+        error: {
+          type: "invalid_request_error",
+          code: "invalid_json_schema",
+          message:
+            "Invalid schema for response_format 'codex_output_schema': " + problem,
+          param: "text.format.schema",
+        },
+        status: 400,
+      };
+      send({
+        method: "error",
+        params: { threadId: t.id, turnId: turnId, error: { message: JSON.stringify(apiError, null, 2), willRetry: false } },
+      });
+      send({
+        method: "turn/completed",
+        params: { threadId: t.id, turn: turnObj(turnId, "failed", { startedAt: startedAt, completedAt: now(), error: { message: JSON.stringify(apiError, null, 2) } }) },
+      });
+      return;
+    }
   }
 
   const userItem = { type: "userMessage", id: "user-" + turnId, clientId: null, content: p.input || [] };
