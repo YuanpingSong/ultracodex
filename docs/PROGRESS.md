@@ -1,8 +1,20 @@
 # ultracodex progress
 
-Status as of 2026-07-02.
+Status as of 2026-07-02. **M1–M3 complete and shipped.**
 
-## Done
+## Shipped (M1–M3)
+
+- Full runner: loader, app-server executor (JSON-RPC, `captureTurn` state
+  machine, per-turn usage), runtime globals with upstream semantics, journal +
+  control channel, detached runner, worktrees, budget ledgers.
+- Ink TUI (home/run/detail/timeline), CLI surface (run/ls/show/attach/
+  pause/resume/kill/skip/logs/validate/sync-skills/doctor), claude backend +
+  config routing.
+- 338 hermetic tests (fake-codex fixture) + live end-to-end on real codex.
+- Adversarial review pass: 5-dimension review → dual-skeptic verification →
+  27 confirmed findings fixed → re-verified green.
+
+## Earlier foundation work
 
 - Product spec locked (`docs/product_context.md` v3): app-server executor
   architecture, files-as-state, journal-as-spine, no daemon, dual-runnable
