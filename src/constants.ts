@@ -47,7 +47,9 @@ export const RUNNER_LOG_FILE = "runner.log";
 export const DEFAULT_CODEX_CONFIG: CodexBackendConfig = {
   binary: "codex",
   sandbox: "workspace-write",
-  defaultModel: "gpt-5.4",
+  // codex's own default (model/list isDefault) — matches upstream "inherit
+  // the main-loop model" semantics for agents that don't pin a tier.
+  defaultModel: "gpt-5.5",
   modelMap: {
     fable: "gpt-5.5",
     opus: "gpt-5.5",

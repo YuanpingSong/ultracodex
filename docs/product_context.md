@@ -120,7 +120,8 @@ export const meta = {
 
 [backends.codex]
 sandbox = "workspace-write"
-model_map = { opus = "gpt-5.2-codex", sonnet = "gpt-5.2-codex", haiku = "gpt-5.2-codex-mini" }  # placeholder — decide at build time
+default_model = "gpt-5.5"   # codex's own default (live lineup, probe 2026-07-02)
+model_map = { fable = "gpt-5.5", opus = "gpt-5.5", sonnet = "gpt-5.4", haiku = "gpt-5.4-mini", spark = "gpt-5.3-codex-spark" }
 effort_map = { low = "low", medium = "medium", high = "high", xhigh = "xhigh", max = "xhigh" }
 
 [backends.claude]             # M3: shells to `claude -p --output-format json`

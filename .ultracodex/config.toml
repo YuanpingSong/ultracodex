@@ -5,7 +5,7 @@
 
 [backends.codex]
 sandbox = "workspace-write"
-default_model = "gpt-5.4"
+default_model = "gpt-5.5"
 
 [backends.codex.model_map]
 fable = "gpt-5.5"
