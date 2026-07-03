@@ -28,4 +28,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm test
-      - run: npm publish --provenance --access public
+      # idempotent: skip when this version is already on the registry
+      # (e.g. the tag commemorates a manual first publish)
+      - run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "ultracodex@$VERSION" version > /dev/null 2>&1; then
+            echo "ultracodex@$VERSION already published — skipping"
+          else
+            npm publish --provenance --access public
+          fi
