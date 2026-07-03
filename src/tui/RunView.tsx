@@ -187,7 +187,7 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
   }
 
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <Box flexDirection="column" paddingX={1} flexGrow={1}>
       <Header state={state} now={now} />
       {runnerDead && running && (
         <Text color={col("red")} bold>
@@ -218,6 +218,7 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
         </Box>
       )}
       {state.status !== "running" && <ResultPane state={state} runDir={runDir} />}
+      <Box flexGrow={1} />
       <Box marginTop={1}>
         {mode.kind === "confirm" ? (
           <Text color={col("yellow")} bold>

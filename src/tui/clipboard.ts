@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { suspendAltScreen } from "./screen.js";
 
 export function copyToClipboard(text: string): boolean {
   const candidates: Array<[string, string[]]> =
@@ -75,7 +76,7 @@ export function openInEditor(filePath: string): boolean {
   const wasRaw = stdin.isTTY === true && stdin.isRaw;
   try {
     if (wasRaw) stdin.setRawMode(false);
-    const r = spawnSync(cmd, [...parts.slice(1), filePath], { stdio: "inherit" });
+    const r = suspendAltScreen(() => spawnSync(cmd, [...parts.slice(1), filePath], { stdio: "inherit" }));
     if (r.error) {
       reportEditorFailure(editor, r.error.message);
       return false;

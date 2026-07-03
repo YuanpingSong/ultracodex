@@ -146,7 +146,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
   const now = Date.now();
 
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <Box flexDirection="column" paddingX={1} flexGrow={1}>
       <Text bold color={col("cyan")}>
         ultracodex
       </Text>
@@ -203,7 +203,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
           }}
         />
       ) : (
-        <Box marginTop={1}>
+        <Box marginTop={1} flexGrow={1} alignItems="flex-end">
           <Text dimColor wrap="truncate-end">
             ↑↓ select · ↵ attach/launch · n new run · r re-run · q quit
           </Text>
