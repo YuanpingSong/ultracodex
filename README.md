@@ -162,7 +162,44 @@ For real work, run from **your project's root** — agents work in your cwd.
 exits; `--budget` takes output tokens as an integer with optional `k`/`m`
 suffixes (`--budget 500k`).
 
-### Saved workflows + Claude Code integration
+### Driving ultracodex from Claude Code
+
+The "fable plans" half of the loop runs in the other direction too: **Claude
+authors the workflow and runs it** — no setup, no skill, just prompting,
+because Claude Code can already write files and run commands. Ask:
+
+> Using the Agent Script format (docs/agent_script_spec.md — `export const
+> meta = {...}` + a plain-JS body over the eight injected globals), write a
+> workflow that reviews every file in src/ for bugs in parallel and
+> adversarially verifies each finding. Save it to /tmp/review.js, check it
+> with `ultracodex validate /tmp/review.js --strict`, run it with
+> `ultracodex run /tmp/review.js --json --budget 300k`, and relay the result
+> JSON verbatim. If the run fails, report the failure — don't do the review
+> yourself.
+
+That's a complete plan → execute → verify round trip in one message. (It's
+also how this repo validated itself: a fresh Claude session authored staged
+build workflows from the spec and drove them through this CLI to rebuild the
+project with Codex agents.)
+
+To make it a standing habit, paste this into your project's `CLAUDE.md` so
+Claude reaches for ultracodex on its own:
+
+```markdown
+## ultracodex
+For multi-agent work (parallel fan-outs, pipelines, builder–verifier loops),
+author an Agent Script — spec in docs/agent_script_spec.md: `export const
+meta = {name, description}` then a plain-JS body over agent/parallel/
+pipeline/phase/log/args/budget/workflow — and execute it:
+    ultracodex validate <script.js> --strict     # then:
+    ultracodex run <script.js> --json [--budget 500k]
+`run --json` blocks until the run ends and prints the result JSON. Relay it
+verbatim; if the run failed, report the failure instead of doing the work
+yourself. Recurring workflows: save to .ultracodex/workflows/<name>.js and
+run by name.
+```
+
+### Saved workflows + skills
 
 Drop scripts in `.ultracodex/workflows/<name>.js` and they become runnable
 by name (`ultracodex run <name>`) and visible in the TUI launcher (bare
@@ -173,8 +210,8 @@ ultracodex sync-skills
 ```
 
 generates a Claude Code skill per workflow, so Claude can trigger your
-workflows itself via `ultracodex run <name> --json` and relay the results —
-the "fable plans" half of the loop.
+saved workflows by name without being asked — the fully-automatic tier of
+the same integration.
 
 ### Routing & configuration
 
