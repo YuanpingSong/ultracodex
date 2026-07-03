@@ -1,0 +1,15 @@
+# ultracodex backend routing — scripts stay portable; routing lives here.
+
+[route]
+"*" = "codex"
+
+[backends.codex]
+sandbox = "workspace-write"
+default_model = "gpt-5.4"
+
+[backends.codex.model_map]
+fable = "gpt-5.5"
+opus = "gpt-5.5"
+sonnet = "gpt-5.4"
+haiku = "gpt-5.4-mini"
+spark = "gpt-5.3-codex-spark"

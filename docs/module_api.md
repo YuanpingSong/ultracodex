@@ -341,6 +341,20 @@ export function initialState(): TuiState;
 export function reduce(state: TuiState, ev: JournalEvent): TuiState;  // immutable-ish; cheap
 ```
 
+## src/tui/index.tsx (entry used by cli.ts)
+```ts
+export function runTui(opts: { projectDir: string; runDir?: string }): Promise<void>;
+// runDir given → run view attached to that run; else home view (launcher).
+// Resolves when the user quits (q). Quitting NEVER kills runs.
+```
+
+## src/tui/static.ts (used by `show`)
+```ts
+export function renderRunStatic(state: TuiState, opts?: { color?: boolean }): string;
+// One-shot render of a finished/current journal fold: header, phase strip, agent lines
+// (status, label, tokens, duration, error snippets), narrator tail, result summary + resume hints.
+```
+
 ## src/validate.ts
 ```ts
 export interface ValidationIssue { severity: "error" | "warn"; message: string; line?: number }

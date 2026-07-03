@@ -1,0 +1,399 @@
+#!/usr/bin/env node
+"use strict";
+// Fake `codex app-server` for hermetic tests. JSONL over stdio.
+// Message shapes mirror fixtures/appserver/probe-capture.jsonl (codex 0.142.4).
+// Zero module imports so the extensionless entry runs under any module mode.
+//
+// Prompt directives:
+//   [[reply:TEXT]]   final answer TEXT (default "ok"); [[reply2:TEXT]]/[[reply3:TEXT]]
+//                    answer the thread's 2nd/3rd turn.
+//   [[slow:MS]]      delay before answering (interruptible via turn/interrupt).
+//   [[fail:MSG]]     error notification + turn/completed status "failed".
+//   [[exec:CMD]]     commandExecution item started+completed before answering.
+//   [[collab]]       collabAgentToolCall + subagent turn; drained 150ms later.
+//   [[no-turn-completed]]  suppress the main turn/completed (inference path).
+//   [[usage:IN,OUT]] tokenUsage numbers (default 100,10).
+//   [[approval]]     server->client approval request before answering.
+// Env: FAKE_CODEX_LOGGED_OUT=1  -> account/read returns {account: null, ...}
+//      FAKE_CODEX_CRASH_MID_TURN=1 -> process.exit(1) after turn/started.
+
+const argv = process.argv.slice(2);
+if (argv[0] === "--version") {
+  process.stdout.write("codex-cli 0.142.4 (fake)\n");
+  process.exit(0);
+}
+if (argv[0] !== "app-server") process.exit(2);
+
+const LOGGED_OUT = process.env.FAKE_CODEX_LOGGED_OUT === "1";
+const CRASH_MID_TURN = process.env.FAKE_CODEX_CRASH_MID_TURN === "1";
+
+let seq = 0;
+let serverReqId = 9000;
+const threads = new Map(); // id -> {id, cwd, ephemeral, nickname, createdAt, turnCount, cum}
+const activeTurns = new Map(); // turnId -> {threadId, timer}
+const pendingServerReqs = new Map(); // id -> (responseMessage) => void
+
+function send(msg) {
+  process.stdout.write(JSON.stringify(msg) + "\n");
+}
+function now() {
+  return Math.floor(Date.now() / 1000);
+}
+function directive(prompt, name) {
+  const m = prompt.match(new RegExp("\\[\\[" + name + ":([\\s\\S]*?)\\]\\]"));
+  return m ? m[1] : null;
+}
+function flag(prompt, name) {
+  return prompt.includes("[[" + name + "]]");
+}
+
+function createThread(cwd, ephemeral, nickname) {
+  const t = {
+    id: "fake-thread-" + ++seq,
+    cwd: cwd,
+    ephemeral: Boolean(ephemeral),
+    nickname: nickname || null,
+    createdAt: now(),
+    turnCount: 0,
+    cum: { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
+  };
+  threads.set(t.id, t);
+  return t;
+}
+
+function threadObj(t) {
+  return {
+    id: t.id,
+    sessionId: t.id,
+    forkedFromId: null,
+    parentThreadId: null,
+    preview: "",
+    ephemeral: t.ephemeral,
+    modelProvider: "openai",
+    createdAt: t.createdAt,
+    updatedAt: now(),
+    recencyAt: now(),
+    status: { type: "idle" },
+    path: null,
+    cwd: t.cwd,
+    cliVersion: "0.142.4",
+    source: "appServer",
+    threadSource: null,
+    agentNickname: t.nickname,
+    agentRole: null,
+    gitInfo: null,
+    name: null,
+    turns: [],
+  };
+}
+
+function turnObj(id, status, extra) {
+  return Object.assign(
+    { id: id, items: [], itemsView: "notLoaded", status: status, error: null, startedAt: null, completedAt: null, durationMs: null },
+    extra || {},
+  );
+}
+
+function sandboxObj(sandbox) {
+  const map = { "read-only": "readOnly", "workspace-write": "workspaceWrite", "danger-full-access": "dangerFullAccess" };
+  return { type: map[sandbox] || "workspaceWrite", networkAccess: false };
+}
+
+function modelEntry(id, isDefault, displayName, description) {
+  const efforts = ["low", "medium", "high", "xhigh"].map((e) => ({ reasoningEffort: e, description: e + " reasoning" }));
+  return {
+    id: id,
+    model: id,
+    upgrade: null,
+    upgradeInfo: null,
+    availabilityNux: null,
+    displayName: displayName,
+    description: description,
+    hidden: false,
+    supportedReasoningEfforts: efforts,
+    defaultReasoningEffort: "medium",
+    inputModalities: ["text", "image"],
+    supportsPersonality: true,
+    additionalSpeedTiers: [],
+    serviceTiers: [],
+    defaultServiceTier: null,
+    isDefault: isDefault,
+  };
+}
+
+function agentMessageItem(turnId, text, phase) {
+  return { type: "agentMessage", id: "msg-" + turnId, text: text, phase: phase, memoryCitation: null };
+}
+
+function emitUsage(t, turnId, inTok, outTok) {
+  const last = { totalTokens: inTok + outTok, inputTokens: inTok, cachedInputTokens: 0, outputTokens: outTok, reasoningOutputTokens: 0 };
+  t.cum = {
+    totalTokens: t.cum.totalTokens + last.totalTokens,
+    inputTokens: t.cum.inputTokens + last.inputTokens,
+    cachedInputTokens: t.cum.cachedInputTokens + last.cachedInputTokens,
+    outputTokens: t.cum.outputTokens + last.outputTokens,
+    reasoningOutputTokens: t.cum.reasoningOutputTokens + last.reasoningOutputTokens,
+  };
+  send({
+    method: "thread/tokenUsage/updated",
+    params: { threadId: t.id, turnId: turnId, tokenUsage: { total: t.cum, last: last, modelContextWindow: 258400 } },
+  });
+}
+
+function handleTurnStart(msg) {
+  const p = msg.params || {};
+  const t = threads.get(p.threadId);
+  if (!t) {
+    send({ id: msg.id, error: { code: -32000, message: "unknown thread " + p.threadId } });
+    return;
+  }
+  t.turnCount += 1;
+  const ordinal = t.turnCount;
+  const turnId = "fake-turn-" + ++seq;
+  const startedAt = now();
+  const prompt = (p.input || [])
+    .filter((i) => i && i.type === "text")
+    .map((i) => i.text)
+    .join("\n");
+
+  // turn/started is emitted BEFORE the turn/start response resolves, so
+  // clients must buffer notifications until the turn id is known.
+  send({ method: "thread/started", params: { thread: threadObj(t) } });
+  send({ method: "thread/status/changed", params: { threadId: t.id, status: { type: "active", activeFlags: [] } } });
+  send({ method: "turn/started", params: { threadId: t.id, turn: turnObj(turnId, "inProgress", { startedAt: startedAt }) } });
+  send({ id: msg.id, result: { turn: turnObj(turnId, "inProgress") } });
+
+  if (CRASH_MID_TURN) {
+    setTimeout(() => process.exit(1), 25);
+    return;
+  }
+
+  const userItem = { type: "userMessage", id: "user-" + turnId, clientId: null, content: p.input || [] };
+  send({ method: "item/started", params: { item: userItem, threadId: t.id, turnId: turnId, startedAtMs: Date.now() } });
+  send({ method: "item/completed", params: { item: userItem, threadId: t.id, turnId: turnId, completedAtMs: Date.now() } });
+
+  let reply = ordinal >= 2 ? directive(prompt, "reply" + ordinal) : null;
+  if (reply === null) reply = directive(prompt, "reply");
+  const slowMs = Number(directive(prompt, "slow")) || 0;
+  const failMsg = directive(prompt, "fail");
+  const execCmd = directive(prompt, "exec");
+  const collab = flag(prompt, "collab");
+  const suppress = flag(prompt, "no-turn-completed");
+  const approval = flag(prompt, "approval");
+  let usageIn = 100;
+  let usageOut = 10;
+  const usageSpec = directive(prompt, "usage");
+  if (usageSpec !== null) {
+    const parts = usageSpec.split(",");
+    usageIn = Number(parts[0]) || 0;
+    usageOut = Number(parts[1]) || 0;
+  }
+
+  const tail = () => {
+    emitUsage(t, turnId, usageIn, usageOut);
+    send({ method: "thread/status/changed", params: { threadId: t.id, status: { type: "idle" } } });
+    if (!suppress) {
+      send({
+        method: "turn/completed",
+        params: { threadId: t.id, turn: turnObj(turnId, "completed", { startedAt: startedAt, completedAt: now(), durationMs: 42 }) },
+      });
+    }
+  };
+
+  const finishBody = (decision) => {
+    if (failMsg !== null) {
+      const err = { message: failMsg, codexErrorInfo: "other", additionalDetails: null };
+      send({ method: "error", params: { error: err, willRetry: false, threadId: t.id, turnId: turnId } });
+      send({ method: "thread/status/changed", params: { threadId: t.id, status: { type: "idle" } } });
+      send({
+        method: "turn/completed",
+        params: { threadId: t.id, turn: turnObj(turnId, "failed", { error: err, startedAt: startedAt, completedAt: now() }) },
+      });
+      return;
+    }
+
+    if (execCmd !== null) {
+      const cmdItem = (status, exitCode, out, dur) => ({
+        type: "commandExecution",
+        id: "cmd-" + turnId,
+        command: execCmd,
+        cwd: t.cwd,
+        processId: null,
+        source: "agent",
+        status: status,
+        commandActions: [],
+        aggregatedOutput: out,
+        exitCode: exitCode,
+        durationMs: dur,
+      });
+      send({ method: "item/started", params: { item: cmdItem("inProgress", null, null, null), threadId: t.id, turnId: turnId, startedAtMs: Date.now() } });
+      send({ method: "item/completed", params: { item: cmdItem("completed", 0, "", 5), threadId: t.id, turnId: turnId, completedAtMs: Date.now() } });
+    }
+
+    const finalText = reply !== null ? reply : decision !== null ? "decision:" + decision : "ok";
+    const answer = () => {
+      send({ method: "item/started", params: { item: agentMessageItem(turnId, "", "final_answer"), threadId: t.id, turnId: turnId, startedAtMs: Date.now() } });
+      send({ method: "item/completed", params: { item: agentMessageItem(turnId, finalText, "final_answer"), threadId: t.id, turnId: turnId, completedAtMs: Date.now() } });
+    };
+
+    if (collab) {
+      const sub = createThread(t.cwd, true, "collab-worker");
+      const subTurnId = "fake-turn-" + ++seq;
+      const collabItem = (status) => ({
+        type: "collabAgentToolCall",
+        id: "collab-" + turnId,
+        tool: "spawnAgent",
+        status: status,
+        senderThreadId: t.id,
+        receiverThreadIds: [sub.id],
+        prompt: "delegated work",
+        model: null,
+        reasoningEffort: null,
+        agentsStates: {},
+      });
+      send({ method: "item/started", params: { item: collabItem("inProgress"), threadId: t.id, turnId: turnId, startedAtMs: Date.now() } });
+      send({ method: "thread/started", params: { thread: threadObj(sub) } });
+      send({ method: "turn/started", params: { threadId: sub.id, turn: turnObj(subTurnId, "inProgress", { startedAt: now() }) } });
+      answer(); // final answer lands while the collab is still pending
+      setTimeout(() => {
+        send({ method: "turn/completed", params: { threadId: sub.id, turn: turnObj(subTurnId, "completed", { startedAt: startedAt, completedAt: now() }) } });
+        send({ method: "item/completed", params: { item: collabItem("completed"), threadId: t.id, turnId: turnId, completedAtMs: Date.now() } });
+        tail();
+      }, 150);
+      return;
+    }
+
+    answer();
+    tail();
+  };
+
+  const finish = () => {
+    activeTurns.delete(turnId);
+    if (approval) {
+      const rid = ++serverReqId;
+      pendingServerReqs.set(rid, (resp) => {
+        finishBody(resp && resp.result ? resp.result.decision : null);
+      });
+      send({
+        id: rid,
+        method: "item/commandExecution/requestApproval",
+        params: { threadId: t.id, turnId: turnId, itemId: "item-approval-" + turnId, command: "rm -rf /tmp/x", cwd: t.cwd, reason: null },
+      });
+      return;
+    }
+    finishBody(null);
+  };
+
+  const timer = setTimeout(finish, Math.max(0, slowMs));
+  activeTurns.set(turnId, { threadId: t.id, timer: timer });
+}
+
+function handleInterrupt(msg) {
+  const p = msg.params || {};
+  const active = activeTurns.get(p.turnId);
+  if (active) {
+    clearTimeout(active.timer);
+    activeTurns.delete(p.turnId);
+    send({ method: "thread/status/changed", params: { threadId: active.threadId, status: { type: "idle" } } });
+    send({
+      method: "turn/completed",
+      params: { threadId: active.threadId, turn: turnObj(p.turnId, "interrupted", { startedAt: now(), completedAt: now() }) },
+    });
+  }
+  send({ id: msg.id, result: {} });
+}
+
+function handle(msg) {
+  if (msg.method === undefined && msg.id !== undefined) {
+    const cb = pendingServerReqs.get(msg.id);
+    if (cb) {
+      pendingServerReqs.delete(msg.id);
+      cb(msg);
+    }
+    return;
+  }
+
+  switch (msg.method) {
+    case "initialize":
+      send({ id: msg.id, result: { userAgent: "fake-codex/0.142.4", codexHome: "/tmp/.codex", platformFamily: "unix", platformOs: "macos" } });
+      break;
+    case "initialized":
+      break;
+    case "account/read":
+      send({
+        id: msg.id,
+        result: LOGGED_OUT
+          ? { account: null, requiresOpenaiAuth: true }
+          : { account: { type: "chatgpt", email: "fake@example.com", planType: "pro" }, requiresOpenaiAuth: true },
+      });
+      break;
+    case "model/list":
+      send({
+        id: msg.id,
+        result: {
+          data: [
+            modelEntry("gpt-5.5", true, "GPT-5.5", "Frontier model for complex coding."),
+            modelEntry("gpt-5.4", false, "GPT-5.4", "Strong model for everyday coding."),
+          ],
+          nextCursor: null,
+        },
+      });
+      break;
+    case "thread/start": {
+      const p = msg.params || {};
+      const t = createThread(p.cwd || "/tmp", p.ephemeral, null);
+      send({
+        id: msg.id,
+        result: {
+          thread: threadObj(t),
+          model: p.model || "gpt-5.4",
+          modelProvider: "openai",
+          serviceTier: null,
+          cwd: t.cwd,
+          runtimeWorkspaceRoots: [t.cwd],
+          instructionSources: [],
+          approvalPolicy: p.approvalPolicy || "never",
+          approvalsReviewer: "user",
+          sandbox: sandboxObj(p.sandbox),
+          activePermissionProfile: null,
+          reasoningEffort: "medium",
+          multiAgentMode: "explicitRequestOnly",
+        },
+      });
+      break;
+    }
+    case "turn/start":
+      handleTurnStart(msg);
+      break;
+    case "turn/interrupt":
+      handleInterrupt(msg);
+      break;
+    default:
+      if (msg.id !== undefined) {
+        send({ id: msg.id, error: { code: -32601, message: "Unsupported method: " + msg.method } });
+      }
+      break;
+  }
+}
+
+let buf = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  buf += chunk;
+  let i = buf.indexOf("\n");
+  while (i !== -1) {
+    const line = buf.slice(0, i);
+    buf = buf.slice(i + 1);
+    if (line.trim()) {
+      let msg = null;
+      try {
+        msg = JSON.parse(line);
+      } catch (_) {
+        msg = null;
+      }
+      if (msg) handle(msg);
+    }
+    i = buf.indexOf("\n");
+  }
+});
+process.stdin.on("end", () => process.exit(0));

@@ -1,0 +1,114 @@
+import { Ajv, type ErrorObject } from "ajv";
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Deep-clone `schema`, then make every object node strict: no additional properties, all properties required. */
+export function strictify(schema: Record<string, unknown>): Record<string, unknown> {
+  const clone = structuredClone(schema);
+  strictifyNode(clone);
+  return clone;
+}
+
+function strictifyNode(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const entry of node) strictifyNode(entry);
+    return;
+  }
+  if (!isRecord(node)) return;
+  const props = isRecord(node.properties) ? node.properties : null;
+  if (node.type === "object" || props) {
+    node.additionalProperties = false;
+    node.required = props ? Object.keys(props) : [];
+  }
+  if (props) for (const value of Object.values(props)) strictifyNode(value);
+  if (node.items !== undefined) strictifyNode(node.items);
+  for (const key of ["anyOf", "oneOf", "allOf"] as const) {
+    if (Array.isArray(node[key])) strictifyNode(node[key]);
+  }
+  for (const key of ["$defs", "definitions"] as const) {
+    const defs = node[key];
+    if (isRecord(defs)) for (const value of Object.values(defs)) strictifyNode(value);
+  }
+}
+
+export function schemaInstruction(schema: Record<string, unknown>): string {
+  return [
+    "<structured_output_contract>",
+    "Respond ONLY with a single JSON object valid against this JSON Schema (no markdown fences, no commentary):",
+    JSON.stringify(schema),
+    "</structured_output_contract>",
+  ].join("\n");
+}
+
+/** Return the JSON substring in `text`: whole-string parse first, else the first balanced {...} or [...] block that parses. */
+export function extractJson(text: string): string {
+  try {
+    JSON.parse(text);
+    return text;
+  } catch {}
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch !== "{" && ch !== "[") continue;
+    const end = scanBalanced(text, i);
+    if (end === -1) continue;
+    const candidate = text.slice(i, end + 1);
+    try {
+      JSON.parse(candidate);
+      return candidate;
+    } catch {}
+  }
+  throw new Error("no JSON object or array found in text");
+}
+
+function scanBalanced(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[") depth++;
+    else if (ch === "}" || ch === "]") {
+      depth--;
+      if (depth === 0) return i;
+      if (depth < 0) return -1;
+    }
+  }
+  return -1;
+}
+
+export function createValidator(
+  schema: Record<string, unknown>,
+): (text: string) => { ok: true; object: unknown } | { ok: false; errors: string } {
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  const validate = ajv.compile(schema);
+  return (text) => {
+    let object: unknown;
+    try {
+      object = JSON.parse(extractJson(text));
+    } catch (err) {
+      return { ok: false, errors: err instanceof Error ? err.message : String(err) };
+    }
+    if (validate(object)) return { ok: true, object };
+    return { ok: false, errors: formatAjvErrors(validate.errors) };
+  };
+}
+
+function formatAjvErrors(errors: ErrorObject[] | null | undefined): string {
+  if (!errors || errors.length === 0) return "does not match schema";
+  return errors
+    .map((e) => {
+      const where = e.instancePath || "(root)";
+      const params = e.params && Object.keys(e.params).length > 0 ? ` ${JSON.stringify(e.params)}` : "";
+      return `${where} ${e.message ?? "invalid"}${params}`;
+    })
+    .join("; ");
+}
