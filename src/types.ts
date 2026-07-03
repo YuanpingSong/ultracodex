@@ -319,6 +319,8 @@ export interface CodexBackendConfig {
   /** codex service tier pinned per spawn; "standard" disables fast mode even
    *  when the user's ~/.codex/config.toml enables it. null → inherit. */
   serviceTier: string | null;
+  /** Extra argv appended to every `codex app-server` spawn (e.g. -c overrides). */
+  extraArgs: string[];
   /** ajv-validation repair attempts on the same thread. Default 3. */
   schemaRetries: number;
 }
@@ -328,6 +330,11 @@ export interface ClaudeBackendConfig {
   defaultModel: string;
   modelMap: Record<string, string>;
   schemaRetries: number;
+  /** Extra argv appended to every `claude -p` spawn — headless claude needs
+   *  explicit tool permissions (e.g. ["--allowedTools", "Read", "Grep"]) for
+   *  agents that must read files; without them it degrades to context-free
+   *  text prediction. */
+  extraArgs: string[];
 }
 
 export interface AgentProfileConfig {

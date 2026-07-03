@@ -96,7 +96,7 @@ function writeFakeClaude(): { bin: string; dir: string; invocations: () => Invoc
 }
 
 function makeCfg(bin: string, overrides?: Partial<ClaudeBackendConfig>): ClaudeBackendConfig {
-  return { binary: bin, defaultModel: "sonnet", modelMap: {}, schemaRetries: 3, ...overrides };
+  return { binary: bin, defaultModel: "sonnet", modelMap: {}, schemaRetries: 3, extraArgs: [], ...overrides };
 }
 
 function makeCtx(signal?: AbortSignal) {
@@ -118,6 +118,17 @@ const ANSWER_SCHEMA = {
 };
 
 describe("ClaudeExecutor text calls", () => {
+  test("appends cfg.extraArgs to every spawn (headless tool permissions)", async () => {
+    const fake = writeFakeClaude();
+    const extraArgs = ["--allowedTools", "Read", "Glob", "Grep"];
+    const ex = new ClaudeExecutor(makeCfg(fake.bin, { extraArgs }), {});
+    const { ctx } = makeCtx();
+    const res = await ex.run({ prompt: "hi [[reply:ok]]", cwd: fake.dir, label: "t" }, ctx);
+    expect(res.ok).toBe(true);
+    const argv = fake.invocations()[0]!.args;
+    expect(argv.slice(-extraArgs.length)).toEqual(extraArgs);
+  });
+
   test("returns final text, mapped usage, threadId; passes model + prompt via stdin", async () => {
     const fake = writeFakeClaude();
     const ex = new ClaudeExecutor(makeCfg(fake.bin), {});

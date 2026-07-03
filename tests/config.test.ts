@@ -133,6 +133,19 @@ describe("loadConfig — project overrides", () => {
     const cfg = loadConfig(makeTmpDir(), { globalDir: makeTmpDir() });
     expect(cfg.codex.defaultEffort).toBe("xhigh");
     expect(cfg.codex.serviceTier).toBe("standard");
+    expect(cfg.codex.extraArgs).toEqual([]);
+    expect(cfg.claude.extraArgs).toEqual(["--allowedTools", "Read", "Glob", "Grep"]);
+  });
+
+  it("extra_args override for both backends (array of strings only)", () => {
+    const projectDir = makeTmpDir();
+    writeToml(
+      projectDir,
+      '[backends.codex]\nextra_args = ["-c", "foo=1"]\n[backends.claude]\nextra_args = ["--allowedTools", "Read", "Bash(ls:*)"]',
+    );
+    const cfg = loadConfig(projectDir, { globalDir: makeTmpDir() });
+    expect(cfg.codex.extraArgs).toEqual(["-c", "foo=1"]);
+    expect(cfg.claude.extraArgs).toEqual(["--allowedTools", "Read", "Bash(ls:*)"]);
   });
 
   it("project backends.claude overrides snake_case fields", () => {

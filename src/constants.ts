@@ -66,6 +66,7 @@ export const DEFAULT_CODEX_CONFIG: CodexBackendConfig = {
   },
   defaultEffort: "xhigh",
   serviceTier: "standard",
+  extraArgs: [],
   schemaRetries: DEFAULT_SCHEMA_RETRIES,
 };
 
@@ -74,6 +75,8 @@ export const DEFAULT_CLAUDE_CONFIG: ClaudeBackendConfig = {
   defaultModel: "sonnet",
   modelMap: {},
   schemaRetries: DEFAULT_SCHEMA_RETRIES,
+  // Read-only tools let claude-routed judge agents actually read the repo.
+  extraArgs: ["--allowedTools", "Read", "Glob", "Grep"],
 };
 
 export const DEFAULT_CONFIG: UltracodexConfig = {

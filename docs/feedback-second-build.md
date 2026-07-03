@@ -6,14 +6,16 @@ verifies). Each item is a candidate improvement to this repo.
 
 ## Open
 
-1. **Claude backend has no permission/tool flags.** `ClaudeExecutor` spawns
-   `claude -p --output-format json` bare. Headless claude cannot use tools
-   (Read/Bash/…) without `--allowedTools` / `--permission-mode`, so any
-   claude-routed agent that must read files or run commands silently degrades
-   to context-free text prediction. Need `[backends.claude] extra_args = [...]`
-   (or explicit `allowed_tools` config) plumbed into the spawn argv.
+(none — all confirmed items fixed)
 
 ## Fixed in this repo during the second build
+
+- **Claude backend permission/tool flags.** `[backends.claude] extra_args`
+  (and `[backends.codex] extra_args`) now append to every spawn. The claude
+  default ships `--allowedTools Read Glob Grep`, so claude-routed judge
+  agents can actually read the repo out of the box — the stage-2 review
+  proved read-only judging works headlessly; command-running gates still
+  belong on codex.
 
 - **Wire schemas must be OpenAI-strict; fake-codex didn't enforce it.**
   Stage 1 of the rebuild failed instantly: all 11 agents got

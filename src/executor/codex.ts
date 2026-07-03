@@ -96,9 +96,10 @@ export class CodexExecutor implements Executor {
         // Pin the service tier (default "standard") so a user-level
         // service_tier = "fast" in ~/.codex/config.toml can't silently
         // burn increased usage on every agent.
-        extraArgs: this.cfg.serviceTier
-          ? ["-c", `service_tier="${this.cfg.serviceTier}"`]
-          : [],
+        extraArgs: [
+          ...(this.cfg.serviceTier ? ["-c", `service_tier="${this.cfg.serviceTier}"`] : []),
+          ...this.cfg.extraArgs,
+        ],
       });
     } catch (err) {
       return { ok: false, error: `failed to start codex app-server: ${message(err)}` };

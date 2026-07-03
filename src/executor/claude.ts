@@ -160,7 +160,7 @@ export class ClaudeExecutor implements Executor {
       ...(schema ? { schema } : {}),
       ...(profile?.preamble ? { profilePreamble: profile.preamble } : {}),
     });
-    const baseArgs = ["-p", "--output-format", "json", ...(model ? ["--model", model] : [])];
+    const baseArgs = ["-p", "--output-format", "json", ...(model ? ["--model", model] : []), ...this.cfg.extraArgs];
 
     let usage: Usage = ZERO_USAGE;
     let sessionId: string | null = null;

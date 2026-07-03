@@ -50,6 +50,8 @@ function mergeCodexConfig(
     result.defaultEffort = raw["default_effort"];
   if (typeof raw["service_tier"] === "string")
     result.serviceTier = raw["service_tier"];
+  if (Array.isArray(raw["extra_args"]) && raw["extra_args"].every((a) => typeof a === "string"))
+    result.extraArgs = raw["extra_args"] as string[];
   if (typeof raw["schema_retries"] === "number")
     result.schemaRetries = raw["schema_retries"];
   if (raw["model_map"] !== null && typeof raw["model_map"] === "object") {
@@ -77,6 +79,8 @@ function mergeClaudeConfig(
     result.defaultModel = raw["default_model"];
   if (typeof raw["schema_retries"] === "number")
     result.schemaRetries = raw["schema_retries"];
+  if (Array.isArray(raw["extra_args"]) && raw["extra_args"].every((a) => typeof a === "string"))
+    result.extraArgs = raw["extra_args"] as string[];
   if (raw["model_map"] !== null && typeof raw["model_map"] === "object") {
     result.modelMap = {
       ...base.modelMap,
