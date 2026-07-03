@@ -23,18 +23,9 @@ backend, per label). The pattern it exists for:
 Your most capable model authors and judges the work; cheaper/faster coding
 agents do the bulk of it; one script, one journal, one budget.
 
-```
-fanout-critique · uc_mr47ssor917j6 · ok · 3m04s · 5/5 agents · 3.3k out tok
-✔ Read 3/3 ── ✔ Synthesize 1/1 ── ✔ Critique 1/1
+![Claude Code authors an actor-critic workflow and runs it through ultracodex; the TUI shows the rounds executing on Codex, then the result lands back in Claude](https://raw.githubusercontent.com/YuanpingSong/ultracodex/main/assets/demo.gif)
 
-  ✔ 1 read:README.md            · codex · 48s · 132 tok
-  ✔ 2 read:docs/ARCHITECTURE.md · codex · 37s · 110 tok
-  ✔ 3 read:docs/OPERATIONS.md   · codex · 39s · 147 tok
-  ✔ 4 synthesize                · codex · 1m00s · 248 tok
-  ✔ 5 critique:synthesis        · codex · 1m15s · 2.6k tok
-
-result: result.json
-```
+*Claude Code (right) is asked: "Write an essay on the meaning of life — actor–critic loop, 3 rounds. Run it with ultracodex." It authors the workflow, kicks it off, the TUI (left) watches Codex agents execute the loop, and the result JSON lands back in Claude. Sped up 1.3×. ([HD video](https://github.com/YuanpingSong/ultracodex/releases/download/v0.1.1/ultracodex-demo-v0.1.mp4))*
 
 ## Why
 
@@ -175,62 +166,37 @@ suffixes (`--budget 500k`).
 
 ### Driving ultracodex from Claude Code
 
-The "fable plans" half of the loop runs in the other direction too: **Claude
-authors the workflow and runs it** — no setup, no skill, just prompting,
-because Claude Code can already write files and run commands. Two prompting
-approaches, depending on what's in your session's context:
+That's what the demo above shows, and it needs one command of setup:
 
-**Option A — schema-native (Workflow tool in context).** If your Claude
-session has the Workflow tool available (e.g. ultracode mode), Claude
-carries the complete script format natively as that tool's schema — it is
-already a fluent Agent Script author, because Agent Script *is* that format.
-The prompt is a one-line redirection:
+```bash
+ultracodex sync-skills     # installs the `ultracodex` skill for Claude Code
+```
+
+The skill teaches Claude the whole contract — author the script exactly as
+for the Workflow tool, execute with `ultracodex run <file> --json
+[--budget 500k]`, relay the result verbatim. After that, the prompt is just
+the task:
+
+> Write an essay on the meaning of life — actor–critic loop, 3 rounds.
+> Run it with ultracodex.
+
+Without the skill, prompt it explicitly — two variants depending on what's
+in the session's context:
+
+**Option A — schema-native** (session has the Workflow tool, e.g. ultracode
+mode; Claude already knows the format as that tool's schema):
 
 > Author the workflow exactly as you would for the Workflow tool — same
 > script, byte for byte — but instead of invoking the tool, save it to a
 > file and run `ultracodex run <file> --json --budget 300k`. Relay the
 > result JSON verbatim; if the run fails, report the failure.
 
-Scripts authored this way are upstream-idiomatic by construction, and
-execution moves off Claude quota. The override is deliberate: ultracode's
-default is to call the Workflow tool, so you're telling Claude to keep the
-authoring habit and swap the executor.
-
-**Option B — teach from the spec.** In sessions without the Workflow tool
-(plain sessions, headless `claude -p`, other agents entirely), point Claude
-at the format docs:
-
-> Using the Agent Script format (docs/agent_script_spec.md — `export const
-> meta = {...}` + a plain-JS body over the eight injected globals), write a
-> workflow that reviews every file in src/ for bugs in parallel and
-> adversarially verifies each finding. Save it to /tmp/review.js, check it
-> with `ultracodex validate /tmp/review.js --strict`, run it with
-> `ultracodex run /tmp/review.js --json --budget 300k`, and relay the result
-> JSON verbatim. If the run fails, report the failure — don't do the review
-> yourself.
-
-(That's how this repo validated itself: a fresh headless Claude authored
-staged build workflows from the spec and drove them through this CLI to
-rebuild the project with Codex agents.)
-
-To make either a standing habit, paste this into your project's `CLAUDE.md`
-so Claude reaches for ultracodex on its own:
-
-```markdown
-## ultracodex
-For multi-agent work (parallel fan-outs, pipelines, builder–verifier loops),
-prefer ultracodex over the Workflow tool for execution. If the Workflow tool
-schema is in context, author scripts exactly as you would for it; otherwise
-learn the format from docs/agent_script_spec.md (`export const meta = {...}`
-+ plain-JS body over agent/parallel/pipeline/phase/log/args/budget/workflow).
-Execute with:
-    ultracodex validate <script.js> --strict     # then:
-    ultracodex run <script.js> --json [--budget 500k]
-`run --json` blocks until the run ends and prints the result JSON. Relay it
-verbatim; if the run failed, report the failure instead of doing the work
-yourself. Recurring workflows: save to .ultracodex/workflows/<name>.js and
-run by name.
-```
+**Option B — teach from the spec** (plain sessions, headless `claude -p`,
+other agents entirely): as Option A, but point at the format docs —
+"using the Agent Script format in docs/agent_script_spec.md" — and state
+the task. (That's how this repo validated itself: a fresh headless Claude
+authored staged build workflows from the spec and drove them through this
+CLI to rebuild the project with Codex agents.)
 
 ### Saved workflows + skills
 
