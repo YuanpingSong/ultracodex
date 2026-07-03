@@ -96,6 +96,16 @@ describe("validateWorkflowScript — phases vs phase() calls", () => {
     expect(issues[0]?.line).toBe(1);
   });
 
+  it("dynamic phase() call (computed title) suppresses unmatched-meta-title warnings", () => {
+    // A loop like `for (...) phase(\`Critique ${round}\`)` makes coverage
+    // statically unknowable — the linter must not push authors to unroll loops.
+    const src =
+      PHASED_META +
+      `phase("Draft");\nfor (let i = 1; i <= 3; i++) { phase(\`Critique \${i}\`); }\nreturn 1;\n`;
+    const issues = validateWorkflowScript(src);
+    expect(issues.filter((i) => /no matching phase/.test(i.message))).toHaveLength(0);
+  });
+
   it("phase() literal missing from meta.phases → warn with call line", () => {
     const issues = validateWorkflowScript(
       PHASED_META + `phase("Draft");\nphase("Critique");\nphase("Extra");\nreturn 1;\n`,
@@ -114,12 +124,9 @@ describe("validateWorkflowScript — phases vs phase() calls", () => {
     expect(validateWorkflowScript(META + `phase("Whatever");\nreturn 1;\n`)).toEqual([]);
   });
 
-  it("dynamic phase(expr) calls are ignored by the matcher", () => {
+  it("dynamic phase(expr) calls suppress unmatched-meta-title warnings (coverage unknowable)", () => {
     const issues = validateWorkflowScript(PHASED_META + `for (const t of ["Draft", "Critique"]) phase(t);\nreturn 1;\n`);
-    expect(issues.map((i) => i.message)).toEqual([
-      expect.stringContaining(`"Draft" has no matching`),
-      expect.stringContaining(`"Critique" has no matching`),
-    ]);
+    expect(issues.filter((i) => /no matching phase/.test(i.message))).toEqual([]);
   });
 });
 

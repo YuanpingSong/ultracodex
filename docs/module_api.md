@@ -363,7 +363,9 @@ export function renderRunStatic(state: TuiState, opts?: { color?: boolean }): st
 export interface ValidationIssue { severity: "error" | "warn"; message: string; line?: number }
 export function validateWorkflowScript(source: string, opts?: { strict?: boolean }): ValidationIssue[];
 // errors: meta missing/impure/name/description missing; TypeScript syntax (acorn parse failure);
-// phases[].title without matching phase() call literal and vice versa (warn only);
+// phases[].title without matching phase() call literal and vice versa (warn only;
+// the unmatched-meta-title direction is SUPPRESSED when any phase() call has a computed
+// title — coverage is statically unknowable and the linter must not push loop unrolling);
 // Date.now()/Math.random()/argless new Date() → warn (error when strict);
 // warn: parallel( where callback bodies chain agent() sequentially (heuristic: skip); budget loop
 // `while` referencing budget.remaining() without budget.total guard; literal fan-outs > 4096.

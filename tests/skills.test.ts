@@ -32,26 +32,39 @@ const PLAIN = `export const meta = { name: "plain", description: "Does a plain t
 return 1;
 `;
 
+const GENERAL = (written: string[]) =>
+  written.filter((w) => w.includes(path.join("skills", "ultracodex", "SKILL.md")));
+const WF = (written: string[]) =>
+  written.filter((w) => !w.includes(path.join("skills", "ultracodex", "SKILL.md")));
+
 describe("syncSkills", () => {
-  it("returns empty when there is no workflows dir", () => {
-    expect(syncSkills(projectDir)).toEqual({ written: [] });
+  it("writes only the general skill when there is no workflows dir", () => {
+    const { written } = syncSkills(projectDir);
+    expect(WF(written)).toEqual([]);
+    expect(GENERAL(written)).toHaveLength(1);
+    const body = fs.readFileSync(GENERAL(written)[0]!, "utf8");
+    expect(body).toContain("name: ultracodex");
+    expect(body).toContain("EXACTLY as you would for the Workflow tool");
+    expect(body).toContain("WARNINGS are non-blocking");
+    expect(body).toContain("do NOT substitute your own answer");
   });
 
-  it("writes one SKILL.md per workflow with correct paths", () => {
+  it("writes the general skill plus one SKILL.md per workflow with correct paths", () => {
     writeWorkflow("digest", DIGEST);
     writeWorkflow("plain", PLAIN);
     const { written } = syncSkills(projectDir);
-    expect(written).toEqual([
+    expect(WF(written)).toEqual([
       path.join(projectDir, ".claude", "skills", "ultracodex-digest", "SKILL.md"),
       path.join(projectDir, ".claude", "skills", "ultracodex-plain", "SKILL.md"),
     ]);
+    expect(GENERAL(written)).toHaveLength(1);
     for (const file of written) expect(fs.existsSync(file)).toBe(true);
   });
 
   it("frontmatter carries name and description with whenToUse appended", () => {
     writeWorkflow("digest", DIGEST);
     const { written } = syncSkills(projectDir);
-    const content = fs.readFileSync(written[0]!, "utf8");
+    const content = fs.readFileSync(WF(written)[0]!, "utf8");
     expect(content.startsWith("---\n")).toBe(true);
     const frontmatter = content.split("---")[1]!;
     expect(frontmatter).toContain("name: ultracodex-digest\n");
@@ -63,7 +76,7 @@ describe("syncSkills", () => {
   it("frontmatter without whenToUse is just the description", () => {
     writeWorkflow("plain", PLAIN);
     const { written } = syncSkills(projectDir);
-    const frontmatter = fs.readFileSync(written[0]!, "utf8").split("---")[1]!;
+    const frontmatter = fs.readFileSync(WF(written)[0]!, "utf8").split("---")[1]!;
     expect(frontmatter).toContain("description: Does a plain thing.\n");
     expect(frontmatter).not.toContain("Use when:");
   });
@@ -71,7 +84,7 @@ describe("syncSkills", () => {
   it("body instructs Bash execution of the run command and verbatim relay", () => {
     writeWorkflow("digest", DIGEST);
     const { written } = syncSkills(projectDir);
-    const body = fs.readFileSync(written[0]!, "utf8");
+    const body = fs.readFileSync(WF(written)[0]!, "utf8");
     expect(body).toContain("Bash");
     expect(body).toContain("ultracodex run digest --args '<json>' --json");
     expect(body).toContain(
@@ -82,10 +95,10 @@ describe("syncSkills", () => {
   it("is idempotent: re-running overwrites stale content", () => {
     writeWorkflow("digest", DIGEST);
     const first = syncSkills(projectDir);
-    fs.writeFileSync(first.written[0]!, "stale garbage");
+    fs.writeFileSync(WF(first.written)[0]!, "stale garbage");
     const second = syncSkills(projectDir);
     expect(second.written).toEqual(first.written);
-    const content = fs.readFileSync(first.written[0]!, "utf8");
+    const content = fs.readFileSync(WF(first.written)[0]!, "utf8");
     expect(content).not.toContain("stale garbage");
     expect(content).toContain("name: ultracodex-digest");
   });
@@ -95,8 +108,8 @@ describe("syncSkills", () => {
     writeWorkflow("broken", `const nope = 1;\n`);
     fs.writeFileSync(path.join(projectDir, ".ultracodex", "workflows", "notes.md"), "# not a workflow");
     const { written } = syncSkills(projectDir);
-    expect(written).toHaveLength(1);
-    expect(written[0]).toContain("ultracodex-digest");
+    expect(WF(written)).toHaveLength(1);
+    expect(WF(written)[0]).toContain("ultracodex-digest");
   });
 
   it("collapses multi-line descriptions into one frontmatter line", () => {
@@ -105,7 +118,7 @@ describe("syncSkills", () => {
       "export const meta = { name: 'multi', description: `line one\nline two`, whenToUse: 'x' };\nreturn 1;\n",
     );
     const { written } = syncSkills(projectDir);
-    const frontmatter = fs.readFileSync(written[0]!, "utf8").split("---")[1]!;
+    const frontmatter = fs.readFileSync(WF(written)[0]!, "utf8").split("---")[1]!;
     expect(frontmatter).toContain("description: line one line two Use when: x\n");
   });
 });

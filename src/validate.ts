@@ -114,6 +114,7 @@ export function validateWorkflowScript(
 
   const impureSeverity = strict ? "error" : "warn";
   const phaseCalls: Array<{ title: string; line?: number }> = [];
+  let dynamicPhaseCall = false;
   const budgetLoops: Array<{ line?: number }> = [];
   let budgetTotalSeen = false;
 
@@ -137,6 +138,7 @@ export function validateWorkflowScript(
     if (n.type === "CallExpression" && isIdent(n["callee"], "phase")) {
       const title = stringLiteral((n["arguments"] as Node[])[0]);
       if (title !== null) phaseCalls.push(line === undefined ? { title } : { title, line });
+      else dynamicPhaseCall = true;
     }
     if (isMemberOf(n, "budget", "total")) budgetTotalSeen = true;
     if (LOOP_TYPES.has(n.type) && n["test"]) {
@@ -168,12 +170,17 @@ export function validateWorkflowScript(
   });
 
   if (meta?.phases) {
+    // A phase() call with a computed title (e.g. phase(`Round ${i}`) in a loop)
+    // makes meta-title coverage statically unknowable — stay quiet rather than
+    // push authors to unroll perfectly good loops.
     const called = new Set(phaseCalls.map((p) => p.title));
-    for (const ph of meta.phases) {
-      if (!called.has(ph.title)) {
-        issues.push(
-          issue("warn", `meta.phases title "${ph.title}" has no matching phase("${ph.title}") call`, metaLine),
-        );
+    if (!dynamicPhaseCall) {
+      for (const ph of meta.phases) {
+        if (!called.has(ph.title)) {
+          issues.push(
+            issue("warn", `meta.phases title "${ph.title}" has no matching phase("${ph.title}") call`, metaLine),
+          );
+        }
       }
     }
     const titles = new Set(meta.phases.map((p) => p.title));
