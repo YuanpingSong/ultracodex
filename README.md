@@ -6,7 +6,7 @@
 
 **Run Claude Code workflow scripts, unmodified, on the OpenAI Codex CLI.**
 
-Ultracode too expensive? ultracodex is ultracode on [Codex](https://github.com/openai/codex) — the same workflow scripts, byte for byte, running on your Codex subscription. Or OpenCode (coming soon).
+Ultracode too expensive? **ultracodex** is ultracode on Codex — the same workflow scripts, running on your Codex subscription. Or OpenCode (coming soon).
 
 > **fable plans, codex executes, fable verifies**
 
