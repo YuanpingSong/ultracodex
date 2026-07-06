@@ -145,11 +145,15 @@ deviations = the skill text needs strengthening, not the models.
       gate-runs-checks + re-gate as hard rule, two-part derived-enum
       contract, judge-sees-all-candidates ranking rule, mandatory budget
       rail under stated-tight budgets, `args?.x ?? default` idiom.
-    - Open tension for v0.4: the skill has grown ~40% through three
-      hardening rounds; small models may fail partly from rule-volume
-      saturation. Candidate remedy: a short "core contract" section
-      up front with the long tail as reference material — test before
-      publishing to small-model audiences.
+    - Rule-volume tension RESOLVED 2026-07-06: SKILL.md restructured into
+      "Part 1 — Core contract" (file shape, skeleton, the 8 globals,
+      null/join discipline, checklist) + "Part 2 — Craft reference"
+      (structure, schemas, prompting, rails, shape catalog), −21% words /
+      −23% chars (3,993→3,147 w) with zero rules dropped — each stated
+      once in its best home, checklist as pointers. Prose unwrapped to
+      one-line paragraphs (file is read rendered, not raw). Optional
+      follow-up: a small-model re-run to measure whether the restructure
+      reduces gemma-class variance.
   - Full reports: local session artifacts (`/tmp/parity-result.json`,
     `/tmp/parity-r2-result.json`, `/tmp/parity-r3-result.json`, fuzz in
     the session task output); authored scripts under `/tmp/parity-test*/`.
