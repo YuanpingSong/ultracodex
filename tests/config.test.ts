@@ -180,6 +180,11 @@ describe("loadConfig — project overrides", () => {
       sandbox: "read-only",
       preamble: "Be critical.",
     });
+    const netDir = makeTmpDir();
+    writeToml(netDir, "[profiles.Networked]\nnetwork_access = true");
+    expect(loadConfig(netDir, { globalDir: makeTmpDir() }).profiles["Networked"]).toEqual({
+      networkAccess: true,
+    });
     // Default profiles still present
     expect(cfg.profiles["Explore"]).toBeDefined();
   });

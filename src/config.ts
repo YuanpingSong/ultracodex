@@ -150,6 +150,7 @@ function applyToml(cfg: UltracodexConfig, raw: Record<string, unknown>): Ultraco
         const profile: AgentProfileConfig = {};
         if (typeof v["sandbox"] === "string") profile.sandbox = v["sandbox"];
         if (typeof v["preamble"] === "string") profile.preamble = v["preamble"];
+        if (typeof v["network_access"] === "boolean") profile.networkAccess = v["network_access"];
         profiles[name] = profile;
       }
     }

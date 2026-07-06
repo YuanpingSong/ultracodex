@@ -109,6 +109,33 @@ publish pass. Two follow-ups are deliberately deferred:
    trend / "converged after 3 rounds" in the run view and `show`, and expose
    per-round token cost so loop tuning is data-driven.
 
+## Approvals roadmap (decided 2026-07-06)
+
+Today: `approvalPolicy: "never"` — anything outside the sandbox is
+auto-denied, and the app-server client denies any server→client approval
+request as a backstop. This stays the shipping default.
+
+**Phase 1 — approval aggregator (minimal risk, ship first).** Surface
+instead of decide: a config knob (`approval_policy = "on-request"`) makes
+the runner forward codex approval requests into the journal as
+`approval_request` events; the TUI shows a pending-approvals pane
+(approve/deny keys) and the CLI gains `ultracodex approvals <ref>` /
+`approve <ref> <id>`, answered over the control channel. Unanswered
+requests **default-deny on a timeout**. Every decision is journaled with
+the full request payload — the audit trail is the feature. Value framing:
+a request aggregator across a whole fleet, something neither CLI offers.
+
+**Phase 2 — judged auto-approval (careful security engineering, later).**
+A cheap fast model classifies each surfaced request against a per-project
+policy. Non-negotiables before this ships: default-deny on any judge
+error/timeout/ambiguity; the judge is a different model/backend from the
+requesting agent; policy lives in config (reviewable, versioned); every
+decision + rationale journaled; per-run approval budget caps; and an
+explicit allowlist floor (patterns the judge may approve — everything
+else escalates to Phase-1 human flow). Pairs with, but is strictly
+separate from, the sandbox ladder: approvals govern *escalations*, the
+sandbox governs the *floor*.
+
 ## Discipline / non-goals
 
 - Upstream Claude Code remains the **reference implementation**; ambiguities

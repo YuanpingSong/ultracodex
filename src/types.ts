@@ -347,6 +347,8 @@ export interface AgentProfileConfig {
   sandbox?: string;
   /** Extra preamble prepended to the prompt for this profile. */
   preamble?: string;
+  /** Per-profile network escalation (overrides backend networkAccess). */
+  networkAccess?: boolean;
 }
 
 export interface UltracodexConfig {

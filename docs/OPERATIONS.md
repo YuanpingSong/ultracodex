@@ -69,17 +69,23 @@ Escalate deliberately, per project, in `.ultracodex/config.toml`:
 ```toml
 [backends.codex]
 network_access = true            # 1. egress inside the sandbox (pnpm install,
-                                 #    APIs, web) — file confinement retained
+                                 #    APIs, web) — file WRITES stay confined
 
 # sandbox = "danger-full-access" # 2. no sandbox at all: writes anywhere your
-                                 #    user can, network on. Trusted repos only.
+                                 #    user can, network on
 
 [profiles.Networked]             # 3. per-agent: only agents the script marks
-sandbox = "danger-full-access"   #    agentType: 'Networked' escalate
+network_access = true            #    with agentType escalate
 ```
 
-Rule of thumb: your own repos → tier 1; workflows that ingest untrusted
-content → stock defaults and pre-fetch inputs into the project dir.
+Treat tier 1 as already aggressive: the sandbox never restricted READS, so
+network + read-anywhere is an exfiltration-capable combination — an agent
+that ingests untrusted content on tier 1 can be prompt-injected into leaking
+anything your user account can read. Escalate per task, not as a standing
+default, and never combine tier 1 with untrusted inputs. Tier 2 is for
+sessions a human is actively watching — never for unattended fleet runs.
+Default posture for anything that reads fetched/third-party content: stock
+defaults (no network) and pre-fetch inputs into the project dir.
 
 ## Failure playbook
 
