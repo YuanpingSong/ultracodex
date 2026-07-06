@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { resolveClaudeModel } from "../config.js";
 import type {
   AgentProfileConfig,
   ClaudeBackendConfig,
@@ -137,9 +138,7 @@ export class ClaudeExecutor implements Executor {
   ) {}
 
   async run(req: ExecutorRequest, ctx: ExecutorContext): Promise<ExecutorResult> {
-    const model = req.model
-      ? (this.cfg.modelMap[req.model] ?? req.model)
-      : this.cfg.defaultModel;
+    const model = resolveClaudeModel(this.cfg, req.model);
     const schema = req.schema ? strictify(req.schema) : null;
     const rawValidate = schema ? createValidator(schema) : null;
     const validate = rawValidate

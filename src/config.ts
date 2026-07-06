@@ -196,6 +196,23 @@ export function loadConfig(
   return cfg;
 }
 
+/**
+ * Single source of truth for tier→model/effort resolution, shared by the
+ * runtime (journaling: agent_start must record what will actually run) and
+ * the executors (the actual call). Journal and reality cannot drift.
+ */
+export function resolveCodexModel(cfg: CodexBackendConfig, tier: string | undefined): string {
+  return tier ? (cfg.modelMap[tier] ?? tier) : cfg.defaultModel;
+}
+
+export function resolveCodexEffort(cfg: CodexBackendConfig, effort: string | undefined): string | null {
+  return effort ? (cfg.effortMap[effort] ?? effort) : cfg.defaultEffort;
+}
+
+export function resolveClaudeModel(cfg: ClaudeBackendConfig, tier: string | undefined): string {
+  return tier ? (cfg.modelMap[tier] ?? tier) : cfg.defaultModel;
+}
+
 export function matchGlob(pattern: string, value: string): boolean {
   // Escape all regex special chars except '*', which becomes '.*'
   const regexStr =

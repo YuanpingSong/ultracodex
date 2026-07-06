@@ -235,8 +235,9 @@ describe("agent()", () => {
     expect(s[1]!.model).toBe("gpt-5.5"); // opus mapped via codex modelMap
     expect(s[1]!.effort).toBe("xhigh"); // max mapped via effortMap
     expect(s[2]!.model).toBe("my-model"); // unknown tier passes through
-    expect(s[0]!.model).toBeNull();
-    expect(s[0]!.effort).toBeNull();
+    // no opts.model → journal records the backend default that will actually run
+    expect(s[0]!.model).toBe(DEFAULT_CONFIG.claude.defaultModel);
+    expect(s[0]!.effort).toBeNull(); // claude backend has no effort concept
   });
 
   it("throttles agent_activity (latest-wins) and appends raw events.jsonl", async () => {
@@ -801,5 +802,25 @@ describe("workflow()", () => {
   it("propagates loadChildWorkflow errors as throws the script can catch", async () => {
     const { g } = childDeps(okExecutor("ok"));
     await expect(g.workflow("missing")).rejects.toThrow(/unknown workflow/);
+  });
+});
+
+describe("agent_start model/effort resolution (journal = what actually runs)", () => {
+  it("journals the config default model+effort when opts omit them", async () => {
+    const { g, journal, runDir } = makeRuntime();
+    await g.agent("hello");
+    journal.close();
+    const start = starts(runDir)[0]!;
+    expect(start.model).toBe(DEFAULT_CONFIG.codex.defaultModel);
+    expect(start.effort).toBe(DEFAULT_CONFIG.codex.defaultEffort);
+  });
+
+  it("journals the mapped tier when opts.model/effort are tier names", async () => {
+    const { g, journal, runDir } = makeRuntime();
+    await g.agent("hello", { model: "haiku", effort: "max" });
+    journal.close();
+    const start = starts(runDir)[0]!;
+    expect(start.model).toBe(DEFAULT_CONFIG.codex.modelMap["haiku"]);
+    expect(start.effort).toBe("xhigh");
   });
 });

@@ -1,4 +1,5 @@
 import { AppServerClient } from "../appserver/client.js";
+import { resolveCodexEffort, resolveCodexModel } from "../config.js";
 import { runTurn, type TurnResult } from "../appserver/turn.js";
 import { assemblePrompt } from "./prompt.js";
 import { createValidator, strictify, strictifyForWire } from "./schema.js";
@@ -69,10 +70,8 @@ export class CodexExecutor implements Executor {
 
   private async execute(req: ExecutorRequest, ctx: ExecutorContext): Promise<ExecutorResult> {
     const profile = req.agentProfile ? this.profiles[req.agentProfile] : undefined;
-    const model = req.model ? (this.cfg.modelMap[req.model] ?? req.model) : this.cfg.defaultModel;
-    const effort = req.effort
-      ? (this.cfg.effortMap[req.effort] ?? req.effort)
-      : this.cfg.defaultEffort;
+    const model = resolveCodexModel(this.cfg, req.model);
+    const effort = resolveCodexEffort(this.cfg, req.effort);
     // Two schema forms (observed live: OpenAI strict mode 400s unless every
     // object node has required=all keys + additionalProperties:false):
     // - wireSchema: strict-compliant form for turn/start outputSchema, or null

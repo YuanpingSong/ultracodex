@@ -7,7 +7,7 @@ import {
   INTERRUPT_GRACE_MS,
   LIFETIME_AGENT_CAP,
 } from "./constants.js";
-import { routeBackend } from "./config.js";
+import { resolveClaudeModel, resolveCodexEffort, resolveCodexModel, routeBackend } from "./config.js";
 import { sha256Hex } from "./ids.js";
 import { agentDir } from "./rundir.js";
 import type { JournalWriter } from "./journal.js";
@@ -226,13 +226,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   ): { model: string | null; effort: string | null } {
     if (backend === "codex") {
       return {
-        model: opts.model ? (config.codex.modelMap[opts.model] ?? opts.model) : null,
-        effort: opts.effort ? (config.codex.effortMap[opts.effort] ?? opts.effort) : null,
+        model: resolveCodexModel(config.codex, opts.model),
+        effort: resolveCodexEffort(config.codex, opts.effort),
       };
     }
     if (backend === "claude") {
       return {
-        model: opts.model ? (config.claude.modelMap[opts.model] ?? opts.model) : null,
+        model: resolveClaudeModel(config.claude, opts.model),
         effort: opts.effort ?? null,
       };
     }
