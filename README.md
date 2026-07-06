@@ -13,9 +13,9 @@ Ultracode is the best thing in Claude Code — whole fleets of agents from a sin
 
 Your best model plans and judges. The subscription you're not rationing does the work. Results land back in the session that asked — verification is the free round trip. Runs are detached processes over plain files: quit the terminal, nothing dies. And authoring is teachable, not vendor lore — the package ships a [skill](skills/agent-script-authoring/SKILL.md) any model can write workflows from (parity-proven across three model families) plus a [nine-shape example gallery](examples/).
 
-![Claude Code authors an actor-critic workflow and runs it through ultracodex; the TUI shows the rounds executing on Codex, then the result lands back in Claude](https://raw.githubusercontent.com/YuanpingSong/ultracodex/main/assets/demo.gif)
+<video src="https://github.com/YuanpingSong/ultracodex/releases/download/v0.1.1/ultracodex-demo-v0.1.mp4" controls muted width="100%"></video>
 
-*Claude Code (right) is asked: "Write an essay on the meaning of life — actor–critic loop, 3 rounds. Run it with ultracodex." It authors the workflow, kicks it off, the TUI (left) watches Codex agents execute the loop, and the result JSON lands back in Claude. Sped up 1.3×. ([HD video](https://github.com/YuanpingSong/ultracodex/releases/download/v0.1.1/ultracodex-demo-v0.1.mp4))*
+*Claude Code (right) is asked: "Write an essay on the meaning of life — actor–critic loop, 3 rounds. Run it with ultracodex." It authors the workflow, kicks it off, the TUI (left) watches Codex agents execute the loop, and the result JSON lands back in Claude. ([Direct video link](https://github.com/YuanpingSong/ultracodex/releases/download/v0.1.1/ultracodex-demo-v0.1.mp4) if the player doesn't render.)*
 
 ## Quickstart
 
