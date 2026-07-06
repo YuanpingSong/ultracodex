@@ -57,6 +57,21 @@ while (Date.now() < deadline) {
     live = true;
     break;
   }
+  // fail fast if the publish workflow itself failed (don't poll into the void)
+  const wf = spawnSync(
+    "gh",
+    ["run", "list", "--workflow", "release.yml", "--limit", "1", "--json", "conclusion,status,headBranch"],
+    { encoding: "utf8", cwd: ROOT },
+  );
+  if (wf.status === 0) {
+    try {
+      const [latest] = JSON.parse(wf.stdout);
+      if (latest?.headBranch === `v${version}` && latest?.conclusion === "failure") {
+        console.error(`\n✖ release workflow FAILED for v${version} — read: gh run view --log-failed`);
+        process.exit(1);
+      }
+    } catch {}
+  }
   process.stdout.write(".");
   execSync("sleep 15");
 }

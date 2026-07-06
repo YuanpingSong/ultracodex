@@ -24,6 +24,10 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      # Trusted publishing (tokenless OIDC) requires npm >= 11.5; Node 22's
+      # bundled npm 10.x signs provenance but then publishes UNAUTHENTICATED,
+      # which the registry rejects as a masked 404. Learned the hard way.
+      - run: npm install -g npm@latest
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm build
