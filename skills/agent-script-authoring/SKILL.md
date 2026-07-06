@@ -185,7 +185,10 @@ Consequences you must write for:
   verdict, a feedback source) must be guarded for the not-yet-populated
   case; degrading the verifier to a synthetic failing verdict is usually
   safer than `continue`, because control flow then never dereferences an
-  empty history.
+  empty history. And **null-check into a temporary, commit on success**:
+  `const next = await agent(...); if (next) current = next` — reassigning
+  the accumulator directly (`current = await agent(...)`) erases the prior
+  good state exactly when a retry needs it.
 - Prefer degrading to a synthetic finding (`{ pass: false, issues:
   ['verifier failed'] }`) over silently losing an item.
 - **Key results by id, not by position.** When fan-out results must be
@@ -193,6 +196,12 @@ Consequences you must write for:
   schema. Never rely on array position, `indexOf` of returned objects, or
   index-joining two independently `.filter(Boolean)`-ed arrays — filtering
   shifts indices and silently misaligns the join on the first `null`.
+- **Identify failures before you filter.** When the problem asks you to
+  *name* what failed ("tell me which probe came back empty"), compute the
+  failed items' identities from the UNfiltered results — e.g.
+  `ITEMS.filter((it, i) => !results[i])` — *before* `.filter(Boolean)`.
+  Filtering first destroys the index→identity mapping; a bare count of
+  survivors can never say which one is missing.
 - Don't wrap `agent()` in `try/catch` by default. It only throws on the
   budget ceiling and the two caps; if you already guard loops on
   `budget.total`, a catch adds nothing. Let a genuine cap overrun abort the
@@ -283,6 +292,17 @@ mismatch. Write schemas for portability:
   record belongs"), model it with a graded enum (e.g.
   `'in-scope' | 'out-of-scope' | 'unsure'`): the middle tier is where all
   the human-review value lives.
+- **Runtime-derived enums need a safety net.** When an enum's members come
+  from an upstream agent's output (a discovered taxonomy feeding the
+  classification schema), either gate on that output being non-empty
+  *before* constructing the dependent schema, or include an escape member
+  (`'uncategorized'`). An empty derived enum is schema-valid upstream but
+  makes every downstream fan-out schema unsatisfiable — the whole corpus
+  silently drops.
+- **Don't smuggle an aggregate through a per-item schema.** A total/summary
+  row forced into an items array inherits required judgment fields
+  (safety, severity) that are meaningless for it, and pollutes every sort
+  and bucket downstream. Give aggregates their own top-level field.
 - Add `description` fields to properties: they are prompt material and
   meaningfully improve output quality.
 - **The terminal producer gets the strictest schema.** When a final
@@ -304,6 +324,17 @@ mismatch. Write schemas for portability:
   only the JSON / the list / the diff — no preamble".
 - Factor shared context into a `const PREAMBLE = ...` and compose per-agent
   deltas — same-prefix prompts are also cache-friendly.
+- **One frozen source of truth for locked constraints.** When a brief,
+  rubric, or contract feeds multiple agents, interpolate the *same const
+  string* into every call site verbatim. Don't let a pre-stage agent
+  paraphrase it for some consumers while others get the hard-coded copy —
+  workers then build against one constraint set and get judged against a
+  subtly different one.
+- **Never pre-author an agent's committed answer.** If the schema requires
+  the agent to produce its own defense/justification against a named risk,
+  injecting a written defense into the prompt turns that required field
+  into an echo of your prose — the commitment the field exists to extract
+  never happens. Name the trap; don't answer it.
 - Use **real line breaks** inside template-literal prompts. A `\n` escape
   works, but authors who *intend* paragraph breaks and write `\\n` (or
   build prompts in raw strings) ship literal backslash-n text to the agent
@@ -331,7 +362,11 @@ at 1000 agent calls. Within those:
   copy-pasteable resume tuple** (e.g. `{ start: nextStart, count }`); (b)
   coverage/"missing" accounting is computed over the current slice
   `[start, start+count)`, never the whole corpus — otherwise a partial run
-  reports everything outside its slice as missing.
+  reports everything outside its slice as missing; (c) the resume tuple's
+  `count` is bounded by the *original* requested slice end
+  (`start + count`), never the corpus size — a budget stop inside a
+  deliberately scoped run must not silently widen the job to the whole
+  corpus.
 - **Call-budget accounting**: overhead calls count against the 1000-call
   lifetime cap too. Before sizing a fan-out, budget it:
   `attempts + ceil(attempts/waveSize) checkpoint/gate calls + fixed
@@ -342,10 +377,15 @@ at 1000 agent calls. Within those:
   it read its own slice, instead of `JSON.stringify`-ing items into
   prompts.
 - **Budget rail**: between waves or rounds, check
-  `budget.total && budget.remaining() < THRESHOLD` and stop early. Its
-  companion lever: `effort: 'low'` on the mechanical per-item map/judge
-  agents is often the single biggest control on whether the rail ever
-  fires — tier the effort *before* tuning the threshold.
+  `budget.total && budget.remaining() < THRESHOLD` and stop early — and
+  **size THRESHOLD to at least one wave's worst-case output cost**
+  (≈ waveSize × items-per-worker × tokens-per-item), never a bare magic
+  number. A floor smaller than a wave means the *next* `parallel()`
+  crosses the hard ceiling mid-wave and throws — the exact crash the rail
+  exists to prevent. Its companion lever: `effort: 'low'` on the
+  mechanical per-item map/judge agents is often the single biggest control
+  on whether the rail ever fires — tier the effort *before* tuning the
+  threshold.
 - **No silent caps**: whenever the script bounds coverage — top-N,
   sampling, early stop, failed items — `log()` exactly what was dropped.
   A run that silently truncates reads as "covered everything" when it
@@ -371,9 +411,9 @@ ultracodex repo.
 | **fanout-synthesize** | Many partial views → one artifact | Parallel extractors → `.filter(Boolean)` → single synthesizer (+ optional single critique pass) |
 | **map-over-corpus** | Same judgment/transform per item, big N | Shard in JS, waves under the cap, `args` offsets for resume (returned on early stop), `effort:'low'` judges, self-verification inside each worker |
 | **pilot-then-full** | Unproven prompt × expensive corpus | ONE scout derives taxonomy + stratified sample together → sample fan-out (three-way membership enum, never boolean) → quality report → human gate |
-| **review-verify-fix** | Findings where false positives are costly | Dimension reviewers → dedup → 2 refute-by-default skeptics per finding → conditional fixer, suite kept green (parallel fixers ⇒ `isolation:'worktree'` each) |
+| **review-verify-fix** | Findings where false positives are costly | Dimension reviewers → dedup in plain JS by key (an agent asked to dedup must *select* ids, never re-emit records — re-emission can drop/mutate/fabricate) → 2 refute-by-default skeptics per finding → conditional fixer, suite kept green (parallel fixers ⇒ `isolation:'worktree'` each) |
 | **verify-sweep** | Pure QA of finished artifacts | Item × lens cross-product, severity-enum verdicts, failed verifiers degrade to synthetic findings |
-| **staged-build-gates** | Build with real dependency order | Waves of parallel builders (disjoint file ownership) → gate agent reconciling against a contract doc → integrator loops to green |
+| **staged-build-gates** | Build with real dependency order | Waves of parallel builders (disjoint file ownership) → gate agent that **runs** the full typecheck+test suite the wave builders were banned from running (a read-only source-text diff is not a gate) and fixes whichever side the contract deems wrong — caller, callee, or test → after any fix, re-verify before the next wave builds on it → integrator loops to green |
 | **actor-critic-loop** | One artifact must satisfy an exacting bar | Draft → schema'd `{pass, issues}` critic → revise on issues → repeat until pass/cap (see §6 loop) |
 | **design-exploration** | Divergent options wanted, not three safe ones | Same brief + a distinct assigned lens per agent ("the failure mode you must beat") → rubric judge synthesizes a merged spec |
 | **judge-panel** | Wide solution space, one winner needed | N independent attempts from different angles → parallel judges score → synthesize from winner, graft runners-up |
@@ -403,10 +443,13 @@ Before returning a script, verify:
    iteration reads state a skipped iteration never populated.
 6. Schemas: `additionalProperties: false`, `required` = all keys, an
    `enum` for every field the problem named as a closed set; the terminal
-   producer carries the strictest schema.
+   producer carries the strictest schema; runtime-derived enums are gated
+   non-empty or carry an escape member; no aggregate rows inside per-item
+   arrays.
 7. Fan-outs sized with overhead counted (≤4096/call; attempts + gate/
-   checkpoint calls ≤1000/run); coverage bounds are `log()`-ed AND early
-   stops `return` a concrete resume tuple.
+   checkpoint calls ≤1000/run); budget thresholds sized to ≥ one wave's
+   cost; coverage bounds are `log()`-ed AND early stops `return` a
+   concrete resume tuple bounded by the original slice.
 8. Tunables come from `args` (paths, slice bounds, batch sizes) rather
    than hard-coding; structured inputs are consumed as real values.
 9. Parallel write-capable agents on a shared tree each carry

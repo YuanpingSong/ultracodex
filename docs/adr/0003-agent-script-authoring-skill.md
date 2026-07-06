@@ -95,9 +95,30 @@ deviations = the skill text needs strengthening, not the models.
     one evidence-driven strengthening round. This is the acceptance bar
     met, with the corollary the Decision predicted: deviations were skill
     -text deficiencies, not model deficiencies.
+  - **Fuzz round (2026-07-06, opencode -m deepseek/deepseek-reasoner):**
+    run deliberately as an adversarial fuzz (different model family,
+    reasoning-heavy) hunting for NOVEL failure modes, not parity. Result:
+    3 comparable / 3 weaker / 1 failed (same class-1 paren fatality,
+    twice in one file — written correctly twice elsewhere in the same
+    file, i.e. a consistency slip only a mechanical parse gate catches),
+    normalized mean ≈6.2 — the weakest author of the three. The payoff:
+    **11 novel failure modes**, dominated by latent resume/failure-path
+    bugs invisible on the happy path: empty runtime-derived enum making
+    every downstream schema unsatisfiable; a gate agent forbidden from
+    running the checks it exists to run (source-text diff substituted for
+    typecheck+tests); budget floor below one wave's cost (rail can't
+    prevent the throw it guards against); resume tuple silently widening
+    a scoped run to the whole corpus; filter-before-identify destroying
+    failed-item identity; reassign-before-null-check erasing accumulator
+    state; two-sources-of-truth for locked constraints; pre-authored
+    self-defense fields (echo); agent dedup that re-emits records.
+    All nine recommended skill edits applied (§4/§7/§8/§9/§10/§11).
+    Characterization for the record: deepseek-reasoner has strong schema
+    instincts but over-engineers, opening seams on interruption paths —
+    **keep it as a fuzzing adversary, not a production author.**
   - Full reports: local session artifacts (`/tmp/parity-result.json`,
-    `/tmp/parity-r2-result.json`); authored scripts under
-    `/tmp/parity-test*/`.
+    `/tmp/parity-r2-result.json`, fuzz in the session task output);
+    authored scripts under `/tmp/parity-test*/`.
 - **E. Publishing.** Parity proven; plan drafted 2026-07-06 (execution
   items marked [go] are done, the rest await user go-ahead):
   1. [go] npm tarball carries the artifacts: `skills/` added to
