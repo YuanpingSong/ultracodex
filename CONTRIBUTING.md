@@ -35,8 +35,18 @@ per-agent prompt/output artifacts, schema'd critique outputs, token ledger),
 not just the final JSON. The whole run is archived under `.release-checks/`
 as provenance for that release. Requires an authenticated codex CLI and
 costs a few cents — deliberately not in CI (`RELEASE_CHECK_FAST=1` uses
-spark·medium while iterating; the real gate runs shipping defaults). Then:
-bump the version, push, tag `vX.Y.Z`, publish the GitHub release draft.
+spark·medium while iterating; the real gate runs shipping defaults).
+
+The full ship sequence is one command:
+
+```bash
+pnpm release <patch|minor|major>
+```
+
+— gate, version bump + tag, push (the tag triggers the publish workflow,
+which releases to npm via trusted publishing with provenance), GitHub
+release with generated notes, then polls the registry to confirm the
+publish landed.
 
 ## Ground rules
 
