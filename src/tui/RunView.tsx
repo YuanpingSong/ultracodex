@@ -9,6 +9,8 @@ import { copyToClipboard } from "./clipboard.js";
 import { col } from "./colors.js";
 import {
   budgetBar,
+  clampPhaseFilter,
+  filterAgentsByPhase,
   fmtClock,
   fmtDuration,
   fmtTokens,
@@ -24,7 +26,6 @@ import { Timeline } from "./Timeline.js";
 
 const CARD_TIER_MAX = 8;
 const ROW_TIER_MAX = 30;
-const CARD_OK_KEEP = 5;
 const NARRATOR_TAIL = 4;
 
 /** How long a live runner may go without a pidfile before we call it dead. */
@@ -73,6 +74,8 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
 
   const [mode, setMode] = useState<Mode>({ kind: "main" });
   const [selIdx, setSelIdx] = useState(0);
+  // Phase tab: 0 = "All" (default). Only ←/→ move it — never the run itself.
+  const [phaseIdx, setPhaseIdx] = useState(0);
   const [flash, showFlash] = useFlash(2500);
 
   const [runnerDead, setRunnerDead] = useState(false);
@@ -103,10 +106,15 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
   const controlsEnabled = running && !runnerDead;
 
   const agents = useMemo(() => [...state.agents.values()].sort((a, b) => a.n - b.n), [state]);
-  const tier = agents.length <= CARD_TIER_MAX ? "cards" : agents.length <= ROW_TIER_MAX ? "rows" : "aggregate";
+  const phaseSel = clampPhaseFilter(phaseIdx, state.phases.length);
+  const visible = useMemo(
+    () => filterAgentsByPhase(agents, state.phases, phaseSel),
+    [agents, state.phases, phaseSel],
+  );
+  const tier = visible.length <= CARD_TIER_MAX ? "cards" : visible.length <= ROW_TIER_MAX ? "rows" : "aggregate";
   const selectable = useMemo(
-    () => (tier === "aggregate" ? agents.filter((a) => a.status === "running" || a.status === "failed") : agents),
-    [agents, tier],
+    () => (tier === "aggregate" ? visible.filter((a) => a.status === "running" || a.status === "failed") : visible),
+    [visible, tier],
   );
   const sel = Math.min(selIdx, Math.max(0, selectable.length - 1));
   const selectedAgent = selectable[sel];
@@ -144,7 +152,15 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
       }
       if (key.upArrow) setSelIdx(Math.max(0, sel - 1));
       else if (key.downArrow) setSelIdx(Math.min(Math.max(0, selectable.length - 1), sel + 1));
-      else if (key.return) {
+      else if (key.leftArrow || key.rightArrow) {
+        const next = clampPhaseFilter(phaseSel + (key.rightArrow ? 1 : -1), state.phases.length);
+        if (next !== phaseSel) {
+          setPhaseIdx(next);
+          // Commit the clamped selection so leaving a short phase does not
+          // restore a stale index (clamp-on-filter-change, no per-phase memory).
+          setSelIdx(sel);
+        }
+      } else if (key.return) {
         if (selectedAgent) setMode({ kind: "detail", n: selectedAgent.n });
       } else if (input === "t") setMode({ kind: "timeline" });
       else if (input === "p") {
@@ -194,14 +210,17 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
           runner exited (no run_end) — controls disabled
         </Text>
       )}
-      <PhaseStrip state={state} />
+      <PhaseStrip state={state} selected={phaseSel} />
       <Box flexDirection="column" marginTop={1}>
-        {agents.length === 0 && <Text dimColor>waiting for agents…</Text>}
-        {tier === "cards" && (
-          <Cards agents={agents} selected={selectedAgent} now={now} endTs={state.endTs} columns={columns} />
-        )}
+        {visible.length === 0 && <Text dimColor>waiting for agents…</Text>}
+        {/* Cards render the filtered list verbatim — every agent by name. Density
+            is the tier system's job (and the phase filter's), so no ok-collapse. */}
+        {tier === "cards" &&
+          visible.map((a) => (
+            <AgentCard key={a.n} agent={a} selected={a === selectedAgent} now={now} endTs={state.endTs} columns={columns} />
+          ))}
         {tier === "rows" &&
-          agents.map((a) => (
+          visible.map((a) => (
             <AgentRow key={a.n} agent={a} selected={a === selectedAgent} now={now} endTs={state.endTs} columns={columns} />
           ))}
         {tier === "aggregate" && (
@@ -226,8 +245,8 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
           </Text>
         ) : (
           <Text dimColor wrap="truncate-end">
-            ↑↓ select · ↵ detail · t timeline · p {state.paused ? "resume" : "pause"} · x stop · k skip · s result ·
-            esc home · q quit
+            ↑↓ select · ←→ phase · ↵ detail · t timeline · p {state.paused ? "resume" : "pause"} · x stop · k skip ·
+            s result · esc home · q quit
           </Text>
         )}
         {flash && <Text color={col("cyan")}> {flash}</Text>}
@@ -267,62 +286,35 @@ function Header({ state, now }: { state: TuiState; now: number }): ReactElement 
   );
 }
 
-function PhaseStrip({ state }: { state: TuiState }): ReactElement | null {
+/** Tab bar: "All" at index 0, then one tab per phase; `selected` is the phase-filter index. */
+function PhaseStrip({ state, selected }: { state: TuiState; selected: number }): ReactElement | null {
   if (state.phases.length === 0) return null;
   return (
     <Box>
+      <Text inverse={selected === 0} dimColor={selected !== 0}>
+        All
+      </Text>
       {state.phases.map((p, i) => {
         const finished =
           p.total > 0 && p.running === 0 && p.done + p.failed === p.total && p.title !== state.currentPhase;
         const active = p.running > 0 || p.title === state.currentPhase;
+        const isSelected = selected === i + 1;
         const glyph = finished ? "✔" : active ? "●" : "○";
         const color = finished ? "green" : active ? "cyan" : undefined;
         return (
           <Text key={p.title}>
-            {i > 0 && <Text dimColor> ── </Text>}
-            <Text color={color ? col(color) : undefined} dimColor={!finished && !active}>
+            <Text dimColor> ── </Text>
+            <Text
+              inverse={isSelected}
+              color={color ? col(color) : undefined}
+              dimColor={!finished && !active && !isSelected}
+            >
               {glyph} {p.title} {p.done}/{p.total}
             </Text>
             {p.failed > 0 && <Text color={col("red")}> ✖{p.failed}</Text>}
           </Text>
         );
       })}
-    </Box>
-  );
-}
-
-function Cards({
-  agents,
-  selected,
-  now,
-  endTs,
-  columns,
-}: {
-  agents: AgentView[];
-  selected: AgentView | undefined;
-  now: number;
-  endTs: number | null;
-  columns: number;
-}): ReactElement {
-  const okAgents = agents.filter((a) => a.status === "ok");
-  const collapsed = new Set(
-    okAgents
-      .slice(0, Math.max(0, okAgents.length - CARD_OK_KEEP))
-      .filter((a) => a !== selected)
-      .map((a) => a.n),
-  );
-  return (
-    <Box flexDirection="column">
-      {collapsed.size > 0 && (
-        <Text dimColor>
-          {"  "}({collapsed.size} more <Text color={col("green")}>✔</Text>)
-        </Text>
-      )}
-      {agents
-        .filter((a) => !collapsed.has(a.n))
-        .map((a) => (
-          <AgentCard key={a.n} agent={a} selected={a === selected} now={now} endTs={endTs} columns={columns} />
-        ))}
     </Box>
   );
 }

@@ -3,8 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openInEditor, parseEditorCommand } from "../src/tui/clipboard.js";
+import { clampPhaseFilter, filterAgentsByPhase, phaseFilterTitle } from "../src/tui/format.js";
 import { validateBudgetInput } from "../src/tui/HomeView.js";
-import { initialState, reduce, type TuiState } from "../src/tui/reducer.js";
+import {
+  initialState,
+  reduce,
+  type AgentView,
+  type PhaseView,
+  type TuiState,
+} from "../src/tui/reducer.js";
 import { RUNNER_START_GRACE_MS, runnerLooksDead } from "../src/tui/RunView.js";
 import { renderRunStatic } from "../src/tui/static.js";
 import type { JournalEvent, Usage, WorkflowMeta } from "../src/types.js";
@@ -366,5 +373,146 @@ describe("$EDITOR handling (clipboard)", () => {
       expect(openInEditor(path.join(tmp, "whatever.txt"))).toBe(false);
       expect(err).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe("phase filter helpers (format)", () => {
+  const phase = (title: string, total: number): PhaseView => ({
+    title,
+    done: 0,
+    running: 0,
+    failed: 0,
+    total,
+  });
+  const PHASES: PhaseView[] = [phase("Read", 2), phase("Synthesize", 1), phase("Critique", 1)];
+
+  function agent(n: number, agentPhase: string | null): AgentView {
+    return {
+      n,
+      label: `agent-${n}`,
+      phase: agentPhase,
+      backend: "codex",
+      model: null,
+      status: "running",
+      startTs: 0,
+      endTs: null,
+      activity: null,
+      usage: u(0),
+      threadId: null,
+      error: null,
+      resultRef: null,
+      activityCount: 0,
+    };
+  }
+  const AGENTS: AgentView[] = [
+    agent(1, "Read"),
+    agent(2, "Read"),
+    agent(3, "Synthesize"),
+    agent(4, "Critique"),
+    agent(5, null), // phase-less agent: visible only under "All"
+  ];
+
+  describe("clampPhaseFilter", () => {
+    it("clamps at both ends without wrapping ('All' at 0, last phase at phaseCount)", () => {
+      expect(clampPhaseFilter(0, 3)).toBe(0);
+      expect(clampPhaseFilter(2, 3)).toBe(2);
+      expect(clampPhaseFilter(3, 3)).toBe(3);
+      expect(clampPhaseFilter(4, 3)).toBe(3); // → past the last tab stays put
+      expect(clampPhaseFilter(-1, 3)).toBe(0); // ← past "All" stays put
+    });
+
+    it("zero phases: every step lands back on All, so ←/→ are no-ops", () => {
+      expect(clampPhaseFilter(0 + 1, 0)).toBe(0); // → from All
+      expect(clampPhaseFilter(0 - 1, 0)).toBe(0); // ← from All
+      expect(clampPhaseFilter(99, 0)).toBe(0);
+    });
+
+    it("survives garbage indexes", () => {
+      expect(clampPhaseFilter(Number.NaN, 3)).toBe(0);
+      expect(clampPhaseFilter(1.9, 3)).toBe(1); // truncates, never invents a tab
+    });
+  });
+
+  describe("phaseFilterTitle", () => {
+    it("maps 0 → All (null) and i → phases[i-1]", () => {
+      expect(phaseFilterTitle(PHASES, 0)).toBeNull();
+      expect(phaseFilterTitle(PHASES, 1)).toBe("Read");
+      expect(phaseFilterTitle(PHASES, 3)).toBe("Critique");
+    });
+
+    it("clamps out-of-range indexes instead of exploding", () => {
+      expect(phaseFilterTitle(PHASES, 99)).toBe("Critique");
+      expect(phaseFilterTitle(PHASES, -5)).toBeNull();
+      expect(phaseFilterTitle([], 2)).toBeNull();
+    });
+  });
+
+  describe("filterAgentsByPhase", () => {
+    it("All (index 0) returns the identical unfiltered list", () => {
+      expect(filterAgentsByPhase(AGENTS, PHASES, 0)).toBe(AGENTS);
+    });
+
+    it("a phase tab shows only that phase's agents", () => {
+      expect(filterAgentsByPhase(AGENTS, PHASES, 1).map((a) => a.n)).toEqual([1, 2]);
+      expect(filterAgentsByPhase(AGENTS, PHASES, 2).map((a) => a.n)).toEqual([3]);
+      expect(filterAgentsByPhase(AGENTS, PHASES, 3).map((a) => a.n)).toEqual([4]);
+    });
+
+    it("null-phase agents appear only under All", () => {
+      for (let i = 1; i <= PHASES.length; i++) {
+        expect(filterAgentsByPhase(AGENTS, PHASES, i).some((a) => a.phase === null)).toBe(false);
+      }
+      expect(filterAgentsByPhase(AGENTS, PHASES, 0)).toContain(AGENTS[4]);
+    });
+
+    it("out-of-range indexes clamp: past the end → last phase, below zero → All", () => {
+      expect(filterAgentsByPhase(AGENTS, PHASES, 42).map((a) => a.n)).toEqual([4]);
+      expect(filterAgentsByPhase(AGENTS, PHASES, -3)).toBe(AGENTS);
+    });
+
+    it("no phases: every index behaves like All", () => {
+      expect(filterAgentsByPhase(AGENTS, [], 0)).toBe(AGENTS);
+      expect(filterAgentsByPhase(AGENTS, [], 1)).toBe(AGENTS);
+    });
+
+    // Regression: the cards tier renders the filtered list verbatim, so the
+    // visible-list derivation must never drop finished agents (the old
+    // ok-card collapse hid the oldest ✔ agents behind a "(N more ✔)" line).
+    it("never drops ok agents — a card-tier list of 8 with 7 finished keeps all 8 by name", () => {
+      const eight: AgentView[] = [
+        ...Array.from({ length: 7 }, (_, i) => ({ ...agent(i + 1, "Read"), status: "ok" as const })),
+        agent(8, "Read"),
+      ];
+      const onePhase = [phase("Read", 8)];
+      expect(filterAgentsByPhase(eight, onePhase, 0)).toBe(eight); // All: identical list
+      expect(filterAgentsByPhase(eight, onePhase, 1).map((a) => a.n)).toEqual([
+        1, 2, 3, 4, 5, 6, 7, 8,
+      ]);
+    });
+  });
+
+  it("works on state folded from real journal events (incl. a phase-less agent)", () => {
+    const events: JournalEvent[] = [
+      ...midRunEvents(),
+      {
+        t: "agent_start",
+        ts: 2700,
+        n: 5,
+        label: "orphan",
+        phase: null,
+        backend: "codex",
+        model: "gpt-5.4",
+        effort: null,
+        promptSha: "p5",
+        promptRef: "agents/5-orphan/prompt.md",
+        hasSchema: false,
+      },
+    ];
+    const st = fold(events);
+    const agents = [...st.agents.values()].sort((a, b) => a.n - b.n);
+    // meta seeds [Summarize, Critique]; agents 1-4 are Summarize, 5 has no phase
+    expect(filterAgentsByPhase(agents, st.phases, 0).map((a) => a.n)).toEqual([1, 2, 3, 4, 5]);
+    expect(filterAgentsByPhase(agents, st.phases, 1).map((a) => a.n)).toEqual([1, 2, 3, 4]);
+    expect(filterAgentsByPhase(agents, st.phases, 2)).toEqual([]); // Critique not started yet
   });
 });

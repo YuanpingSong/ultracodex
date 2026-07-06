@@ -1,5 +1,5 @@
 import type { Usage } from "../types.js";
-import type { TuiState } from "./reducer.js";
+import type { AgentView, PhaseView, TuiState } from "./reducer.js";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -103,6 +103,39 @@ export function ganttBar(
   const offset = Math.min(Math.max(0, width - 1), Math.floor(from * width));
   const length = Math.max(1, Math.round((to - from) * width));
   return { offset, length: Math.min(length, width - offset) };
+}
+
+/**
+ * Phase-tab model for the run view strip: index 0 is the "All" tab (the
+ * default), index i in [1, phaseCount] is phases[i-1]. Clamps into
+ * [0, phaseCount] — no wrap, so with zero phases every index lands on "All"
+ * and ←/→ are no-ops.
+ */
+export function clampPhaseFilter(index: number, phaseCount: number): number {
+  if (!Number.isFinite(index)) return 0;
+  return Math.min(Math.max(0, phaseCount), Math.max(0, Math.trunc(index)));
+}
+
+/** Phase title selected by the filter, or null for the "All" tab. */
+export function phaseFilterTitle(phases: PhaseView[], filterIndex: number): string | null {
+  const i = clampPhaseFilter(filterIndex, phases.length);
+  return i === 0 ? null : phases[i - 1]!.title;
+}
+
+/**
+ * Agents visible under the phase filter. "All" (index 0, or any index that
+ * clamps to it) returns the list unchanged — byte-identical to unfiltered.
+ * A phase tab shows only agents tagged with that phase; agents whose phase is
+ * null appear only under "All".
+ */
+export function filterAgentsByPhase(
+  agents: AgentView[],
+  phases: PhaseView[],
+  filterIndex: number,
+): AgentView[] {
+  const title = phaseFilterTitle(phases, filterIndex);
+  if (title === null) return agents;
+  return agents.filter((a) => a.phase === title);
 }
 
 /** "500k" → 500000, "1.5m" → 1500000, "" → null, garbage → null. */
