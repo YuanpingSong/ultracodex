@@ -67,6 +67,7 @@ export const DEFAULT_CODEX_CONFIG: CodexBackendConfig = {
   defaultEffort: "xhigh",
   serviceTier: "standard",
   extraArgs: [],
+  networkAccess: false,
   schemaRetries: DEFAULT_SCHEMA_RETRIES,
 };
 

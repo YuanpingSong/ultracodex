@@ -98,6 +98,9 @@ export class CodexExecutor implements Executor {
         // burn increased usage on every agent.
         extraArgs: [
           ...(this.cfg.serviceTier ? ["-c", `service_tier="${this.cfg.serviceTier}"`] : []),
+          // Verified live 2026-07-06: enables egress while keeping the
+          // workspace-write file confinement.
+          ...(this.cfg.networkAccess ? ["-c", "sandbox_workspace_write.network_access=true"] : []),
           ...this.cfg.extraArgs,
         ],
       });

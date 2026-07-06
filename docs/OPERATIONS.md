@@ -56,6 +56,31 @@ service_tier   = "standard"    # never inherit fast mode from ~/.codex
 model_map      = { opus = "gpt-5.5", sonnet = "gpt-5.4", haiku = "gpt-5.4-mini" }
 ```
 
+## Sandbox & network: the escalation ladder
+
+Workflow agents default to **`workspace-write` + no network + approvals
+auto-denied**: file writes confined to the project dir, reads unrestricted,
+no egress. This is deliberate — unattended fleets often process untrusted
+content (fetched docs, third-party repos), and no-egress is what makes that
+safe by default.
+
+Escalate deliberately, per project, in `.ultracodex/config.toml`:
+
+```toml
+[backends.codex]
+network_access = true            # 1. egress inside the sandbox (pnpm install,
+                                 #    APIs, web) — file confinement retained
+
+# sandbox = "danger-full-access" # 2. no sandbox at all: writes anywhere your
+                                 #    user can, network on. Trusted repos only.
+
+[profiles.Networked]             # 3. per-agent: only agents the script marks
+sandbox = "danger-full-access"   #    agentType: 'Networked' escalate
+```
+
+Rule of thumb: your own repos → tier 1; workflows that ingest untrusted
+content → stock defaults and pre-fetch inputs into the project dir.
+
 ## Failure playbook
 
 - `ls` shows `dead`: the runner exited without `run_end` — inspect

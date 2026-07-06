@@ -321,6 +321,11 @@ export interface CodexBackendConfig {
   serviceTier: string | null;
   /** Extra argv appended to every `codex app-server` spawn (e.g. -c overrides). */
   extraArgs: string[];
+  /** Allow network egress inside the workspace-write sandbox (maps to
+   *  codex `sandbox_workspace_write.network_access`). File confinement is
+   *  retained; off by default because unattended fleets often process
+   *  untrusted content. */
+  networkAccess: boolean;
   /** ajv-validation repair attempts on the same thread. Default 3. */
   schemaRetries: number;
 }

@@ -148,6 +148,13 @@ describe("loadConfig — project overrides", () => {
     expect(cfg.claude.extraArgs).toEqual(["--allowedTools", "Read", "Bash(ls:*)"]);
   });
 
+  it("network_access knob: default off, boolean override", () => {
+    expect(loadConfig(makeTmpDir(), { globalDir: makeTmpDir() }).codex.networkAccess).toBe(false);
+    const projectDir = makeTmpDir();
+    writeToml(projectDir, "[backends.codex]\nnetwork_access = true");
+    expect(loadConfig(projectDir, { globalDir: makeTmpDir() }).codex.networkAccess).toBe(true);
+  });
+
   it("project backends.claude overrides snake_case fields", () => {
     const projectDir = makeTmpDir();
     const globalDir = makeTmpDir();

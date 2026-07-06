@@ -52,6 +52,8 @@ function mergeCodexConfig(
     result.serviceTier = raw["service_tier"];
   if (Array.isArray(raw["extra_args"]) && raw["extra_args"].every((a) => typeof a === "string"))
     result.extraArgs = raw["extra_args"] as string[];
+  if (typeof raw["network_access"] === "boolean")
+    result.networkAccess = raw["network_access"];
   if (typeof raw["schema_retries"] === "number")
     result.schemaRetries = raw["schema_retries"];
   if (raw["model_map"] !== null && typeof raw["model_map"] === "object") {
