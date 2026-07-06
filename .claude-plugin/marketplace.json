@@ -1,0 +1,11 @@
+{
+  "name": "ultracodex",
+  "owner": { "name": "Yuanping Song", "url": "https://github.com/YuanpingSong" },
+  "plugins": [
+    {
+      "name": "ultracodex",
+      "source": "./",
+      "description": "Agent Script workflows end to end: the ultracodex runner skill (execute multi-agent workflows on the OpenAI Codex CLI), the model-agnostic agent-script-authoring skill, and a seven-shape example gallery."
+    }
+  ]
+}

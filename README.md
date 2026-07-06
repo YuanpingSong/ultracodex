@@ -140,9 +140,27 @@ Using it:
   ultracodex sync-skills
   ```
 
-  The repo also doubles as a Claude Code **plugin** (`.claude-plugin/plugin.json`): installing it as a plugin exposes the same two skills plus the examples gallery, no CLI required.
+  Or install the repo as a **plugin** — same two skills plus the examples gallery, no CLI required, and skills load with progressive disclosure (~250 always-on tokens; the full skill text loads only on invoke):
 
-- **Any other agent (codex, opencode, a raw API call…)** — prepend the skill file to the prompt, state the problem, ask for a `workflow.js`. Then gate the result mechanically:
+  ```bash
+  claude plugin marketplace add YuanpingSong/ultracodex
+  claude plugin install ultracodex@ultracodex
+  ```
+
+- **Codex** — the Codex CLI consumes the same plugin marketplace natively:
+
+  ```bash
+  codex plugin marketplace add https://github.com/YuanpingSong/ultracodex
+  codex plugin add ultracodex@ultracodex
+  ```
+
+- **opencode** — no markdown-skill mechanism yet; load the authoring skill through the global rules file (note: always-on context), or prepend it per prompt as below:
+
+  ```bash
+  cat "$(npm root -g)/ultracodex/skills/agent-script-authoring/SKILL.md" >> ~/.config/opencode/AGENTS.md
+  ```
+
+- **Any other agent (a raw API call, anything that takes a prompt)** — prepend the skill file to the prompt, state the problem, ask for a `workflow.js`. Then gate the result mechanically:
 
   ```bash
   ultracodex validate --strict workflow.js   # must print: ok: no issues

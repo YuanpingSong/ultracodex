@@ -7,7 +7,9 @@ ultracodex executes Claude Code Workflow-tool scripts unmodified, routing each `
 
 ## Authoring
 
-Write the script EXACTLY as you would for the Workflow tool — same format, byte for byte: `export const meta = {name, description, phases?}` as a pure literal, then a plain-JS async body over the injected globals `agent` / `parallel` / `pipeline` / `phase` / `log` / `args` / `budget` / `workflow`. Loops are ordinary JavaScript (null-check every agent result; guard unbounded loops on `budget`). No imports, no TypeScript. Save it to a file. If the Workflow tool schema is not in your context, learn the format from the **agent-script-authoring** skill (installed alongside this one; also at `skills/agent-script-authoring/SKILL.md` in the ultracodex package).
+Write the script EXACTLY as you would for the Workflow tool — same format, byte for byte: `export const meta = {name, description, phases?}` as a pure literal, then a plain-JS async body over the injected globals `agent` / `parallel` / `pipeline` / `phase` / `log` / `args` / `budget` / `workflow`. Loops are ordinary JavaScript (null-check every agent result; guard unbounded loops on `budget`). No imports, no TypeScript. Save it to a file.
+
+Format reference, in priority order: if the **Workflow tool's definition is in your context** (the session has the tool), use that — it is the native, authoritative description and you already know the format. Otherwise, learn the format from the **agent-script-authoring** skill (installed alongside this one; also at `skills/agent-script-authoring/SKILL.md` in the ultracodex package).
 
 ## Running
 
