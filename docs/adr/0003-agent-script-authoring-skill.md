@@ -116,9 +116,43 @@ deviations = the skill text needs strengthening, not the models.
     Characterization for the record: deepseek-reasoner has strong schema
     instincts but over-engineers, opening seams on interruption paths —
     **keep it as a fuzzing adversary, not a production author.**
+  - **Round 3 (2026-07-06, confirmatory, ALL THREE models vs the
+    fuzz-hardened skill; comparative judges with per-slug baselines):**
+    verdict **minor-regressions**, program conclusions:
+    - codex: 5 comparable + 2 stronger, 0 weaker/failed, mean 8.64 — holds
+      parity; all 12 fuzz classes closed everywhere they apply. Its ONE
+      regression (staged-build 9→8) was caused by OUR hardening text:
+      the isolation rule read as an absolute, so it worktree-isolated
+      disjoint-ownership builders and orphaned the gate. Lesson recorded:
+      **rules need deciding tests, not absolutes** — rewritten around the
+      gate-visibility contract.
+    - deepseek: improved decisively (mean 6.2 → 6.93; 4 comparable incl.
+      recovering staged-build from a parse failure to comparable@7; the
+      only tool to get worktree isolation exactly right). Its two 'failed'
+      verdicts were harness runtime deaths capping otherwise-valid
+      scripts. The fuzz→harden loop demonstrably worked on the model that
+      generated the findings.
+    - gemma-31B: regressed materially (8.36 → 5.71; 2c/3w/2f), re-emitting
+      classes 1, 2/11, 5, 8, 9 plus hard bugs ([object Object] builder
+      names, truthiness smoke gates). Combined with its round-2 pass, the
+      honest characterization is **high run-to-run variance at 31B scale**
+      — capable of parity runs, not reliable ones. Published floor
+      REVISED: frontier = parity, reliably; 31B-class = parity-capable
+      but high-variance, treat output as usable-with-review.
+    - Shared non-codex gap of record: trusting fixer self-reported
+      `checksPassed` instead of a gate that re-runs the suite (classes
+      2/11). Residual skill edits applied: isolation deciding test,
+      gate-runs-checks + re-gate as hard rule, two-part derived-enum
+      contract, judge-sees-all-candidates ranking rule, mandatory budget
+      rail under stated-tight budgets, `args?.x ?? default` idiom.
+    - Open tension for v0.4: the skill has grown ~40% through three
+      hardening rounds; small models may fail partly from rule-volume
+      saturation. Candidate remedy: a short "core contract" section
+      up front with the long tail as reference material — test before
+      publishing to small-model audiences.
   - Full reports: local session artifacts (`/tmp/parity-result.json`,
-    `/tmp/parity-r2-result.json`, fuzz in the session task output);
-    authored scripts under `/tmp/parity-test*/`.
+    `/tmp/parity-r2-result.json`, `/tmp/parity-r3-result.json`, fuzz in
+    the session task output); authored scripts under `/tmp/parity-test*/`.
 - **E. Publishing.** Parity proven; plan drafted 2026-07-06 (execution
   items marked [go] are done, the rest await user go-ahead):
   1. [go] npm tarball carries the artifacts: `skills/` added to

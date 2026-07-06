@@ -113,12 +113,14 @@ against that schema.
   'max'`. Omit to inherit. `'low'` for mechanical stages (classify,
   extract, reformat), high tiers for the hardest verify/judge stages.
 - `isolation: 'worktree'` — runs the agent in a fresh git worktree. Costly
-  per agent; use **only** when parallel agents mutate the same files and
-  would conflict. Disjoint file ownership does not need it. **Hard rule:**
-  scaling any write-capable stage (fixers, builders) to `parallel()` over a
-  shared working tree *requires* `isolation: 'worktree'` on each — without
-  it the agents trample each other's edits and each one runs the project's
-  checks against a tree its siblings are mutating mid-flight.
+  per agent. **The deciding test is downstream visibility:** if a gate or
+  integrator must see *all* the parallel agents' edits in one tree, they
+  stay on the shared tree — which is safe exactly when their file
+  ownership is disjoint. Worktree-isolating disjoint-ownership builders
+  strands every builder's edits in a private tree the gate never sees.
+  Use isolation only when parallel writers would touch the *same* files
+  (e.g. independent fix attempts), and then plan how the surviving
+  worktree's changes get merged back.
 - `agentType` — an engine-defined agent profile (e.g. a read-only explorer
   type). Engine-specific; the script still runs on engines that map it
   differently or fall back to the default agent.
@@ -151,7 +153,9 @@ trustworthy to the person watching it run.
 
 The run's input value, verbatim (`undefined` if none). This is how one
 script serves many runs: pass file lists, offsets, questions, or config as
-real JSON values. Never JSON-encode arrays into strings.
+real JSON values. Never JSON-encode arrays into strings. Read tunables
+defensively — `const DB = args?.dbPath ?? './data.db'` — a bare `args.x`
+at top level throws the moment the run is launched without args.
 
 ### `budget`
 
@@ -292,13 +296,14 @@ mismatch. Write schemas for portability:
   record belongs"), model it with a graded enum (e.g.
   `'in-scope' | 'out-of-scope' | 'unsure'`): the middle tier is where all
   the human-review value lives.
-- **Runtime-derived enums need a safety net.** When an enum's members come
-  from an upstream agent's output (a discovered taxonomy feeding the
-  classification schema), either gate on that output being non-empty
-  *before* constructing the dependent schema, or include an escape member
-  (`'uncategorized'`). An empty derived enum is schema-valid upstream but
-  makes every downstream fan-out schema unsatisfiable — the whole corpus
-  silently drops.
+- **Runtime-derived category sets are a two-part contract.** When a
+  taxonomy comes from an upstream agent: (a) it still becomes a **closed
+  `enum`** in the downstream schema — discovering categories at runtime is
+  not license for a free-string field; (b) gate on the derived set being
+  non-empty *before* constructing the dependent schema, or include an
+  escape member (`'uncategorized'`). An empty derived enum is schema-valid
+  upstream but makes every downstream fan-out schema unsatisfiable — the
+  whole corpus silently drops.
 - **Don't smuggle an aggregate through a per-item schema.** A total/summary
   row forced into an items array inherits required judgment fields
   (safety, severity) that are meaningless for it, and pollutes every sort
@@ -347,7 +352,11 @@ mismatch. Write schemas for portability:
   change nothing") — and use a read-only `agentType` where available.
 - Fixer/builder agents: give them an objective green signal ("iterate
   until typecheck + tests pass; never finish red") and require a
-  structured report of what they did.
+  structured report of what they did. **A fixer's self-reported
+  `checksPassed: true` is not a gate** — when the problem demands the
+  suite stays green, a separate gate agent re-runs the checks itself,
+  and re-runs them again after any conditional fix stage before further
+  work builds on top.
 
 ## 9. Rails for scale
 
@@ -382,9 +391,11 @@ at 1000 agent calls. Within those:
   (≈ waveSize × items-per-worker × tokens-per-item), never a bare magic
   number. A floor smaller than a wave means the *next* `parallel()`
   crosses the hard ceiling mid-wave and throws — the exact crash the rail
-  exists to prevent. Its companion lever: `effort: 'low'` on the
-  mechanical per-item map/judge agents is often the single biggest control
-  on whether the rail ever fires — tier the effort *before* tuning the
+  exists to prevent. When the problem says the budget is tight or the run
+  is unattended, the rail is **mandatory** — a round cap alone is not a
+  budget rail. Its companion lever: `effort: 'low'` on the mechanical
+  per-item map/judge agents is often the single biggest control on
+  whether the rail ever fires — tier the effort *before* tuning the
   threshold.
 - **No silent caps**: whenever the script bounds coverage — top-N,
   sampling, early stop, failed items — `log()` exactly what was dropped.
@@ -415,8 +426,14 @@ ultracodex repo.
 | **verify-sweep** | Pure QA of finished artifacts | Item × lens cross-product, severity-enum verdicts, failed verifiers degrade to synthetic findings |
 | **staged-build-gates** | Build with real dependency order | Waves of parallel builders (disjoint file ownership) → gate agent that **runs** the full typecheck+test suite the wave builders were banned from running (a read-only source-text diff is not a gate) and fixes whichever side the contract deems wrong — caller, callee, or test → after any fix, re-verify before the next wave builds on it → integrator loops to green |
 | **actor-critic-loop** | One artifact must satisfy an exacting bar | Draft → schema'd `{pass, issues}` critic → revise on issues → repeat until pass/cap (see §6 loop) |
-| **design-exploration** | Divergent options wanted, not three safe ones | Same brief + a distinct assigned lens per agent ("the failure mode you must beat") → rubric judge synthesizes a merged spec |
-| **judge-panel** | Wide solution space, one winner needed | N independent attempts from different angles → parallel judges score → synthesize from winner, graft runners-up |
+| **design-exploration** | Divergent options wanted, not three safe ones | Same brief + a distinct assigned lens per agent ("the failure mode you must beat" — named, never answered for them) → ONE judge that sees all candidates synthesizes a merged spec |
+| **judge-panel** | Wide solution space, one winner needed | N independent attempts from different angles → judges score → synthesize from winner, graft runners-up |
+
+Ranking rule for both judged shapes: when the deliverable requires
+comparing, ranking, or merging candidates, the judging happens in **one
+agent that sees all candidates together**. Isolated per-candidate critics
+can score, but they cannot rank, pick a winner, or merge — fanning the
+judge out defeats the shape.
 
 ## 11. Pre-flight checklist
 
@@ -451,7 +468,9 @@ Before returning a script, verify:
    cost; coverage bounds are `log()`-ed AND early stops `return` a
    concrete resume tuple bounded by the original slice.
 8. Tunables come from `args` (paths, slice bounds, batch sizes) rather
-   than hard-coding; structured inputs are consumed as real values.
+   than hard-coding, always via `args?.x ?? default` — never a bare
+   top-level `args.x` dereference; structured inputs are consumed as real
+   values.
 9. Parallel write-capable agents on a shared tree each carry
    `isolation: 'worktree'`.
 10. No added stage violates an explicit deliverable-shape constraint
