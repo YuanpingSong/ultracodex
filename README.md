@@ -6,15 +6,17 @@
 
 **Run Claude Code workflow scripts, unmodified, on the OpenAI Codex CLI.**
 
-Ultracode too expensive? **ultracodex** is ultracode on Codex — the same workflow scripts, running on your Codex subscription. Or OpenCode (coming soon).
+Ultracode too expensive? **ultracodex** is ultracode on Codex — the same workflow scripts, running on your Codex subscription, or on OpenCode (coming soon).
 
 > **fable plans, codex executes, fable verifies**
 
 Your best model plans and judges; the subscription you're not rationing does the work. Verified results land back in the session that asked. Quit the terminal — runs are detached processes over plain files, nothing dies. And any model can write these workflows: the [authoring skill](skills/agent-script-authoring/SKILL.md) and a [nine-shape example gallery](examples/) ship in the box.
 
+<video src="https://github.com/YuanpingSong/ultracodex/releases/download/v0.1.1/ultracodex-demo-v0.1.mp4" controls muted width="100%"></video>
+
 ![Claude Code authors an actor-critic workflow and runs it through ultracodex; the TUI shows the rounds executing on Codex, then the result lands back in Claude](https://raw.githubusercontent.com/YuanpingSong/ultracodex/main/assets/demo.gif)
 
-*One prompt: "Write an essay on the meaning of life — actor–critic loop, 3 rounds. Run it with ultracodex." Claude (right) authors the workflow, Codex executes it, the TUI (left) watches live, and the result lands back in Claude. ([HD video](https://github.com/YuanpingSong/ultracodex/releases/download/v0.1.1/ultracodex-demo-v0.1.mp4))*
+*One prompt: "Write an essay on the meaning of life — actor–critic loop, 3 rounds. Run it with ultracodex." Claude (left) authors the workflow, Codex executes it, the TUI (right) watches live, and the result lands back in Claude. ([HD video](https://github.com/YuanpingSong/ultracodex/releases/download/v0.1.1/ultracodex-demo-v0.1.mp4))*
 
 ## Quickstart
 
