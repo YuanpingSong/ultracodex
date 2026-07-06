@@ -1,8 +1,24 @@
 # Agent Script — post-validation roadmap (M4)
 
-**Status:** parked until ultracodex validation completes (the clean-room
-second build reaching its M1 exit criterion + acceptance). Do not start M4
-work before that gate.
+**Status (2026-07-06):** gate cleared long since (clean-room ACCEPT-WITH-NOTES,
+v0.3.0 shipped); **M4a/M4b ACTIVE as the dogfood-the-engine arc.** Decided
+with the user: Claude (main loop) defines the contracts; **ultracodex runs
+the build-out** — the fleet work IS the dogfooding, and every friction point
+is journaled as cookbook raw material (ADR-0001 item 3 falls out for free).
+- Step 1 DONE: **Executor Contract v1 drafted → `docs/executor-contract.md`**
+  (interface + invariants incl. settle-don't-reject / abort-grace / usage
+  monotonicity, capability descriptor + written degradation rules, schema
+  discipline, fake-fidelity rule, 10-assertion conformance-kit definition).
+  Contract is FROZEN for fleet purposes — gate agents use it as arbiter.
+- Step 2 NEXT: ultracodex fleet builds M4a-3/4 (conformance kit at
+  `tests/executor-kit/`, `src/executor/contract.ts` extraction, both
+  adapters declare capabilities + pass kit). Staged-build-gates shape;
+  parent-verify between phases.
+- Step 3: OpenCode probe → I freeze fixture contract → fleet builds fake +
+  adapter. Step 4: recursive exit workload (mixed routing on this repo).
+- Guardrails: fleet runs under the **globally installed ultracodex 0.3.0**,
+  never repo dist (no self-modification races); probe-first discipline for
+  opencode; contract doc frozen before any wave starts.
 
 **Thesis.** Everything above the `Executor` interface — loader, runtime
 semantics, journal, control, budget, TUI, CLI, validate, sync-skills — is

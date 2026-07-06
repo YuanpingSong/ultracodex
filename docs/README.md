@@ -8,6 +8,7 @@ User-facing documentation:
 | [operations.md](operations.md) | CLI reference, configuration & routing, state layout, the sandbox/network escalation ladder |
 | [architecture.md](architecture.md) | how the runtime works: loader, journal-as-spine, executors, TUI |
 | [agent-script-spec.md](agent-script-spec.md) | the Agent Script language & runtime specification — for engine implementers (script *writers* want the [authoring skill](../skills/agent-script-authoring/SKILL.md) instead) |
+| [executor-contract.md](executor-contract.md) | Executor Contract v1 — the complete contract for writing a backend adapter (interface, invariants, capability descriptor, conformance kit) |
 
 The nine-shape example gallery lives in [examples/](../examples/), and the skills themselves in [skills/](../skills/).
 

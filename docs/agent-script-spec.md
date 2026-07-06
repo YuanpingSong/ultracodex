@@ -240,7 +240,10 @@ journal. The ultracodex event schema is defined in
 ## 9. Backend abstraction (engine implementers) [EXTENSION]
 
 An engine routes each agent call to a backend executor selected by
-configuration (never by script content). Executors declare capabilities:
+configuration (never by script content). The full normative contract for
+adapter authors — interface, invariants, degradation rules, conformance
+kit — is [docs/executor-contract.md](executor-contract.md) (Executor
+Contract v1). Executors declare capabilities:
 
 | capability | values | engine degradation when absent |
 |---|---|---|
