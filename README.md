@@ -33,7 +33,7 @@ Then, in Claude Code, the prompt is just the task:
 
 > Write a haiku that survives three rounds of adversarial critique. Run it with ultracodex.
 
-Claude authors the workflow, the loop executes on Codex (watch it live with `ultracodex ls` / `attach <runId>`, or bare `ultracodex` for the TUI), and the verified result lands back in your Claude session. That's the demo gif, reproduced at haiku prices.
+Claude authors the workflow, the loop executes on Codex (watch it live with `ultracodex ls` / `attach <runId>`, or bare `ultracodex` for the TUI), and the verified result lands back in your Claude session. That's the demo video, reproduced at haiku prices.
 
 No Claude session handy? Drive it from the CLI directly — the examples ship with the package:
 
