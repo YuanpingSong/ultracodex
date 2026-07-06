@@ -81,6 +81,10 @@ the conformance kit.
 
 ## M4c — rebrand the format: "Agent Script"
 
+> **v0.3.0 program: see [ADR-0003](adr/0003-agent-script-authoring-skill.md)**
+> — M4c matured into a model-agnostic AUTHORING skill + example gallery +
+> cross-model parity testing (accepted 2026-07-06, in progress).
+
 1. Promote `docs/agent_script_spec.md` v0.1 → v1.0: resolve every
    [CLARIFICATION]/[EXTENSION] flag, freeze the portable subset.
 2. **Conformance corpus** — dual-run scripts (upstream Workflow tool vs
