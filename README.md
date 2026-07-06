@@ -9,9 +9,8 @@
 Ultracode is the best thing in Claude Code — whole fleets of agents from a single prompt — and the most expensive place to run one. ultracodex is ultracode on [Codex](https://github.com/openai/codex): the same plain-JS workflow scripts, byte for byte, with every `agent()` call routed to your Codex subscription instead (or to any configured backend, per label).
 
 > **fable plans, codex executes, fable verifies**
-> *(fable = Claude's frontier model; substitute your planner of choice)*
 
-Your best model plans and judges. The subscription you're not rationing does the work. Results land back in the session that asked — verification is the free round trip. Runs are detached processes over plain files: quit the terminal, nothing dies. And authoring is teachable, not vendor lore — the package ships a [skill](skills/agent-script-authoring/SKILL.md) any model can write workflows from (parity-proven across three model families) plus a [nine-shape example gallery](examples/).
+Your best model plans and judges. The subscription you're not rationing does the work. Results land back in the session that asked — verification is the free round trip. Runs are detached processes over plain files: quit the terminal, nothing dies. And the package ships a [skill](skills/agent-script-authoring/SKILL.md) any model can write workflows from (parity-proven across three model families) plus a [nine-shape example gallery](examples/).
 
 <video src="https://github.com/YuanpingSong/ultracodex/releases/download/v0.1.1/ultracodex-demo-v0.1.mp4" controls muted width="100%"></video>
 
