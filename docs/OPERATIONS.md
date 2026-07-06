@@ -62,7 +62,16 @@ default_model  = "gpt-5.5"
 default_effort = "xhigh"
 service_tier   = "standard"    # never inherit fast mode from ~/.codex
 model_map      = { opus = "gpt-5.5", sonnet = "gpt-5.4", haiku = "gpt-5.4-mini" }
+
+[run]
+concurrency = 6                # default: min(16, cores-2)
 ```
+
+Route in-run judges to the claude backend only when judgment must happen
+INSIDE the run — per-round loop verifiers, per-item gates, or unattended
+(cron/CI) workflows where no parent session is waiting. Routing lives in
+config, never in scripts — that is what keeps scripts portable across
+runtimes and backends.
 
 ## Sandbox & network: the escalation ladder
 
