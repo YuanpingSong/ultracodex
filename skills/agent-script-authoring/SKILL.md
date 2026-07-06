@@ -163,7 +163,7 @@ Pass `schema` whenever the result is used programmatically: you get a validated 
 
 ### 10. Shape catalog
 
-Ten shapes cover essentially all real workflows (from a census of 58 production scripts). Pick the dominant one, then compose. Worked examples with problem statements: `examples/` in the ultracodex repo.
+Ten shapes cover essentially all real workflows (from a census of 58 production scripts). Pick the dominant one, then compose. Worked examples ship alongside this skill: the `examples/` directory at the package root (two levels up from this file), one directory per shape — a README with the problem statement plus a reference `workflow.js`. Read one when you want a worked reference for your shape; the contract above is sufficient without them.
 
 | Shape | Use when | Core trick |
 |---|---|---|

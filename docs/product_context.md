@@ -96,15 +96,21 @@ export const meta = {
   library). No daemon. No resume-after-process-death / prefix-cache (journal is
   designed so it can be added later; agents must be restartable from scratch).
   No transpiler.
-- **Claude Code integration:** `ultracodex sync-skills` generates
-  `.claude/skills/<name>/SKILL.md` per saved workflow (name/description from
-  `meta`; body instructs Claude to run `ultracodex run <name> --args ... --json`
-  via Bash). This mirrors upstream's workflows-register-as-skills behavior and
-  gives fable spontaneous triggering with zero server code. Generated SKILL.md
-  bodies must include the codex plugin's **verbatim-relay discipline**: return
-  the command's stdout as-is; if the run failed, report the failure and stop —
-  never substitute a Claude-side answer (see codex-result-handling/SKILL.md in
-  the plugin for the exact language).
+- **Claude Code integration:** `ultracodex sync-skills` installs the package's
+  two STATIC skills — `ultracodex` (the run contract; content lives in
+  `skills/ultracodex/SKILL.md`, not in code) and `agent-script-authoring` (the
+  model-agnostic writer skill, ADR-0003) — and generates
+  `.claude/skills/ultracodex-<name>/SKILL.md` per saved workflow
+  (name/description from `meta`; body instructs Claude to run
+  `ultracodex run <name> --args ... --json` via Bash). This mirrors upstream's
+  workflows-register-as-skills behavior and gives fable spontaneous triggering
+  with zero server code. The repo doubles as a Claude Code **plugin**
+  (`.claude-plugin/plugin.json` + the same `skills/` dir + `examples/`);
+  `npm version` keeps plugin.json's version in lockstep via the `version`
+  lifecycle hook. Generated SKILL.md bodies must include the codex plugin's
+  **verbatim-relay discipline**: return the command's stdout as-is; if the run
+  failed, report the failure and stop — never substitute a Claude-side answer
+  (see codex-result-handling/SKILL.md in the plugin for the exact language).
 - **Durability divergence (deliberate):** the codex plugin's jobs are
   session-scoped (a SessionEnd hook kills them) and its state lives in
   tmpdir/plugin-data keyed by workspace hash. Ours are the opposite by design:
@@ -347,7 +353,7 @@ ultracodex pause <runId> | resume <runId>
 ultracodex kill <runId> | skip <runId> <n>
 ultracodex logs <runId> [<n>]        # raw agent events
 ultracodex validate <script.js>      # compat lint (see §8)
-ultracodex sync-skills               # generate .claude/skills/* from workflows/
+ultracodex sync-skills               # static skills + per-workflow skills → .claude/skills/*
 ultracodex doctor                    # node/codex-version/auth checks via
                                      # account/read + config/read; actionable next-steps
 ```

@@ -30,7 +30,7 @@ ultracodex skip uc_ab 4                     # resolve agent 4 to null
 ultracodex kill uc_ab                       # control-stop → SIGTERM → SIGKILL
 ultracodex logs uc_ab 4                     # raw codex events for agent 4
 ultracodex validate wf.js --strict          # dual-runnability lint
-ultracodex sync-skills                      # workflows/ → .claude/skills/*
+ultracodex sync-skills                      # static skills + workflows/ → .claude/skills/*
 ```
 
 Any `<runId>` accepts a unique prefix. Quitting the TUI never kills a run;

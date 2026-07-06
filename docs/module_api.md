@@ -375,11 +375,17 @@ export function validateWorkflowScript(source: string, opts?: { strict?: boolean
 ## src/skills.ts
 ```ts
 export function syncSkills(projectDir: string): { written: string[] };
-// For each .ultracodex/workflows/<name>.js: parseMeta → .claude/skills/ultracodex-<name>/SKILL.md
-// frontmatter: name: ultracodex-<name>, description: meta.description + (whenToUse appended).
-// Body: instructions to run via Bash: `ultracodex run <name> --args '<json>' --json --wait`,
-// then the verbatim-relay policy (return stdout verbatim; on failure report failure, do NOT
-// substitute your own answer).
+// 1. Copies the package's STATIC skills — skills/ultracodex (run contract) and
+//    skills/agent-script-authoring (writer skill) — verbatim from the package's
+//    skills/ dir into .claude/skills/<name>/SKILL.md. The source dir is located
+//    module-relative (../skills — valid in src/, dist/, and installed layouts;
+//    same files a Claude Code plugin install exposes). Missing source → throws
+//    (broken install).
+// 2. For each .ultracodex/workflows/<name>.js: parseMeta → .claude/skills/ultracodex-<name>/SKILL.md
+//    frontmatter: name: ultracodex-<name>, description: meta.description + (whenToUse appended).
+//    Body: instructions to run via Bash: `ultracodex run <name> --args '<json>' --json --wait`,
+//    then the verbatim-relay policy (return stdout verbatim; on failure report failure, do NOT
+//    substitute your own answer).
 ```
 
 ## src/cli.ts (bin) — commander

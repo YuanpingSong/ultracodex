@@ -1,0 +1,19 @@
+{
+  "name": "ultracodex",
+  "description": "Agent Script workflows end to end: the ultracodex runner skill (execute multi-agent workflows on the OpenAI Codex CLI), the model-agnostic agent-script-authoring skill, and a seven-shape example gallery.",
+  "version": "0.2.0",
+  "author": {
+    "name": "Yuanping Song",
+    "url": "https://github.com/YuanpingSong"
+  },
+  "homepage": "https://github.com/YuanpingSong/ultracodex",
+  "repository": "https://github.com/YuanpingSong/ultracodex",
+  "license": "Apache-2.0",
+  "keywords": [
+    "workflows",
+    "multi-agent",
+    "agent-script",
+    "codex",
+    "orchestration"
+  ]
+}

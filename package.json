@@ -33,7 +33,8 @@
     "README.md",
     "LICENSE",
     "NOTICE",
-    "skills"
+    "skills",
+    ".claude-plugin"
   ],
   "engines": {
     "node": ">=20"
@@ -46,7 +47,8 @@
     "prepublishOnly": "pnpm build && pnpm test",
     "install:local": "pnpm build && pnpm link --global && echo \"installed: $(which ultracodex)\" && ultracodex --version",
     "release:check": "pnpm build && pnpm test && node scripts/release-check.mjs",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "version": "node scripts/sync-plugin-version.mjs && git add .claude-plugin/plugin.json"
   },
   "packageManager": "pnpm@10.12.4",
   "devDependencies": {

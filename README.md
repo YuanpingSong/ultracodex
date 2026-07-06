@@ -134,11 +134,13 @@ Everything needed to author Agent Scripts — or to teach **any** model to autho
 
 Using it:
 
-- **Claude Code** — sessions with the Workflow tool already know the format natively. To teach a plain session (or strengthen authoring quality), install the skill:
+- **Claude Code** — sessions with the Workflow tool already know the format natively. To teach a plain session (or strengthen authoring quality), one command installs both skills — the authoring skill and the `ultracodex` run skill:
 
   ```bash
-  cp -r "$(npm root -g)/ultracodex/skills/agent-script-authoring" .claude/skills/
+  ultracodex sync-skills
   ```
+
+  The repo also doubles as a Claude Code **plugin** (`.claude-plugin/plugin.json`): installing it as a plugin exposes the same two skills plus the examples gallery, no CLI required.
 
 - **Any other agent (codex, opencode, a raw API call…)** — prepend the skill file to the prompt, state the problem, ask for a `workflow.js`. Then gate the result mechanically:
 
@@ -191,13 +193,14 @@ suffixes (`--budget 500k`).
 That's what the demo above shows, and it needs one command of setup:
 
 ```bash
-ultracodex sync-skills     # installs the `ultracodex` skill for Claude Code
+ultracodex sync-skills     # installs the `ultracodex` + `agent-script-authoring` skills
 ```
 
-The skill teaches Claude the whole contract — author the script exactly as
-for the Workflow tool, execute with `ultracodex run <file> --json
-[--budget 500k]`, relay the result verbatim. After that, the prompt is just
-the task:
+The run skill teaches Claude the whole contract — author the script exactly
+as for the Workflow tool, execute with `ultracodex run <file> --json
+[--budget 500k]`, relay the result verbatim — and the authoring skill covers
+the script format itself for sessions that don't carry the Workflow tool.
+After that, the prompt is just the task:
 
 > Write an essay on the meaning of life — actor–critic loop, 3 rounds.
 > Run it with ultracodex.

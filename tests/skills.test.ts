@@ -34,22 +34,37 @@ return 1;
 
 const GENERAL = (written: string[]) =>
   written.filter((w) => w.includes(path.join("skills", "ultracodex", "SKILL.md")));
-const WF = (written: string[]) =>
-  written.filter((w) => !w.includes(path.join("skills", "ultracodex", "SKILL.md")));
+const AUTHORING = (written: string[]) =>
+  written.filter((w) => w.includes(path.join("skills", "agent-script-authoring", "SKILL.md")));
+const WF = (written: string[]) => written.filter((w) => !GENERAL([w]).length && !AUTHORING([w]).length);
 
 describe("syncSkills", () => {
-  it("writes only the general skill when there is no workflows dir", () => {
+  it("writes both static skills when there is no workflows dir", () => {
     const { written } = syncSkills(projectDir);
     expect(WF(written)).toEqual([]);
     expect(GENERAL(written)).toHaveLength(1);
+    expect(AUTHORING(written)).toHaveLength(1);
     const body = fs.readFileSync(GENERAL(written)[0]!, "utf8");
     expect(body).toContain("name: ultracodex");
     expect(body).toContain("EXACTLY as you would for the Workflow tool");
     expect(body).toContain("WARNINGS are non-blocking");
     expect(body).toContain("do NOT substitute your own answer");
+    expect(body).toContain("agent-script-authoring"); // authoring pointer, not the engine spec
   });
 
-  it("writes the general skill plus one SKILL.md per workflow with correct paths", () => {
+  it("the authoring skill is copied verbatim from the package's skills/ dir", () => {
+    const { written } = syncSkills(projectDir);
+    const installed = fs.readFileSync(AUTHORING(written)[0]!, "utf8");
+    const source = fs.readFileSync(
+      new URL("../skills/agent-script-authoring/SKILL.md", import.meta.url),
+      "utf8",
+    );
+    expect(installed).toBe(source);
+    expect(installed).toContain("name: agent-script-authoring");
+    expect(installed).toContain("Core contract");
+  });
+
+  it("writes the static skills plus one SKILL.md per workflow with correct paths", () => {
     writeWorkflow("digest", DIGEST);
     writeWorkflow("plain", PLAIN);
     const { written } = syncSkills(projectDir);
@@ -58,6 +73,7 @@ describe("syncSkills", () => {
       path.join(projectDir, ".claude", "skills", "ultracodex-plain", "SKILL.md"),
     ]);
     expect(GENERAL(written)).toHaveLength(1);
+    expect(AUTHORING(written)).toHaveLength(1);
     for (const file of written) expect(fs.existsSync(file)).toBe(true);
   });
 

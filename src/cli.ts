@@ -603,10 +603,6 @@ function validateAction(script: string, opts: { strict?: boolean }): void {
 
 function syncSkillsAction(): void {
   const { written } = syncSkills(process.cwd());
-  if (written.length === 0) {
-    process.stdout.write("no workflows found (nothing written)\n");
-    return;
-  }
   for (const file of written) process.stdout.write(file + "\n");
 }
 
@@ -915,7 +911,7 @@ export function buildProgram(): Command {
 
   program
     .command("sync-skills")
-    .description("generate .claude/skills/* from saved workflows")
+    .description("install the ultracodex + agent-script-authoring skills, plus one skill per saved workflow, into .claude/skills/")
     .action(act(syncSkillsAction));
 
   program

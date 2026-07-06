@@ -161,9 +161,14 @@ deviations = the skill text needs strengthening, not the models.
   items marked [go] are done, the rest await user go-ahead):
   1. [go] npm tarball carries the artifacts: `skills/` added to
      package.json `files` (examples/, spec, README already shipped).
-  2. Claude Code distribution: extend `sync-skills` to also install
-     `agent-script-authoring` into the user's skills dir, and/or package
-     the repo as a Claude Code plugin — v0.3.x feature work.
+  2. [go] Claude Code distribution DONE 2026-07-06: `sync-skills` now
+     installs BOTH static skills, copied verbatim from the package's
+     `skills/` dir (the run skill's text moved out of `src/skills.ts` into
+     `skills/ultracodex/SKILL.md`, its Authoring section now pointing at
+     the authoring skill instead of the engine spec); the repo doubles as
+     a Claude Code plugin via `.claude-plugin/plugin.json` (examples ship
+     as plugin content — zero duplication; plugin.json version kept in
+     lockstep by the npm `version` lifecycle hook).
   3. README: a "Write your own workflows" section linking skill + gallery
      and citing the parity evidence (codex 7/7 first try; gemma-31B 6/7
      after one strengthening round; zero parse failures final).
