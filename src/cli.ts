@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -746,12 +747,23 @@ function act<A extends unknown[]>(
   };
 }
 
+function packageVersion(): string {
+  // dist/cli.js → ../package.json in both the repo and the installed layout;
+  // never hardcode (0.1.1 shipped reporting itself as 0.1.0).
+  try {
+    const req = createRequire(import.meta.url);
+    return (req("../package.json") as { version: string }).version;
+  } catch {
+    return "unknown";
+  }
+}
+
 export function buildProgram(): Command {
   const program = new Command();
   program
     .name("ultracodex")
     .description("Run Claude Code workflow scripts unmodified on the OpenAI Codex CLI")
-    .version("0.1.0");
+    .version(packageVersion());
 
   program
     .command("run")

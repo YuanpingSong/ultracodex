@@ -42,7 +42,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "pnpm build && pnpm test"
+    "prepublishOnly": "pnpm build && pnpm test",
+    "install:local": "pnpm build && pnpm link --global && echo \"installed: $(which ultracodex)\" && ultracodex --version"
   },
   "packageManager": "pnpm@10.12.4",
   "devDependencies": {
