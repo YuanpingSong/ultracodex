@@ -91,7 +91,11 @@ the conformance kit.
    (keep `ultracodex` vs generalize) deferred to here. README repositioning,
    npm publish decision.
 
-## Loop engineering (future work, decided 2026-07-03)
+## Loop engineering (future work, decided 2026-07-03; superseded by ADR-0001)
+
+> **See [docs/adr/0001-loop-engineering-extensions.md](adr/0001-loop-engineering-extensions.md)**
+> — the accepted, research-backed plan (2026-07-06). The two items below are
+> retained inside it.
 
 Loops (builder–verifier convergence) are a first-class positioning pillar —
 docs, `examples/03-builder-verifier.js`, and spec §5.9 shipped with the
