@@ -154,10 +154,10 @@ Using it:
   codex plugin add ultracodex@ultracodex
   ```
 
-- **opencode** — no markdown-skill mechanism yet; load the authoring skill through the global rules file (note: always-on context), or prepend it per prompt as below:
+- **opencode** — discovers Claude-compatible skill paths (`.claude/skills/`) natively, so the per-project `ultracodex sync-skills` above covers opencode too, with the same on-demand loading. For a global install instead:
 
   ```bash
-  cat "$(npm root -g)/ultracodex/skills/agent-script-authoring/SKILL.md" >> ~/.config/opencode/AGENTS.md
+  mkdir -p ~/.config/opencode/skills && cp -r "$(npm root -g)/ultracodex/skills/." ~/.config/opencode/skills/
   ```
 
 - **Any other agent (a raw API call, anything that takes a prompt)** — prepend the skill file to the prompt, state the problem, ask for a `workflow.js`. Then gate the result mechanically:
