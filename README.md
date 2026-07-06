@@ -6,14 +6,12 @@
 
 **Run Claude Code workflow scripts, unmodified, on the OpenAI Codex CLI.**
 
-Claude Code's Workflow tool has a great orchestration format: plain-JS scripts that fan agents out in parallel, pipeline work through stages, enforce token budgets, and adversarially verify results. But running them upstream — under Claude Code itself — spends Claude quota on execution-grade work.
-
-ultracodex is a compatible runtime for those same scripts — byte-identical, no transpilation — that routes each `agent()` call to [Codex](https://github.com/openai/codex) instead (or to any configured backend, per label). The pattern it exists for:
+Ultracode is the best thing in Claude Code — whole fleets of agents from a single prompt — and the most expensive place to run one. ultracodex is ultracode on [Codex](https://github.com/openai/codex): the same plain-JS workflow scripts, byte for byte, with every `agent()` call routed to your Codex subscription instead (or to any configured backend, per label).
 
 > **fable plans, codex executes, fable verifies**
 > *(fable = Claude's frontier model; substitute your planner of choice)*
 
-Your most capable model authors and judges the work — the result JSON lands back in the session that asked, so verification is the free round trip — while cheaper coding agents do the bulk of it. One script, one journal, one budget; runs are detached processes over plain files, so closing your terminal never kills one. And the format is a teachable standard, not vendor lore: the package ships an [authoring skill](skills/agent-script-authoring/SKILL.md) that any capable model can write workflows from — proven at parity across three model families — plus a [nine-shape example gallery](examples/).
+Your best model plans and judges. The subscription you're not rationing does the work. Results land back in the session that asked — verification is the free round trip. Runs are detached processes over plain files: quit the terminal, nothing dies. And authoring is teachable, not vendor lore — the package ships a [skill](skills/agent-script-authoring/SKILL.md) any model can write workflows from (parity-proven across three model families) plus a [nine-shape example gallery](examples/).
 
 ![Claude Code authors an actor-critic workflow and runs it through ultracodex; the TUI shows the rounds executing on Codex, then the result lands back in Claude](https://raw.githubusercontent.com/YuanpingSong/ultracodex/main/assets/demo.gif)
 
