@@ -31,10 +31,11 @@ agents do the bulk of it; one script, one journal, one budget.
 
 - **Quota arbitrage.** Offload execution to Codex (or another backend);
   keep Claude for judgment. Zero Claude tokens spent on implementation.
-- **Cross-vendor verification.** Route `critique:*` to a different model
-  family than the one that did the work. Same-vendor self-review tends to
-  rubber-stamp; making the judge a different model family is one config
-  line here.
+- **Verification comes free.** The workflow's result JSON lands back in
+  your Claude session — where the model that *asked* for the work judges
+  it with the full original intent in context. No configuration; the
+  round trip is the verify step. (Advanced: routing puts a judge *inside*
+  the run too — see below.)
 - **Durable, inspectable runs.** No daemon. A run is a detached process and
   a directory of plain files; an append-only journal is the single source of
   truth for the TUI, the CLI, and machine consumers alike. Close your
@@ -115,9 +116,9 @@ Three axes, one format: `parallel()` is breadth, `pipeline()` is flow,
 **loops are depth** — iterate until verified good, with `budget` as the
 governor and the run's live controls (pause/skip/stop) as the brakes. The
 full pattern — max rounds, feedback threading, cross-vendor judging — is
-[examples/03-builder-verifier.js](examples/03-builder-verifier.js). Route
-`"verify:*" = "claude"` in config and the builder's judge is a different
-model family; the loop doesn't change.
+[examples/03-builder-verifier.js](examples/03-builder-verifier.js).
+(Advanced: route `"verify:*" = "claude"` in config and the builder's
+in-run judge becomes a different model family; the loop doesn't change.)
 
 The full normative definition — grammar, semantics, loop patterns,
 conformance — is in [docs/agent_script_spec.md](docs/agent_script_spec.md).
@@ -218,9 +219,15 @@ the same integration.
 
 ```toml
 [route]                        # first match wins: label, then phase
-"critique:*" = "claude"        # judgment goes to Claude
-"verify:*"   = "claude"        # loop verifiers too, if you want cross-vendor judging
-"*"          = "codex"         # execution goes to Codex
+"*"          = "codex"         # default: everything runs on Codex
+
+# ADVANCED — in-run cross-vendor judging. You usually don't need this:
+# results return to your Claude session, which verifies with full context.
+# Route labels to the claude backend only when judgment must happen INSIDE
+# the run — per-round loop verifiers, per-item gates, or unattended
+# (cron/CI) workflows where no parent session is waiting.
+# "critique:*" = "claude"
+# "verify:*"   = "claude"
 
 [backends.codex]
 sandbox        = "workspace-write"

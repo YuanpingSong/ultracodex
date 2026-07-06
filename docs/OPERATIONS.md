@@ -45,7 +45,8 @@ Everything is inspectable text; `journal.jsonl` is append-only and replayable.
 
 ```toml
 [route]
-"critique:*" = "claude"   # judgment-heavy calls go to Claude
+"critique:*" = "claude"   # ADVANCED: in-run judge; usually unneeded — results
+                          # return to your Claude session, which verifies free
 "*"          = "codex"    # execution goes to Codex
 
 [backends.codex]
