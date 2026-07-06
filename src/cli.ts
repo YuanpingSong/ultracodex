@@ -12,10 +12,13 @@ import {
   RUNNER_LOG_FILE,
   SCRIPT_SNAPSHOT,
   SIGTERM_GRACE_MS,
+  TESTED_CODEX_VERSION,
   WORKFLOWS_DIR_NAME,
   defaultConcurrency,
 } from "./constants.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, resolveCodexEffort, resolveCodexModel } from "./config.js";
+import { parse as parseToml } from "smol-toml";
+import os from "node:os";
 import { appendControl } from "./control.js";
 import { newRunId } from "./ids.js";
 import { readJournal, tailJournal } from "./journal.js";
@@ -638,12 +641,58 @@ function execFileP(
 
 const DOCTOR_PROBE_TIMEOUT_MS = 5_000;
 
+/**
+ * Read the user's INTERACTIVE codex config (~/.codex/config.toml, or
+ * $CODEX_HOME) read-only and surface where the fleet diverges from it — the
+ * quiet source of "why do my agents behave differently" surprises. Silent on
+ * absence or parse failure: it's codex's file, not ours.
+ */
+export function reportInteractiveDivergence(
+  codex: UltracodexConfig["codex"],
+  info: (label: string, detail: string) => void,
+): void {
+  const home = process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
+  let raw: Record<string, unknown>;
+  try {
+    raw = parseToml(fs.readFileSync(path.join(home, "config.toml"), "utf8")) as Record<string, unknown>;
+  } catch {
+    return;
+  }
+  const diffs: string[] = [];
+  const agentTier = codex.serviceTier ?? "inherited";
+  if (typeof raw["service_tier"] === "string" && raw["service_tier"] !== agentTier) {
+    diffs.push(`service tier: ${raw["service_tier"]} (interactive) → ${agentTier} (agents)`);
+  }
+  const reviewer = raw["approvals_reviewer"] ?? raw["approval_policy"] ?? raw["ask_for_approval"];
+  if (typeof reviewer === "string" && reviewer !== "never") {
+    diffs.push(`approvals: "${reviewer}" (interactive) → auto-denied (agents)`);
+  }
+  if (diffs.length > 0) {
+    info("diverges from your interactive codex (~/.codex)", diffs.join("; "));
+  }
+  const mcp = raw["mcp_servers"];
+  if (mcp !== null && typeof mcp === "object") {
+    const names = Object.keys(mcp as Record<string, unknown>);
+    if (names.length > 0) {
+      const shown = names.slice(0, 4).join(", ");
+      info(
+        "inherited into every agent thread",
+        `${names.length} MCP server${names.length === 1 ? "" : "s"} from ~/.codex (${shown}${names.length > 4 ? ", …" : ""}) — adds per-agent startup latency`,
+      );
+    }
+  }
+}
+
 async function doctorAction(): Promise<void> {
   const projectDir = process.cwd();
   let hardFail = false;
   const report = (ok: boolean, label: string, detail: string, hint?: string): void => {
     process.stdout.write(`${ok ? "✔" : "✖"} ${label}: ${detail}\n`);
     if (!ok && hint) process.stdout.write(`  → ${hint}\n`);
+  };
+  // Facts, not failures — never touch the exit code.
+  const info = (label: string, detail: string): void => {
+    process.stdout.write(`ℹ ${label}: ${detail}\n`);
   };
 
   const nodeMajor = Number(process.versions.node.split(".")[0]);
@@ -672,7 +721,19 @@ async function doctorAction(): Promise<void> {
       timeout: DOCTOR_PROBE_TIMEOUT_MS,
     });
     binaryOk = true;
-    report(true, "codex binary", `${binary} (${stdout.trim()})`);
+    const versionLine = stdout.trim();
+    const matchesPin = versionLine.includes(TESTED_CODEX_VERSION);
+    report(
+      true,
+      "codex binary",
+      `${versionLine}${matchesPin ? ` (matches tested pin ${TESTED_CODEX_VERSION})` : ` (tested against ${TESTED_CODEX_VERSION})`}`,
+    );
+    if (!matchesPin) {
+      info(
+        "codex version",
+        `not the tested pin (${TESTED_CODEX_VERSION}); the app-server protocol is experimental — if runs misbehave, this is the first suspect`,
+      );
+    }
   } catch (err) {
     hardFail = true;
     report(
@@ -710,9 +771,27 @@ async function doctorAction(): Promise<void> {
         false,
         "app-server",
         errMsg(err),
-        "check `codex app-server` runs by hand; ultracodex is pinned against codex 0.142.4",
+        `check \`codex app-server\` runs by hand; ultracodex is tested against codex ${TESTED_CODEX_VERSION}`,
       );
     }
+  }
+
+  // What agents actually get (resolved through the same helpers the executor
+  // uses, so this can't drift from reality) — and how that diverges from the
+  // user's interactive codex, which is the classic source of surprises.
+  if (config) {
+    const c = config.codex;
+    const model = resolveCodexModel(c, undefined);
+    const effort = resolveCodexEffort(c, undefined) ?? "model default";
+    const net = c.networkAccess ? "network ON" : "network OFF";
+    info(
+      "agents run with",
+      `${model} · effort ${effort} · sandbox ${c.sandbox} · ${net} · service tier ${c.serviceTier ?? "inherited"} · approvals auto-denied`,
+    );
+    if (c.sandbox === "danger-full-access") {
+      info("sandbox", "danger-full-access has no file confinement — see the escalation ladder in docs/OPERATIONS.md");
+    }
+    reportInteractiveDivergence(c, info);
   }
 
   try {

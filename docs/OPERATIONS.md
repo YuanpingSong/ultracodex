@@ -8,6 +8,13 @@
 - Optional: Claude Code CLI for the `claude` backend routes.
 
 Run `ultracodex doctor` to check all of the above with actionable next steps.
+Beyond pass/fail checks it also prints (as `ℹ` info lines, never affecting the
+exit code): the resolved execution profile your agents actually run with
+(model · effort · sandbox · network · service tier · approvals); where that
+**diverges from your interactive codex** (`~/.codex/config.toml` — e.g. a
+`service_tier = "fast"` or approval policy the fleet does not inherit); and
+any MCP servers your interactive config loads into every agent thread (a
+common source of hidden per-agent startup latency).
 
 ## Everyday commands
 

@@ -25,6 +25,9 @@ export const SIGTERM_GRACE_MS = 5_000;
 
 export const RUN_ID_PREFIX = "uc_";
 
+/** Codex CLI version this release was developed and tested against. */
+export const TESTED_CODEX_VERSION = "0.142.4";
+
 // Run directory layout (§4).
 export const STATE_DIR_NAME = ".ultracodex";
 export const RUNS_DIR_NAME = "runs";

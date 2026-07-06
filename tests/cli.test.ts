@@ -9,9 +9,11 @@ import {
   fmtEvent,
   lsElapsed,
   parseBudget,
+  reportInteractiveDivergence,
   resolveScript,
   sanitizeText,
 } from "../src/cli.js";
+import { DEFAULT_CODEX_CONFIG } from "../src/constants.js";
 import { JournalWriter } from "../src/journal.js";
 import { createRunDir, pidAlive, writePidFile } from "../src/rundir.js";
 import { fmtDuration } from "../src/tui/format.js";
@@ -445,4 +447,46 @@ return { greeting: hi }
     expect(code).toBe(0);
     expect(JSON.parse(stdout)).toEqual({ greeting: "hi" });
   }, 30_000);
+});
+
+describe("reportInteractiveDivergence (doctor)", () => {
+  function withCodexHome(tomlBody: string | null, fn: (info: string[]) => void): void {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "codex-home-"));
+    dirs.push(home);
+    if (tomlBody !== null) fs.writeFileSync(path.join(home, "config.toml"), tomlBody);
+    const prev = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = home;
+    const lines: string[] = [];
+    try {
+      reportInteractiveDivergence(DEFAULT_CODEX_CONFIG, (label, detail) => lines.push(`${label}: ${detail}`));
+    } finally {
+      if (prev === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = prev;
+    }
+    fn(lines);
+  }
+
+  it("surfaces service_tier + approvals divergence and inherited MCP servers", () => {
+    withCodexHome(
+      'service_tier = "fast"\napprovals_reviewer = "user"\n[mcp_servers.playwright]\ncommand = "npx"\n[mcp_servers.xcode]\ncommand = "x"',
+      (info) => {
+        const div = info.find((l) => l.startsWith("diverges"));
+        expect(div).toMatch(/service tier: fast .* → standard/);
+        expect(div).toMatch(/approvals: "user" .* → auto-denied/);
+        const mcp = info.find((l) => l.startsWith("inherited"));
+        expect(mcp).toMatch(/2 MCP servers/);
+      },
+    );
+  });
+
+  it("says nothing when interactive config matches agent behavior", () => {
+    withCodexHome('service_tier = "standard"', (info) => {
+      expect(info.find((l) => l.startsWith("diverges"))).toBeUndefined();
+    });
+  });
+
+  it("silent when ~/.codex/config.toml is absent or unparseable", () => {
+    withCodexHome(null, (info) => expect(info).toHaveLength(0));
+    withCodexHome("[broken\ntoml", (info) => expect(info).toHaveLength(0));
+  });
 });

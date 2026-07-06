@@ -135,7 +135,7 @@ claude-routed agents.
 
 ```bash
 npm install -g ultracodex      # or: pnpm add -g ultracodex
-ultracodex doctor              # checks node, codex, auth, config
+ultracodex doctor              # node, codex, auth, config + execution profile & divergences
 ```
 
 From source instead:
@@ -257,7 +257,7 @@ ultracodex kill <ref>             graceful stop → SIGTERM → SIGKILL
 ultracodex logs <ref> [n]         raw runner / per-agent event logs
 ultracodex validate <script>      dual-runnability lint (--strict = portable subset)
 ultracodex sync-skills            workflows/ → .claude/skills/
-ultracodex doctor                 environment + auth checks
+ultracodex doctor                 env, auth, execution profile, interactive-config divergences
 ```
 
 Every run directory (`.ultracodex/runs/<runId>/`) is plain files: the
