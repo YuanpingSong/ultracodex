@@ -13,6 +13,34 @@ The catch is what happens when I ask an AI for design directions: I get three ne
 - **Comparability.** Mood-board prose can't be scored or merged. Candidates need to be concrete (literal color values, a real type scale, component-by-component styling, every animation spelled out) and identically structured so I can put them side by side and make a real decision.
 - **A buildable ending, not a beauty contest.** The best canvas, the best badge idea, and the best motion rule rarely live in the same candidate. I don't want "pick option B" — I want one merged specification with concrete CSS custom properties and an implementation order, precise enough that the restyle can start immediately with zero design guesswork. The stack is a static site generator with hand-written CSS and no animation library, so anything proposed has to work as a pure restyle of existing components in CSS alone.
 
+## Topology
+
+The diagram below is the actual control flow of [`workflow.js`](./workflow.js) — a 3-way lens-injected fan-out, a null-tolerant collect, an empty-set early exit, then a single comparative judge:
+
+```mermaid
+flowchart TD
+  subgraph Diverge
+    P1["proposer: ink-and-hue"]
+    P2["proposer: sticker-sheet"]
+    P3["proposer: flagship-calm (x3 total)"]
+    TAG(["tag _direction, null-safe"])
+    COLLECT(["filter(Boolean) + log survivors"])
+    P1 --> TAG
+    P2 --> TAG
+    P3 --> TAG
+    TAG --> COLLECT
+  end
+  COLLECT --> GATE{"any survived?"}
+  GATE -->|"no"| EXIT(["return empty: proposals=[], judgment=null"])
+  subgraph Converge
+    JUDGE["art director: score rubric + merge synthesis"]
+  end
+  GATE -->|"yes"| JUDGE
+  JUDGE --> DONE(["return proposals + judgment"])
+```
+
+The three proposer boxes are the fan-out — `parallel()` runs one `agent()` per entry in `DIRECTIONS`, so "x3" is the whole set, not a sample. There is no loop back-edge: divergence happens once, convergence happens once. The only branch is the survivor gate, whose "no" edge is the early exit; a failed judge call is logged but still falls through to the same return.
+
 ## Reference solution
 
 The shape is **diverge-then-judge**: a small parallel fan-out whose members are deliberately decorrelated, followed by a single comparative judge that both scores and synthesizes.
@@ -39,3 +67,13 @@ The script also demonstrates the args escape hatch: pass `{ brief: "..." }` as w
 - **Synthesis-not-selection** — the judge must merge the strongest elements across proposals, with required `css_variables` and `application_sequence` fields forcing a buildable spec rather than a verdict.
 - **Args-driven brief override** — `args?.brief` swaps in a caller-supplied brief so the shape is reusable beyond the example domain.
 - **Phase grouping** — `phase('Diverge')` / `phase('Converge')` matching `meta.phases` titles for progress display.
+
+## Run it
+
+```
+ultracodex run examples/design-exploration/workflow.js [--watch] [--budget 500k] [--args '{"brief":"..."}']
+```
+
+Runs as-is with zero setup — the `SYSTEM` brief is baked into the script (the CLI-tools catalog restyle), so there is nothing to supply. Add `--watch` to stream the phase-by-phase events, or `--args '{"brief":"..."}'` to point the same three-direction panel at your own site brief instead of the built-in one.
+
+Cost: 4 agent calls total — 3 proposers (Diverge) plus 1 art director (Converge) — all long-form structured-output generations, so budget for four heavyweight calls, not throwaway ones.

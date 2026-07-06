@@ -10,6 +10,43 @@ The binding constraint is precision, not recall. LLM reviewers overcall: they re
 
 Duplicate findings must be collapsed before verification so I do not pay to verify the same claim twice. Fixing must be conservative: minimal surgical changes, a regression test per fix where feasible, and the project's typecheck, tests, and build must all be green afterwards — never achieved by weakening or deleting existing tests. Nothing gets committed. If nothing survives verification, the repo must not be touched at all. The repo path and its check commands should be run parameters, not hardcoded.
 
+## Topology
+
+The diagram below is the actual shape of [`workflow.js`](workflow.js): a wide reviewer fan-out narrows through an in-script dedupe into a per-finding two-verifier gate, and only a unanimous, fail-closed confirmation reaches the single conditional fixer — with an early exit that leaves the repo untouched when nothing survives.
+
+```mermaid
+flowchart TD
+  subgraph Review
+    R["review shard 1..5 (per dimension)"]
+  end
+  D(["dedupe (file + title-prefix)"])
+  subgraph Verify
+    VR["verify: repro (per finding xN)"]
+    VC["verify: contract (per finding xN)"]
+    G{"both non-refuted? (fail-closed)"}
+  end
+  subgraph Fix
+    Q{"any confirmed?"}
+    F["fixer x1 (surgical + regression test)"]
+    S{"typecheck / tests / build green?"}
+  end
+  X(["early return: repo untouched"])
+  END(["report: confirmed / rejected / fixer"])
+
+  R -->|"findings (null → empty)"| D
+  D --> VR
+  D --> VC
+  VR --> G
+  VC --> G
+  G -->|"confirmed"| Q
+  G -->|"refuted → dropped"| END
+  Q -->|no| X
+  Q -->|yes| F
+  F --> S
+  S -->|"fix fallout"| F
+  S -->|green| END
+```
+
 ## Reference solution
 
 The shape is a three-phase trust pipeline: **wide, then skeptical, then narrow**. Recall is bought cheaply up front with a parallel fan-out; precision is bought in the middle with an adversarial gate; write access is granted only at the end, to a single agent, under a hard invariant.
@@ -37,3 +74,13 @@ The final result is a full audit trail: confirmed findings with severities, reje
 - Green-suite invariant on the fixer: fix fallout, never weaken tests, report per-check booleans
 - No-silent-caps `log()` narration at every funnel stage (raw → deduped → confirmed)
 - Args-driven target: repo path and check commands as run inputs, not hardcoded paths
+
+## Run it
+
+```
+ultracodex run examples/review-verify-fix/workflow.js [--watch] [--budget 2m] [--args '{"root":"/abs/path/to/repo","checks":"pnpm typecheck && pnpm test && pnpm build"}']
+```
+
+It runs as-is against your current working directory: both args default (`root` → the repo you invoke it from, `checks` → the reviewers discover the typecheck/test/build commands from the package manifest, Makefile, or CI config), so no user data is required — point it at any green codebase you want defect-hunted, and pass `--args` only to target a different repo or pin exact check commands. Because the Fix phase writes to the target's working tree (nothing is committed), run it on a clean checkout you are willing to have edited.
+
+Cost expectation: 5 reviewers + 2 verifiers per surviving finding (effort `high`) + at most 1 fixer — order of a couple dozen fable-class agents on a typical run, and zero fixer if nothing is confirmed.

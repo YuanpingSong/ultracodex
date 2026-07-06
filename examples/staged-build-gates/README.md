@@ -23,6 +23,44 @@ Constraints that make this hard:
 
 The project checkout location must come in as an input (`projectDir`), not be hardcoded.
 
+## Topology
+
+The diagram below is the actual shape of `workflow.js`: three dependency-ordered waves, each a parallel fan-out of builders, separated by single serial reconciliation gates, ending in one integrator whose "pass twice in a row" loop lives inside the agent (the back-edge). Each wave fans out to N builders (shown as 2 representative nodes with an xN label); gates and the integrator are single agents. There are no script-level branches or early exits — gates log remaining issues and the pipeline always proceeds forward.
+
+```mermaid
+flowchart TD
+  subgraph W1["Wave1 (parallel leaves)"]
+    B1["builder xN (parser/store/config)"]
+    B1b["...self-verify own files only"]
+  end
+  subgraph G1["Gate1"]
+    GA1{"typecheck + tests green?"}
+  end
+  subgraph W2["Wave2 (parallel)"]
+    B2["builder xN (query/render/lint/import)"]
+    B2b["...import green leaves"]
+  end
+  subgraph G2["Gate2"]
+    GA2{"typecheck + tests green?"}
+  end
+  subgraph W3["Wave3"]
+    B3["builder (cli)"]
+  end
+  subgraph INT["Integrate"]
+    I1["integrator: build + tests + e2e smoke"]
+    I2{"passed twice in a row?"}
+  end
+  DONE(["return roll-up"])
+
+  B1 --> B1b --> GA1
+  GA1 -->|"reconcile, then proceed"| B2
+  B2 --> B2b --> GA2
+  GA2 -->|"reconcile, then proceed"| B3
+  B3 --> I1 --> I2
+  I2 -->|"no: fix + retry"| I1
+  I2 -->|"yes"| DONE
+```
+
 ## Reference solution
 
 The shape is **waves × gates**: three dependency-ordered waves of builders, a serial gate agent after each parallel wave, and a final integrator that loops until the whole system is green.
@@ -56,3 +94,13 @@ A note on isolation: all these builders share one working tree safely **only bec
 - **No-silent-gaps logging** — `log()` narration after every wave and gate, including remaining-issue counts, so a partial failure is visible at the moment it happens.
 - **Convergence-inside-the-agent** — the integrator's "iterate until it passes twice in a row" loop lives in its prompt, keeping repair context (error output) with the repairer.
 - **Args-driven project root** — `projectDir` comes from `args` and is validated up front; nothing is hardcoded.
+
+## Run it
+
+```
+ultracodex run examples/staged-build-gates/workflow.js --args '{"projectDir": "/abs/path/to/project"}' [--watch] [--budget ...]
+```
+
+This does NOT run as-is: the `--args` `projectDir` is required (the script throws immediately without it), and it must point at a repo checkout where the skeleton is already committed BEFORE the workflow runs — `docs/module-contracts.md` (exact exports/signatures/errors per module), `docs/design-notes.md`, `src/types.ts` (frozen shared types), and `package.json` + `tsconfig.json` (frozen toolchain). Bring your own contracted project; there is no bundled fixture. Add `--watch` to follow the phase/gate logs live and `--budget` to cap spend.
+
+Cost expectation: 11 agents in one run — 8 builders (5 routine modules on the cheaper advisory `sonnet` tier, plus 3 on the engine-default strongest tier: the two `hard` modules `parser`/`query` and the `cli`, which carries no `model` field and so also takes the default), 2 gate agents, and 1 integrator; the integrator and gates carry the heaviest context and iterate internally, so they dominate the bill.

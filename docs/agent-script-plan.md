@@ -102,7 +102,7 @@ the conformance kit.
 > retained inside it.
 
 Loops (builder–verifier convergence) are a first-class positioning pillar —
-docs, `examples/03-builder-verifier.js`, and spec §5.9 shipped with the
+docs, `examples/03-builder-verifier.js` (now `examples/actor-critic-loop/`), and spec §5.9 shipped with the
 publish pass. Two follow-ups are deliberately deferred:
 
 1. **Packaged loop workflows.** Ship builder–verifier (and until-dry) as

@@ -14,6 +14,40 @@ The operational constraints:
 - Silent gaps are worse than loud failures. If some items end up unscored (a worker dies, the budget runs out), you must know **exactly which ones** at the end of the run, not discover holes in the data later.
 - The run may execute under a hard token budget, and blowing through it mid-flight with no accounting of coverage is unacceptable.
 
+## Topology
+
+The diagram below traces the actual control flow in `workflow.js`: one `Score` phase whose wave loop fans a bounded batch of judges out per iteration, checks the budget rail before each wave (after the first), and collects survivors while routing failed batches to a `missedRanges` list — no silent caps, an early exit that always prints resume args.
+
+```mermaid
+flowchart TD
+  Start([run]) --> Consts["compute slice + N batches"]
+  Consts --> Phase
+
+  subgraph Phase["Phase: Score"]
+    Loop{"more waves?"}
+    Loop -- no --> Done
+    Loop -- "yes, w>0" --> Rail{"remaining < FLOOR?"}
+    Rail -- yes --> Exit["log resume args"]
+    Rail -- no --> Fan
+    Loop -- "yes, first wave" --> Fan
+
+    subgraph Fan["parallel() wave — xWAVE"]
+      J1["judge b1 (effort:low)"]
+      J2["judge b2"]
+      Jn["judge bN"]
+    end
+
+    Fan --> Check{"verdicts array?"}
+    Check -- no --> Missed(["push missedRanges + log"])
+    Check -- yes --> Collect(["flatten verdicts into out"])
+    Missed --> Progress(["log wave progress"])
+    Collect --> Progress
+    Progress -- next wave --> Loop
+  end
+
+  Exit --> Done(["return verdicts + resume"])
+```
+
 ## Reference solution
 
 The shape is a **sharded map**: one phase, no gates, no loops-until-convergence — just a corpus divided into fixed-size index slices and a fleet of identical judges, throttled and instrumented.
@@ -46,3 +80,14 @@ Resumability is entirely `args`-driven: `start`/`count` select any contiguous sl
 - **Budget rail between waves** *(deliberate addition)* — `budget.total && budget.remaining() < FLOOR` stops the run while it can still report the shortfall precisely.
 - **`effort: 'low'` on mechanical judges** *(deliberate addition)* — rubric application does not need a high reasoning tier; cheap judges keep the fleet inside budget.
 - **`log()` narration** — wave-by-wave progress (`scored so far` against `COUNT`) so a watcher can see throughput and coverage live.
+
+## Run it
+
+```
+ultracodex run examples/map-over-corpus/workflow.js --budget 500k \
+  --args '{"catalog":"/abs/path/to/catalog.json","count":500}'
+```
+
+This does not run as-is: you must supply your own data. The `catalog` arg is required and must be an absolute path to a JSON array of `{id, name, description, url, ...}` records (the workflow defaults to the placeholder `/path/to/catalog.json`, which will not exist); `count` is how many items to score this run and `start` is the first index — omit them to score 500 items from index 0. To resume an interrupted run, paste the `{"start":...,"count":...}` object that the early-stop log printed.
+
+Cost expectation: one judge agent per 10-item batch, so roughly `count / 10` agents (about 50 for the default 500-item run), all on the cheap `effort: 'low'` tier and throttled to `WAVE` (5) in flight at a time; the `--budget` floor stops the run between waves before it overruns, printing the resume args for the remainder.

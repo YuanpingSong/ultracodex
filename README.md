@@ -116,7 +116,7 @@ Three axes, one format: `parallel()` is breadth, `pipeline()` is flow,
 **loops are depth** — iterate until verified good, with `budget` as the
 governor and the run's live controls (pause/skip/stop) as the brakes. The
 full pattern — max rounds, feedback threading, cross-vendor judging — is
-[examples/03-builder-verifier.js](examples/03-builder-verifier.js).
+[examples/actor-critic-loop/](examples/actor-critic-loop/).
 (Advanced: route `"verify:*" = "claude"` in config and the builder's
 in-run judge becomes a different model family; the loop doesn't change.)
 
@@ -130,7 +130,7 @@ The same file runs under Claude Code's Workflow tool and ultracodex;
 Everything needed to author Agent Scripts — or to teach **any** model to author them — ships with the package:
 
 - **[skills/agent-script-authoring/SKILL.md](skills/agent-script-authoring/SKILL.md)** — the authoring skill: one self-contained document (~4.7k tokens; core contract up front, craft reference behind). It is model-agnostic and battle-tested: given only this file plus a problem statement, GPT-5.5 authored scripts judged comparable-or-stronger than the Claude-written references on 7/7 problems, and the text was hardened across three evidence rounds against three model families (frontier, 31B-class open-weights, and a reasoning model used as a fuzzer).
-- **[examples/](examples/)** — the shape gallery: seven orchestration shapes distilled from a census of 58 real production workflows. Each entry is a self-contained problem statement plus a reference script that passes `validate --strict`; the problem statements double as authoring exercises.
+- **[examples/](examples/)** — the shape gallery: **nine orchestration shapes ordered as a complexity ladder**, distilled from a census of 58 real production workflows. Each entry is a self-contained problem statement, a mermaid diagram of the topology, and a reference script that passes `validate --strict`. The first three run in minutes with no setup; the problem statements double as authoring exercises.
 
 Using it:
 
@@ -187,13 +187,14 @@ pnpm install && pnpm build
 pnpm link --global             # → `ultracodex` on PATH (or keep using node dist/cli.js)
 ```
 
-The examples ship with the package — run them first (from the checkout, or
-from the installed package via `$(npm root -g)/ultracodex/`):
+The examples ship with the package — run the first three rungs of the
+[complexity ladder](examples/) first (from the checkout, or from the
+installed package via `$(npm root -g)/ultracodex/`):
 
 ```bash
-ultracodex run examples/01-hello.js --watch          # one agent, streamed events
-ultracodex run examples/02-fanout-critique.js        # fan-out + schemas, opens the TUI
-ultracodex run examples/03-builder-verifier.js --watch --budget 200k   # the loop
+ultracodex run examples/hello/workflow.js --watch    # one agent, streamed events
+ultracodex run examples/fanout-synthesize/workflow.js       # fan-out + schemas, opens the TUI
+ultracodex run examples/actor-critic-loop/workflow.js --watch --budget 200k   # the loop
 ultracodex ls                                        # every run, pid-liveness checked
 ultracodex show <runId> --json                       # machine-readable result
 ```

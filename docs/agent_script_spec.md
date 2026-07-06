@@ -203,7 +203,7 @@ judge with a `{pass, issues}` schema → feed issues back → repeat until pass,
 max rounds, or budget floor); **until-dry** (keep spawning finders until K
 consecutive rounds surface nothing new); **until-count** (accumulate to a
 target); **budget-scaled fleet** (size the fan-out from `budget.total`).
-Reference implementation: `examples/03-builder-verifier.js`. Routing the
+Reference implementation: `examples/actor-critic-loop/workflow.js`. Routing the
 verifier label to a different backend (§9) yields cross-vendor judging with
 no script change.
 

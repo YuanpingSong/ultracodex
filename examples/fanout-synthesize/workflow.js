@@ -1,9 +1,9 @@
 // A real orchestration shape: parallel fan-out → synthesis → adversarial
 // critique with structured output. Demonstrates phases, parallel(), schemas,
 // and null-tolerance.
-// Run it:   ultracodex run examples/02-fanout-critique.js --watch
+// Run it:   ultracodex run examples/fanout-synthesize/workflow.js --watch
 export const meta = {
-  name: 'fanout-critique',
+  name: 'fanout-synthesize',
   description: 'Three readers summarize project docs in parallel, one agent synthesizes, one critiques against the sources',
   phases: [
     { title: 'Read', detail: 'three parallel readers, one file each' },

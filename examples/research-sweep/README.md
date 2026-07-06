@@ -15,6 +15,26 @@ Constraints that shape the job:
 - **A failure on one area must not sink the report.** If the inspection of one area errors out, I still want the findings from the other areas — just tell me which one came back empty.
 - **Do not summarize away the details.** I need the raw per-area findings with exact paths and sizes, not a digest.
 
+## Topology
+
+The script is one phase wide and one stage deep: a plain-JS step assembles the target list, `parallel()` fans it out, and the collected results return directly — no synthesis node, no loop, no gate that can abort the run. The only branch is per-probe: a probe either yields schema-validated findings (kept) or resolves `null` (named in a log line and dropped), so a single failure costs one area rather than the whole sweep.
+
+```mermaid
+flowchart TD
+  A["args.areas (optional)"] --> B(["build ALL: TARGETS + extras, staple RO guardrail"])
+  subgraph Probe["Phase: Probe"]
+    B --> C["probe 1 (Explore, schema)"]
+    B --> D["probe 2 (Explore, schema)"]
+    B --> E["probe N (Explore, schema) xN"]
+  end
+  C --> F{"result truthy?"}
+  D --> F
+  E --> F
+  F -- "null" --> G["log dropped area + N/M tally"]
+  F -- "findings" --> H(["filter(Boolean): keep raw findings"])
+  H --> I["return findings (no synthesis)"]
+```
+
 ## Reference solution
 
 The shape is a **flat parallel fan-out**: one probe agent per storage area, all launched at once, all read-only, each returning findings against a single shared schema. There is exactly one phase (`Probe`) and no downstream stage — the fan-out's collected results *are* the run result.
@@ -38,3 +58,19 @@ Why it fits: the areas are fully independent (no pipeline), nothing iterates to 
 - **No-synthesis design** — return the raw structured results; the schema is the aggregation.
 - **`agentType: 'Explore'`** — engine-defined read-only agent profile as defense-in-depth; engines without it fall back to their default subagent.
 - **args-extensible target list** — callers add areas without editing the script, guardrail applied automatically.
+
+## Run it
+
+```
+ultracodex run examples/research-sweep/workflow.js --watch
+```
+
+Runs as-is with no user data: the eight `TARGETS` are baked in and use `~`-style placeholder paths, so the sweep works on any machine out of the box. The probes are strictly read-only (they run `du`/`find`/`ls`/`stat`/`df` and nothing destructive), so it is safe to point at a real home directory. To cover machine-specific locations, append your own areas without editing the script:
+
+```
+ultracodex run examples/research-sweep/workflow.js --watch --args '{"areas":[{"area":"NAS","prompt":"Investigate /mnt/nas ..."}]}'
+```
+
+Each appended area inherits the `RO` guardrail automatically. Add `--budget 500k` to cap output tokens if you extend the list far.
+
+Cost: one Explore-class agent per area — eight by default, plus one for each area you append — all launched in a single parallel wave, with no synthesis pass on top.

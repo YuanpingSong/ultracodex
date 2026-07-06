@@ -19,6 +19,39 @@ Constraints that matter:
 - The database must be touched read-only during this trial.
 - Nothing scales until **I** sign off. The deliverable of this trial isn't the enriched records — it's a report I can actually judge: does the taxonomy hold up, do the summaries sound right, what slipped through the classifier, and what decisions are still mine to make before the full run.
 
+## Topology
+
+The diagram below traces `workflow.js` exactly: one scout, an early-exit gate, a chunked fan-out over the pilot ids, and a single reviewer — with the run terminating at the human sign-off rather than branching into the full pass.
+
+```mermaid
+flowchart TD
+  Start(["run --args db,table"]) --> Scout["scout agent: taxonomy + stratified sample"]
+
+  subgraph P1["Phase 1 — Taxonomy & sample"]
+    Scout --> Gate{"scout ok? (pilot non-empty)"}
+  end
+
+  Gate -->|"no"| Exit(["return {error, scout}"])
+  Gate -->|"yes"| Shard(["chunk ids into batches of 5"])
+
+  subgraph P2["Phase 2 — Enrich"]
+    Shard --> E1["enrich batch 1"]
+    Shard --> E2["enrich batch 2"]
+    Shard --> EN["enrich batch N (xN via parallel)"]
+    E1 --> Agg(["filter(Boolean) + flatten + log shortfall"])
+    E2 --> Agg
+    EN --> Agg
+  end
+
+  subgraph P3["Phase 3 — Synthesize"]
+    Agg --> Review["reviewer agent: markdown sign-off report"]
+  end
+
+  Review --> Done(["return {taxonomy, enriched, review}; human signs off"])
+```
+
+Note the two exits: the gate short-circuits to a structured error before any enrichment budget is spent, and the happy path stops at the reviewer's report — scaling to the full collection is a deliberate second run, not an edge in this graph.
+
 ## Reference solution
 
 The shape is **scout → gate → chunked fan-out → synthesis sign-off**, a pilot run that deliberately ends at a human decision boundary.
@@ -47,3 +80,14 @@ The shape is **scout → gate → chunked fan-out → synthesis sign-off**, a pi
 - **Grounded-output instruction** — summaries may assert only what the record supports; the reviewer explicitly checks this.
 - **Synthesis sign-off** — the final agent converts raw JSON into a human-judgeable report, and the run ends at the approval boundary by design.
 - **args-driven configuration** — database path, table name, and batch size come from `args` with generic defaults; nothing is hard-coded.
+
+## Run it
+
+```
+ultracodex run examples/pilot-then-full/workflow.js --watch \
+  --args '{"db":"/path/to/collection.db","table":"records"}'
+```
+
+This does not run as-is: it needs your own data. Point `--args` at a local SQLite database (`db`) and the table (`table`) holding the several-thousand-record collection — the placeholder path is a stub, and the scout inspects the real schema before doing anything. Optionally set `batchSize` (default 5) to tune how many records each enrichment worker handles. The database is only ever read, so it is safe to point at a live copy; `--watch` streams phase progress, and `--budget` caps spend if you want a hard ceiling on the pilot.
+
+Cost expectation: one scout agent, one reviewer agent, and one enrichment worker per batch — with a few-dozen-record pilot at `batchSize` 5 that is roughly 8-12 agents total (Fable-class), a small fraction of what the full collection would cost, which is the entire point of piloting first.

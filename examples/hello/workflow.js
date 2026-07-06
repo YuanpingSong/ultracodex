@@ -1,5 +1,5 @@
 // The smallest useful Agent Script: one agent, one result.
-// Run it:   ultracodex run examples/01-hello.js --watch
+// Run it:   ultracodex run examples/hello/workflow.js --watch
 export const meta = {
   name: 'hello',
   description: 'One agent inspects the current directory and reports back',

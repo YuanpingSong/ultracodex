@@ -29,6 +29,31 @@ The operational constraints:
   the full history of attempts and verdicts, and an explicit flag saying whether the rubric
   was actually satisfied or the cap was hit.
 
+## Topology
+
+The diagram traces one iteration of the bounded `for` loop as the script actually runs it: the feedback block, the two agent dispatches with their independent null-guards, the audit append, and the two decisions that end the round — a passing verdict (early exit) or the round cap. The labeled back-edge is the loop; note that a failed actor forfeits its round through the same cap rather than earning a retry.
+
+```mermaid
+flowchart TD
+  S(["start (rounds 1..N, N=3)"]) --> FB
+  CAP{"round < N?"}
+  subgraph RND["Round N (per iteration)"]
+    FB(["build feedback (prev draft + issues)"]) --> A["actor:round-N (draft haiku)"]
+    A --> AN{"actor null?"}
+    AN -->|"yes: log + continue"| CAP
+    AN -->|"no"| C["critic:round-N (judge, schema)"]
+    C --> CN{"critic null?"}
+    CN -->|"yes"| DEG(["synthetic fail verdict"])
+    CN -->|"no"| AUD
+    DEG --> AUD(["append rounds[] + log PASS/issues"])
+    AUD --> P{"verdict.pass?"}
+  end
+  P -->|"yes: break"| DONE
+  P -->|"no"| CAP
+  CAP -->|"yes: thread issues back"| FB
+  CAP -->|"no: cap hit"| DONE(["return {finalHaiku, rounds, converged}"])
+```
+
 ## Reference solution
 
 The shape is a **script-level convergence loop**: a bounded `for` loop in which each round
@@ -48,6 +73,8 @@ independently. A true script-level convergence loop — where the *script* re-di
 agents each round and an independent critic's `{ pass, issues }` verdict decides whether to
 continue — appeared nowhere. That loop, including the early-exit guard that makes the round
 cap a worst case rather than a fixed cost, is exactly what this example teaches.
+
+Loops are ordinary JavaScript, which means their guardrails are yours to install — there are three safety rails every convergence loop needs, and this script wires up two of them directly while the third is a one-line habit the topology invites. **Rail 1: null-check every agent result** — a failed or skipped `agent()` resolves `null`, it never throws, so both the actor and the critic get an explicit null branch (below). **Rail 2: cap rounds explicitly** — the `for` bound is the plan; the runtime's lifetime agent cap is a backstop, not a design. **Rail 3: guard unbounded loops on budget** — `budget.remaining()` is `Infinity` when the run starts without `--budget`, so a loop that could otherwise spin should break when the remaining ceiling drops below one more round's worth of tokens (e.g. `if (budget.total && budget.remaining() < 20_000) break`). This example fixes its round count at three, so the budget governor is implicit rather than coded; the moment the cap becomes a variable or an `--args` input, add the break.
 
 Walkthrough of the topology:
 
@@ -79,14 +106,33 @@ Walkthrough of the topology:
   case, not a fixed spend.
 - **Schema-constrained critic** — schema const in CAPS, `{ pass, issues }` with both
   required, so the verdict is machine-checkable and the issues are actionable.
-- **Anti-scope-creep judging** — the critic prompt pins the rubric and forbids inventing
-  requirements beyond it.
+- **Anti-scope-creep judging (verifier calibration)** — the critic prompt pins the rubric
+  and forbids inventing requirements beyond it. This is calibration, not politeness: anchor
+  the judge to the *stated* requirements or an adversarial verifier invents a fresh
+  requirement every round, manufactures false failures, and the loop never converges (ask
+  us how we know). The judge must be adversarial about the *listed* criteria and only those.
 - **Feedback threading** — the rejected draft and the critic's concrete issues are injected
   into the next actor prompt.
-- **Null-tolerant rounds** — actor `null` → log + `continue` (round forfeited under the
-  cap); critic `null` → degrade to a synthetic failing verdict, never a false pass.
+- **Null-tolerant rounds (rail 1)** — actor `null` → log + `continue` (round forfeited under
+  the cap); critic `null` → degrade to a synthetic failing verdict, never a false pass.
+- **Explicit round cap (rail 2)** and **budget governor (rail 3)** — the `for` bound is the
+  real ceiling (the lifetime agent cap is a backstop), and a budget-aware `break` keeps an
+  unbounded round count from spinning past its token ceiling.
 - **Role-labeled agent calls** — `actor:round-N` / `critic:round-N`, enabling label-based
-  backend routing (e.g. a cross-vendor judge) with no script change.
+  backend routing with no script change. For genuinely independent judgment, route the judge
+  to another backend: add `"critic:*" = "claude"` under `[route]` in
+  `.ultracodex/config.toml` and the actor and critic come from different model families —
+  the loop is byte-for-byte identical; only the routing table changes.
 - **Per-round `phase()`** matching `meta.phases` titles for progress grouping.
 - **No-silent-outcomes `log()` narration** — every round reports PASS or its issue count.
 - **Audit-trail return** — full `rounds` history plus an explicit `converged` flag.
+
+## Run it
+
+```
+ultracodex run examples/actor-critic-loop/workflow.js --watch --budget 200k
+```
+
+It runs as-is — no user data required. The task (haiku on the meaning of life, judged 5-7-5 / vivid / no clichés) is baked into the script, so you can execute it verbatim; `--watch` streams each round's actor and critic events, and `--budget 200k` caps output tokens. To judge with an independent backend, add `"critic:*" = "claude"` under `[route]` in `.ultracodex/config.toml` before running — no code change.
+
+Cost: two agents per round (one actor, one critic) times at most three rounds, so six lightweight agents worst case, fewer with an early exit. Small prompts by design — a cheap run.
