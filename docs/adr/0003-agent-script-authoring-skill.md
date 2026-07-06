@@ -78,12 +78,45 @@ deviations = the skill text needs strengthening, not the models.
     schema, real newlines, id-keyed joins, call-budget accounting,
     effort↔budget-rail link, phase granularity, try/catch policy,
     cross-iteration null guard.
-  - Round 2 = opencode-only re-run against the strengthened skill; a
-    residual gap after that indicates tool/model capability, not skill
-    text. Full round-1 report: local session artifact
-    (`/tmp/parity-result.json`).
-- **E. Publishing.** Decide packaging (repo `skills/` dir + npm, gallery in
-  docs, awesome-list PR per ADR-0001 item 6) once parity is proven.
+  - **Round 2 (2026-07-06, strengthened skill, opencode/gemma-31B):
+    PARITY ACHIEVED** — 6/7 comparable-or-stronger (5 comparable, 1
+    stronger, 1 weaker at 7/10), zero parse failures, mean 8.36 (from
+    5.5), all 7 improved. Every targeted round-1 failure class closed:
+    id-keyed joins, real newlines, closed enums, strict terminal schemas,
+    no-silent-drops accounting, the illegal synthesizer dropped, fixers
+    serialized. The lone weaker verdict traces to a single defect (boolean
+    where the reference used a 4-way enum on the headline dimension) —
+    final text edits applied (headline-dimension enum rule, pilot
+    three-way membership, index-range-shard pattern). Confirmatory round 3
+    judged non-blocking; skipped. deepseek/others held in reserve as
+    additional data points if wanted.
+  - **Documented floor:** frontier models (gpt-5.5) reach parity from the
+    skill alone, first try; a 31B-class open model reaches parity after
+    one evidence-driven strengthening round. This is the acceptance bar
+    met, with the corollary the Decision predicted: deviations were skill
+    -text deficiencies, not model deficiencies.
+  - Full reports: local session artifacts (`/tmp/parity-result.json`,
+    `/tmp/parity-r2-result.json`); authored scripts under
+    `/tmp/parity-test*/`.
+- **E. Publishing.** Parity proven; plan drafted 2026-07-06 (execution
+  items marked [go] are done, the rest await user go-ahead):
+  1. [go] npm tarball carries the artifacts: `skills/` added to
+     package.json `files` (examples/, spec, README already shipped).
+  2. Claude Code distribution: extend `sync-skills` to also install
+     `agent-script-authoring` into the user's skills dir, and/or package
+     the repo as a Claude Code plugin — v0.3.x feature work.
+  3. README: a "Write your own workflows" section linking skill + gallery
+     and citing the parity evidence (codex 7/7 first try; gemma-31B 6/7
+     after one strengthening round; zero parse failures final).
+  4. Education/announcement (user's call on venue): short write-up of the
+     parity experiment as the story — "a model-agnostic authoring standard
+     any capable model can learn from one document" — candidates: repo
+     docs page, Show HN follow-up, r/LocalLLaMA (the open-model angle is
+     the hook), awesome-loop-engineering PR (ADR-0001 item 6).
+  5. Spec stays v0.1-draft until the portable subset freezes; the SKILL is
+     the user-facing artifact, spec the implementer artifact.
+  6. Ship vehicle: v0.3.0 (`pnpm release minor`) once the remaining M4
+     items land; skill+gallery are already live on GitHub main meanwhile.
 
 ## Phase A final findings (fixture vs live tool description) — 2026-07-06
 

@@ -32,7 +32,8 @@
     "docs/agent_script_spec.md",
     "README.md",
     "LICENSE",
-    "NOTICE"
+    "NOTICE",
+    "skills"
   ],
   "engines": {
     "node": ">=20"

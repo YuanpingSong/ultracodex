@@ -277,7 +277,12 @@ mismatch. Write schemas for portability:
   not a substitute for a three-way verdict; a bare string is not a
   substitute for a named category set. Enums are load-bearing downstream:
   severity-first fixing and bucket aggregation only work when the values
-  are closed.
+  are closed. This applies **doubly to the headline judgment field** — the
+  one that carries the deliverable's primary call (fit, membership,
+  verdict). Even when the problem's wording sounds binary ("whether the
+  record belongs"), model it with a graded enum (e.g.
+  `'in-scope' | 'out-of-scope' | 'unsure'`): the middle tier is where all
+  the human-review value lives.
 - Add `description` fields to properties: they are prompt material and
   meaningfully improve output quality.
 - **The terminal producer gets the strictest schema.** When a final
@@ -332,7 +337,10 @@ at 1000 agent calls. Within those:
   `attempts + ceil(attempts/waveSize) checkpoint/gate calls + fixed
   overhead ≤ 1000`. For very large corpora the primary knob is **batching
   several items into one worker** (index-range shards over a shared input),
-  not one-agent-per-item.
+  not one-agent-per-item — and the orchestrator should never hold corpus
+  content: give each worker its index range and the file/db path, and let
+  it read its own slice, instead of `JSON.stringify`-ing items into
+  prompts.
 - **Budget rail**: between waves or rounds, check
   `budget.total && budget.remaining() < THRESHOLD` and stop early. Its
   companion lever: `effort: 'low'` on the mechanical per-item map/judge
@@ -346,7 +354,9 @@ at 1000 agent calls. Within those:
   of items, run a stratified sample end-to-end and return a quality report
   for human sign-off before the full run. When the pilot derives a
   taxonomy *and* picks the sample, keep those in **one agent** — a sample
-  chosen blind to just-discovered categories can't cover them.
+  chosen blind to just-discovered categories can't cover them. Membership
+  re-checks in the pilot are three-way
+  (`'in-scope' | 'out-of-scope' | 'unsure'`), never boolean.
 
 ## 10. Shape catalog
 
@@ -360,7 +370,7 @@ ultracodex repo.
 | **research-sweep** | Broad question, one context can't hold it | Facet prompts on a shared preamble + one findings schema; the fan-out's raw structured results ARE the deliverable — adding a synthesizer violates a keep-it-raw constraint |
 | **fanout-synthesize** | Many partial views → one artifact | Parallel extractors → `.filter(Boolean)` → single synthesizer (+ optional single critique pass) |
 | **map-over-corpus** | Same judgment/transform per item, big N | Shard in JS, waves under the cap, `args` offsets for resume (returned on early stop), `effort:'low'` judges, self-verification inside each worker |
-| **pilot-then-full** | Unproven prompt × expensive corpus | ONE scout derives taxonomy + stratified sample together → sample fan-out → quality report → human gate |
+| **pilot-then-full** | Unproven prompt × expensive corpus | ONE scout derives taxonomy + stratified sample together → sample fan-out (three-way membership enum, never boolean) → quality report → human gate |
 | **review-verify-fix** | Findings where false positives are costly | Dimension reviewers → dedup → 2 refute-by-default skeptics per finding → conditional fixer, suite kept green (parallel fixers ⇒ `isolation:'worktree'` each) |
 | **verify-sweep** | Pure QA of finished artifacts | Item × lens cross-product, severity-enum verdicts, failed verifiers degrade to synthetic findings |
 | **staged-build-gates** | Build with real dependency order | Waves of parallel builders (disjoint file ownership) → gate agent reconciling against a contract doc → integrator loops to green |
