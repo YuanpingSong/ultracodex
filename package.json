@@ -43,7 +43,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "pnpm build && pnpm test",
-    "install:local": "pnpm build && pnpm link --global && echo \"installed: $(which ultracodex)\" && ultracodex --version"
+    "install:local": "pnpm build && pnpm link --global && echo \"installed: $(which ultracodex)\" && ultracodex --version",
+    "release:check": "pnpm build && pnpm test && node scripts/release-check.mjs"
   },
   "packageManager": "pnpm@10.12.4",
   "devDependencies": {

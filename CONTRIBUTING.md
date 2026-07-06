@@ -20,6 +20,24 @@ No API keys needed. Please keep it that way:
   changes (`node dist/cli.js run examples/01-hello.js --watch`), but must
   never be required by CI.
 
+## Releasing
+
+Before any release:
+
+```bash
+pnpm release:check
+```
+
+Builds, runs the full hermetic suite, then runs the demo-video task — a live
+haiku actor–critic loop — through the real CLI against real codex, asserting
+the run's **intermediate state** (journal agent events with resolved models,
+per-agent prompt/output artifacts, schema'd critique outputs, token ledger),
+not just the final JSON. The whole run is archived under `.release-checks/`
+as provenance for that release. Requires an authenticated codex CLI and
+costs a few cents — deliberately not in CI (`RELEASE_CHECK_FAST=1` uses
+spark·medium while iterating; the real gate runs shipping defaults). Then:
+bump the version, push, tag `vX.Y.Z`, publish the GitHub release draft.
+
 ## Ground rules
 
 - **Upstream compatibility is the product.** Behavior of the script surface

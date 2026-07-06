@@ -2,3 +2,4 @@ node_modules/
 dist/
 .ultracodex/runs/
 .claude/skills/
+.release-checks/
