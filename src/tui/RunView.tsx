@@ -10,15 +10,18 @@ import { col } from "./colors.js";
 import {
   budgetBar,
   clampPhaseFilter,
+  computeContentBudget,
   filterAgentsByPhase,
   fmtClock,
   fmtDuration,
   fmtTokens,
   liveOutputTokens,
+  RESULT_TAIL_MAX,
   spinnerFrame,
   statusColor,
   statusGlyph,
   truncate,
+  windowAgents,
 } from "./format.js";
 import { useFlash, useFileTail, useJournalState, useTick } from "./hooks.js";
 import type { AgentView, TuiState } from "./reducer.js";
@@ -60,11 +63,13 @@ type Mode =
 export interface RunViewProps {
   projectDir: string;
   runDir: string;
+  /** Total terminal rows, threaded from index.tsx so we never overflow them. */
+  rows: number;
   onBack: () => void;
   onQuit: () => void;
 }
 
-export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement {
+export function RunView({ runDir, rows, onBack, onQuit }: RunViewProps): ReactElement {
   const state = useJournalState(runDir);
   const running = state.status === "running";
   useTick(250, running); // spinner + elapsed re-render while live
@@ -118,6 +123,30 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
   );
   const sel = Math.min(selIdx, Math.max(0, selectable.length - 1));
   const selectedAgent = selectable[sel];
+
+  // Row budgeting: never render more rows than the terminal has. Reserve fixed
+  // chrome, then window the agent list (and cap the result tail) to what's left.
+  // The list rendered under each tier is: cards/rows → `visible`, aggregate →
+  // phase summaries + `selectable`.
+  const finished = state.status !== "running";
+  const narratorLines = state.narrator.length > 0 ? Math.min(NARRATOR_TAIL, state.narrator.length) : 0;
+  const budget = computeContentBudget(rows, {
+    runnerDeadBanner: runnerDead && running,
+    narratorLines,
+    hasResultPane: finished,
+  });
+  // Aggregate prints one summary line per phase above its agent rows.
+  const summaryLines = tier === "aggregate" ? state.phases.length : 0;
+  const listRows = Math.max(0, budget.agentRows - summaryLines);
+  // Per-agent line height: cards may render a second (activity) line.
+  const lineHeight = tier === "cards" ? 2 : 1;
+  // windowAgents counts in item slots (1 marker = 1 slot). Convert the row
+  // budget into whole item slots; a marker then costs `lineHeight` rows, which
+  // slightly over-reserves for cards but is always within budget (never over).
+  const itemCapacity = Math.max(1, Math.floor(listRows / lineHeight));
+  const listSource = tier === "aggregate" ? selectable : visible;
+  const listSel = tier === "aggregate" ? sel : Math.max(0, visible.indexOf(selectedAgent ?? visible[0]!));
+  const agentWindow = windowAgents(listSource, listSel, itemCapacity);
 
   const exportResult = (): void => {
     if (!state.resultRef) {
@@ -213,18 +242,37 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
       <PhaseStrip state={state} selected={phaseSel} />
       <Box flexDirection="column" marginTop={1}>
         {visible.length === 0 && <Text dimColor>waiting for agents…</Text>}
-        {/* Cards render the filtered list verbatim — every agent by name. Density
-            is the tier system's job (and the phase filter's), so no ok-collapse. */}
-        {tier === "cards" &&
-          visible.map((a) => (
-            <AgentCard key={a.n} agent={a} selected={a === selectedAgent} now={now} endTs={state.endTs} columns={columns} />
-          ))}
-        {tier === "rows" &&
-          visible.map((a) => (
-            <AgentRow key={a.n} agent={a} selected={a === selectedAgent} now={now} endTs={state.endTs} columns={columns} />
-          ))}
+        {/* Windowed to the row budget: a viewport around the selected agent with
+            "↑/↓ N more" markers so content never exceeds the terminal height. The
+            selected agent is always inside the slice (see windowAgents). */}
+        {tier === "cards" && (
+          <>
+            <OverflowMarker n={agentWindow.above} dir="up" />
+            {agentWindow.slice.map((a) => (
+              <AgentCard key={a.n} agent={a} selected={a === selectedAgent} now={now} endTs={state.endTs} columns={columns} />
+            ))}
+            <OverflowMarker n={agentWindow.below} dir="down" />
+          </>
+        )}
+        {tier === "rows" && (
+          <>
+            <OverflowMarker n={agentWindow.above} dir="up" />
+            {agentWindow.slice.map((a) => (
+              <AgentRow key={a.n} agent={a} selected={a === selectedAgent} now={now} endTs={state.endTs} columns={columns} />
+            ))}
+            <OverflowMarker n={agentWindow.below} dir="down" />
+          </>
+        )}
         {tier === "aggregate" && (
-          <Aggregate state={state} selectable={selectable} selected={selectedAgent} now={now} columns={columns} />
+          <Aggregate
+            state={state}
+            rows={agentWindow.slice}
+            above={agentWindow.above}
+            below={agentWindow.below}
+            selected={selectedAgent}
+            now={now}
+            columns={columns}
+          />
         )}
       </Box>
       {state.narrator.length > 0 && (
@@ -236,7 +284,7 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
           ))}
         </Box>
       )}
-      {state.status !== "running" && <ResultPane state={state} runDir={runDir} />}
+      {finished && <ResultPane state={state} runDir={runDir} maxLines={budget.resultRows} />}
       <Box flexGrow={1} />
       <Box marginTop={1}>
         {mode.kind === "confirm" ? (
@@ -252,6 +300,16 @@ export function RunView({ runDir, onBack, onQuit }: RunViewProps): ReactElement 
         {flash && <Text color={col("cyan")}> {flash}</Text>}
       </Box>
     </Box>
+  );
+}
+
+/** Compact "↑/↓ N more" clip marker; renders nothing when N is 0. */
+function OverflowMarker({ n, dir }: { n: number; dir: "up" | "down" }): ReactElement | null {
+  if (n <= 0) return null;
+  return (
+    <Text dimColor>
+      {dir === "up" ? "↑" : "↓"} {n} more
+    </Text>
   );
 }
 
@@ -425,13 +483,17 @@ function AgentRow({
 
 function Aggregate({
   state,
-  selectable,
+  rows,
+  above,
+  below,
   selected,
   now,
   columns,
 }: {
   state: TuiState;
-  selectable: AgentView[];
+  rows: AgentView[];
+  above: number;
+  below: number;
   selected: AgentView | undefined;
   now: number;
   columns: number;
@@ -443,16 +505,37 @@ function Aggregate({
           {p.title}: {p.running} running · {p.done} done{p.failed > 0 ? ` · ${p.failed} failed` : ""} of {p.total}
         </Text>
       ))}
-      {selectable.map((a) => (
+      <OverflowMarker n={above} dir="up" />
+      {rows.map((a) => (
         <AgentRow key={a.n} agent={a} selected={a === selected} now={now} endTs={state.endTs} columns={columns} />
       ))}
+      <OverflowMarker n={below} dir="down" />
     </Box>
   );
 }
 
-function ResultPane({ state, runDir }: { state: TuiState; runDir: string }): ReactElement {
+function ResultPane({
+  state,
+  runDir,
+  maxLines,
+}: {
+  state: TuiState;
+  runDir: string;
+  /** Row budget for the tail (excludes border/title). Capped to fit the screen. */
+  maxLines: number;
+}): ReactElement {
   const resultPath = state.resultRef !== null ? path.join(runDir, state.resultRef) : null;
-  const lines = useFileTail(resultPath, 20, 2000);
+  // An error line and the "full result at …" hint each cost a tail row, so the
+  // tail itself gets what's left of the budget. Never exceed RESULT_TAIL_MAX.
+  const errorRows = state.error ? 1 : 0;
+  const cap = Math.max(0, Math.trunc(maxLines) - errorRows);
+  const capped = cap < RESULT_TAIL_MAX; // budget forced fewer than the full tail
+  const hintRows = capped ? 1 : 0;
+  const tailCap = Math.max(0, Math.min(RESULT_TAIL_MAX, cap - hintRows));
+  // useFileTail(_, 0) would slice(-0) and spill the whole file, so ask for at
+  // least 1 and clamp what we actually render to the budget.
+  const raw = useFileTail(resultPath, Math.max(1, tailCap), 2000);
+  const lines = tailCap > 0 ? raw.slice(-tailCap) : [];
   const title =
     state.status === "ok" ? "Result" : state.status === "stopped" ? "Stopped" : "Failed";
   const color = state.status === "ok" ? "green" : state.status === "stopped" ? "yellow" : "red";
@@ -468,7 +551,12 @@ function ResultPane({ state, runDir }: { state: TuiState; runDir: string }): Rea
           {l}
         </Text>
       ))}
-      {resultPath !== null && lines.length === 0 && <Text dimColor>(empty result)</Text>}
+      {resultPath !== null && raw.length === 0 && tailCap > 0 && <Text dimColor>(empty result)</Text>}
+      {capped && (
+        <Text dimColor wrap="truncate-end">
+          … full result at {state.resultRef ?? "result.json"} · press s to export
+        </Text>
+      )}
     </Box>
   );
 }

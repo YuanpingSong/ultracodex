@@ -3,7 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openInEditor, parseEditorCommand } from "../src/tui/clipboard.js";
-import { clampPhaseFilter, filterAgentsByPhase, phaseFilterTitle } from "../src/tui/format.js";
+import {
+  clampPhaseFilter,
+  computeContentBudget,
+  filterAgentsByPhase,
+  phaseFilterTitle,
+  RESULT_TAIL_MAX,
+  windowAgents,
+} from "../src/tui/format.js";
 import { validateBudgetInput } from "../src/tui/HomeView.js";
 import {
   initialState,
@@ -514,5 +521,166 @@ describe("phase filter helpers (format)", () => {
     expect(filterAgentsByPhase(agents, st.phases, 0).map((a) => a.n)).toEqual([1, 2, 3, 4, 5]);
     expect(filterAgentsByPhase(agents, st.phases, 1).map((a) => a.n)).toEqual([1, 2, 3, 4]);
     expect(filterAgentsByPhase(agents, st.phases, 2)).toEqual([]); // Critique not started yet
+  });
+});
+
+describe("run-view row budgeting (format.computeContentBudget)", () => {
+  it("reserves fixed chrome and returns the rest to the agent list (running run)", () => {
+    // header(1) + phase(1) + list-spacer(1) + footer(2) = 5 chrome, no narrator.
+    expect(computeContentBudget(24)).toEqual({ agentRows: 19, resultRows: 0 });
+    expect(computeContentBudget(10)).toEqual({ agentRows: 5, resultRows: 0 });
+  });
+
+  it("charges the runner-dead banner and the narrator strip (spacer + one row per line)", () => {
+    // base chrome 5, + banner 1, + narrator spacer 1 + 4 lines = 11 → 24-11=13.
+    expect(computeContentBudget(24, { runnerDeadBanner: true, narratorLines: 4 })).toEqual({
+      agentRows: 13,
+      resultRows: 0,
+    });
+    // narratorLines 0 hides the whole strip (no spacer charged).
+    expect(computeContentBudget(24, { narratorLines: 0 }).agentRows).toBe(19);
+  });
+
+  it("splits content between the agent list and result pane on finished runs", () => {
+    // 24 rows, chrome 5 → content 19. Result chrome 4; tail = min(20, floor(19/2)=9, 15) = 9.
+    // agentRows = 19 - 4 - 9 = 6.
+    expect(computeContentBudget(24, { hasResultPane: true })).toEqual({ agentRows: 6, resultRows: 9 });
+  });
+
+  it("caps the result tail at RESULT_TAIL_MAX even on very tall terminals", () => {
+    const b = computeContentBudget(200, { hasResultPane: true });
+    expect(b.resultRows).toBe(RESULT_TAIL_MAX);
+    // The agent list soaks up the rest of the tall screen.
+    expect(b.agentRows).toBeGreaterThan(RESULT_TAIL_MAX);
+  });
+
+  it("never returns negative rows and collapses gracefully at tiny sizes", () => {
+    const tiny = computeContentBudget(3, { hasResultPane: true, narratorLines: 4 });
+    expect(tiny.agentRows).toBeGreaterThanOrEqual(0);
+    expect(tiny.resultRows).toBeGreaterThanOrEqual(0);
+    expect(computeContentBudget(0)).toEqual({ agentRows: 0, resultRows: 0 });
+    expect(computeContentBudget(Number.NaN)).toEqual({ agentRows: 0, resultRows: 0 });
+    expect(computeContentBudget(-5)).toEqual({ agentRows: 0, resultRows: 0 });
+  });
+
+  it("agent list + result-pane (tail + its own chrome) fit inside the content budget", () => {
+    for (let rows = 0; rows <= 120; rows++) {
+      const b = computeContentBudget(rows, { hasResultPane: true, narratorLines: 4 });
+      // Fixed chrome: header+phase+list-spacer(3) + narrator(spacer+4=5) + footer(2) = 10.
+      const content = Math.max(0, rows - 10);
+      const resultChrome = 4; // spacer + round border (2) + title
+      // The two content consumers plus the pane's own chrome stay within the
+      // content region — so the whole view fits once the terminal has ≥ ~14 rows.
+      expect(b.agentRows + b.resultRows + resultChrome).toBeLessThanOrEqual(content + resultChrome);
+      expect(b.agentRows + b.resultRows).toBeLessThanOrEqual(content);
+      expect(b.agentRows).toBeGreaterThanOrEqual(0);
+      expect(b.resultRows).toBeGreaterThanOrEqual(0);
+    }
+  });
+});
+
+describe("agent-list windowing (format.windowAgents)", () => {
+  const list = (n: number): number[] => Array.from({ length: n }, (_, i) => i);
+
+  it("returns the whole list with no markers when capacity ≥ count", () => {
+    expect(windowAgents(list(5), 0, 5)).toEqual({ slice: [0, 1, 2, 3, 4], above: 0, below: 0 });
+    expect(windowAgents(list(5), 2, 99)).toEqual({ slice: [0, 1, 2, 3, 4], above: 0, below: 0 });
+    // Identity when it fits: same array reference is fine for React keys.
+    const items = list(3);
+    expect(windowAgents(items, 1, 3).slice).toBe(items);
+  });
+
+  it("empty list and zero capacity render nothing", () => {
+    expect(windowAgents([], 0, 10)).toEqual({ slice: [], above: 0, below: 0 });
+    expect(windowAgents(list(5), 2, 0)).toEqual({ slice: [], above: 0, below: 0 });
+  });
+
+  it("selection near the top keeps the top edge and clips only below", () => {
+    const w = windowAgents(list(10), 0, 4);
+    expect(w.above).toBe(0);
+    expect(w.slice[0]).toBe(0);
+    expect(w.slice).toContain(0); // selected item present
+    expect(w.below).toBeGreaterThan(0);
+    // markers + slice fit the capacity
+    expect(w.slice.length + (w.above > 0 ? 1 : 0) + (w.below > 0 ? 1 : 0)).toBeLessThanOrEqual(4);
+  });
+
+  it("selection near the bottom keeps the bottom edge and clips only above", () => {
+    const w = windowAgents(list(10), 9, 4);
+    expect(w.below).toBe(0);
+    expect(w.slice[w.slice.length - 1]).toBe(9);
+    expect(w.slice).toContain(9);
+    expect(w.above).toBeGreaterThan(0);
+    expect(w.slice.length + (w.above > 0 ? 1 : 0) + (w.below > 0 ? 1 : 0)).toBeLessThanOrEqual(4);
+  });
+
+  it("selection in the middle clips both sides and stays centered around it", () => {
+    const w = windowAgents(list(20), 10, 5);
+    expect(w.above).toBeGreaterThan(0);
+    expect(w.below).toBeGreaterThan(0);
+    expect(w.slice).toContain(10);
+    expect(w.slice.length + 2).toBeLessThanOrEqual(5); // two markers + slice ≤ cap
+  });
+
+  it("capacity 1 always shows the selected item (markers dropped, no overflow)", () => {
+    const w = windowAgents(list(10), 5, 1);
+    expect(w.slice).toEqual([5]);
+    // No room for markers alongside the mandatory selected row.
+    expect(w.above).toBe(0);
+    expect(w.below).toBe(0);
+  });
+
+  it("out-of-range and fractional selection indexes clamp into the list", () => {
+    expect(windowAgents(list(6), -3, 3).slice).toContain(0);
+    expect(windowAgents(list(6), 99, 3).slice).toContain(5);
+    expect(windowAgents(list(6), 2.9, 3).slice).toContain(2);
+  });
+
+  it("invariants hold for every list/selection/capacity combination", () => {
+    for (let n = 0; n <= 24; n++) {
+      const items = list(n);
+      for (let sel = -1; sel <= n + 1; sel++) {
+        for (let cap = 0; cap <= 26; cap++) {
+          const { slice, above, below } = windowAgents(items, sel, cap);
+          if (n === 0 || cap === 0) {
+            expect(slice).toEqual([]);
+            expect(above).toBe(0);
+            expect(below).toBe(0);
+            continue;
+          }
+          // Rendered rows (slice + one row per shown marker) never exceed cap.
+          const rendered = slice.length + (above > 0 ? 1 : 0) + (below > 0 ? 1 : 0);
+          expect(rendered).toBeLessThanOrEqual(cap);
+          // The (clamped) selection is always visible.
+          const s = Math.max(0, Math.min(n - 1, sel < 0 ? 0 : sel > n - 1 ? n - 1 : Math.trunc(sel)));
+          expect(slice).toContain(s);
+          // The slice is always a contiguous window whose first element sits at
+          // the true count of items hidden above it.
+          expect(slice.length).toBeGreaterThan(0);
+          for (let i = 1; i < slice.length; i++) expect(slice[i]).toBe(slice[i - 1]! + 1);
+          const trueAbove = slice[0]!;
+          const trueBelow = n - (slice[slice.length - 1]! + 1);
+          // above/below report marker counts: truthful whenever the marker would
+          // fit, else suppressed to 0. Suppression is only allowed when there is
+          // genuinely no room — the mandatory selected item plus the real markers
+          // would exceed cap (the degenerate cap 1, or cap 2 clipped both sides).
+          const trueMarkers = (trueAbove > 0 ? 1 : 0) + (trueBelow > 0 ? 1 : 0);
+          if (slice.length + trueMarkers <= cap) {
+            expect(above).toBe(trueAbove);
+            expect(below).toBe(trueBelow);
+          } else {
+            // Forced suppression: only when the window is at its minimum.
+            expect(slice.length).toBe(1);
+            expect(above).toBe(0);
+            expect(below).toBe(0);
+          }
+          if (cap >= n) {
+            expect(above).toBe(0);
+            expect(below).toBe(0);
+            expect(slice.length).toBe(n);
+          }
+        }
+      }
+    }
   });
 });

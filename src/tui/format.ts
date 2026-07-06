@@ -148,3 +148,138 @@ export function parseBudget(text: string): number | null {
   const mult = m[2] === "k" ? 1e3 : m[2] === "m" ? 1e6 : 1;
   return Math.round(n * mult);
 }
+
+export interface ContentBudgetOpts {
+  /** A "runner exited" banner is shown (1 row). */
+  runnerDeadBanner?: boolean;
+  /** Number of narrator lines that will be shown (0 hides the whole strip). */
+  narratorLines?: number;
+  /** The run has finished, so the result pane will render. */
+  hasResultPane?: boolean;
+  /** Hard cap on result-tail rows (defaults to RESULT_TAIL_MAX). */
+  resultTailMax?: number;
+}
+
+export interface ContentBudget {
+  /** Rows available for the agent list (windowed against this). */
+  agentRows: number;
+  /** Rows available for the result-pane tail (excludes its border/title). */
+  resultRows: number;
+}
+
+/** The finished-run result pane never tails more than this many rows. */
+export const RESULT_TAIL_MAX = 20;
+
+/**
+ * Split the terminal's total rows into fixed chrome + the rows left for the
+ * scrollable content (the agent list, plus the result pane on finished runs).
+ * Everything here is pure so the geometry is unit-tested rather than eyeballed
+ * against a live Yoga layout.
+ *
+ * Chrome accounted for (matching RunView's fixed rows):
+ * - header line (1),
+ * - phase strip (1),
+ * - the agent-list marginTop spacer (1),
+ * - optional runner-dead banner (1),
+ * - the narrator strip: its marginTop spacer (1) + one row per shown line,
+ * - the footer line (1) + its marginTop spacer (1).
+ *
+ * On finished runs the result pane also costs its marginTop spacer (1) + round
+ * border top/bottom (2) + title (1) = 4 rows before a single tail row. The
+ * remaining content is split so the agent list keeps priority (it holds the
+ * selection) while the result tail is capped at min(RESULT_TAIL_MAX, half the
+ * content) so neither pane starves the other on tall terminals.
+ */
+export function computeContentBudget(totalRows: number, opts: ContentBudgetOpts = {}): ContentBudget {
+  const rows = Number.isFinite(totalRows) ? Math.max(0, Math.trunc(totalRows)) : 0;
+  const narratorLines = Math.max(0, Math.trunc(opts.narratorLines ?? 0));
+  const tailMax = Math.max(0, Math.trunc(opts.resultTailMax ?? RESULT_TAIL_MAX));
+
+  let chrome = 0;
+  chrome += 1; // header
+  chrome += 1; // phase strip
+  chrome += 1; // agent list marginTop spacer
+  if (opts.runnerDeadBanner) chrome += 1;
+  if (narratorLines > 0) chrome += 1 + narratorLines; // marginTop spacer + lines
+  chrome += 2; // footer line + its marginTop spacer
+
+  const content = Math.max(0, rows - chrome);
+
+  if (!opts.hasResultPane) {
+    return { agentRows: content, resultRows: 0 };
+  }
+
+  // Result pane chrome: marginTop spacer (1) + round border (2) + title (1).
+  const resultChrome = 4;
+  const forResult = Math.max(0, content - resultChrome);
+  // Cap the tail so the agent list keeps at least half the content; when the
+  // screen is too small for the pane's chrome, the tail collapses to 0.
+  const resultRows = Math.min(tailMax, Math.floor(content / 2), forResult);
+  const agentRows = Math.max(0, content - resultChrome - resultRows);
+  return { agentRows, resultRows };
+}
+
+export interface AgentWindow<T> {
+  /** The contiguous slice to render, always including the selected item. */
+  slice: T[];
+  /** Count hidden above the slice (0 when nothing is clipped there). */
+  above: number;
+  /** Count hidden below the slice (0 when nothing is clipped there). */
+  below: number;
+}
+
+/**
+ * Viewport a list around `selectedIndex` so it fits in `capacity` rows without
+ * ever scrolling the selection off-screen. When the whole list fits, the slice
+ * is the list itself with above/below = 0.
+ *
+ * Overflow markers ("↑ N more" / "↓ N more") each cost one of the `capacity`
+ * rows and take priority over showing an extra item, so whenever items are
+ * clipped on a side its marker is shown and `above`/`below` report the true
+ * hidden counts. The rendered total (markers + slice length) never exceeds
+ * `capacity`.
+ *
+ * The selected item is mandatory — it is always inside the slice, so up/down
+ * navigation can never lose the cursor. The one degenerate case is capacity 1
+ * with overflow: a single row can hold only the selected item, leaving no room
+ * for a marker, so the markers are dropped (`above`/`below` = 0). The rendered
+ * row count is guaranteed ≤ capacity for every input.
+ */
+export function windowAgents<T>(
+  items: T[],
+  selectedIndex: number,
+  capacity: number,
+): AgentWindow<T> {
+  const n = items.length;
+  const cap = Math.max(0, Math.trunc(capacity));
+  if (n === 0 || cap === 0) return { slice: [], above: 0, below: 0 };
+  if (cap >= n) return { slice: items, above: 0, below: 0 };
+
+  const sel = Math.max(0, Math.min(n - 1, Math.trunc(selectedIndex)));
+
+  // Fixed point: how many item rows we can show depends on how many markers we
+  // show, and vice-versa. Two edges → at most two markers, so iterate until the
+  // marker count stabilises (bounded, ≤ 3 passes).
+  let markerRows = 0;
+  let start = 0;
+  let end = 0;
+  for (let pass = 0; pass < 3; pass++) {
+    const itemSlots = Math.max(1, cap - markerRows); // selected item always fits
+    // Center the window on the selection, clamped inside the list.
+    start = Math.max(0, Math.min(sel - Math.floor((itemSlots - 1) / 2), n - itemSlots));
+    end = Math.min(n, start + itemSlots);
+    const next = (start > 0 ? 1 : 0) + (n - end > 0 ? 1 : 0);
+    if (next === markerRows) break;
+    markerRows = next;
+  }
+
+  let above = start;
+  let below = n - end;
+  // Degenerate cap 1: the lone row is the selected item; no room for a marker.
+  if (end - start + (above > 0 ? 1 : 0) + (below > 0 ? 1 : 0) > cap) {
+    above = 0;
+    below = 0;
+  }
+
+  return { slice: items.slice(start, end), above, below };
+}

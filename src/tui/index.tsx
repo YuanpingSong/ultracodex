@@ -37,6 +37,7 @@ function App({ projectDir, initialRunDir }: { projectDir: string; initialRunDir:
       <RunView
         projectDir={projectDir}
         runDir={route.runDir}
+        rows={rows}
         onBack={() => setRoute({ view: "home" })}
         onQuit={() => exit()}
       />
