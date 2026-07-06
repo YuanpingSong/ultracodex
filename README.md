@@ -12,9 +12,10 @@ Ultracode too expensive? **ultracodex** is ultracode on Codex — the same workf
 
 Your best model plans and judges; the subscription you're not rationing does the work. Verified results land back in the session that asked. Quit the terminal — runs are detached processes over plain files, nothing dies. And any model can write these workflows: the [authoring skill](skills/agent-script-authoring/SKILL.md) and a [nine-shape example gallery](examples/) ship in the box.
 
-<video src="https://github.com/YuanpingSong/ultracodex/releases/download/v0.1.1/ultracodex-demo-v0.1.mp4" controls muted width="100%"></video>
 
-![Claude Code authors an actor-critic workflow and runs it through ultracodex; the TUI shows the rounds executing on Codex, then the result lands back in Claude](https://raw.githubusercontent.com/YuanpingSong/ultracodex/main/assets/demo.gif)
+
+https://github.com/user-attachments/assets/4a7366cd-429c-4581-9703-7c28a9605c0e
+
 
 *One prompt: "Write an essay on the meaning of life — actor–critic loop, 3 rounds. Run it with ultracodex." Claude (left) authors the workflow, Codex executes it, the TUI (right) watches live, and the result lands back in Claude. ([HD video](https://github.com/YuanpingSong/ultracodex/releases/download/v0.1.1/ultracodex-demo-v0.1.mp4))*
 
