@@ -6,7 +6,8 @@ Agent Script is a portable format for multi-agent orchestration programs:
 plain JavaScript over a small injected API, executable unmodified by any
 conforming engine. It originated as the script format of Claude Code's
 Workflow tool; this document derives from that tool's description
-(`fixtures/workflow_schema.json`, snapshot 2026-07-02) and from the
+(`fixtures/workflow_schema.json`, snapshot 2026-07-06, verified against a
+live session clause-by-clause — see ADR-0003 Phase A) and from the
 ultracodex implementation and test suite.
 
 **Authority.** The upstream Claude Code Workflow tool is the reference
