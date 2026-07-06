@@ -6,9 +6,9 @@
 
 **Run Claude Code workflow scripts, unmodified, on the OpenAI Codex CLI.**
 
-Ultracode too expensive? **ultracodex** is ultracode on Codex — the same workflow scripts, running on your Codex subscription, or on OpenCode (coming soon).
+Ultracode too expensive? **ultracodex** is ultracode — Claude Code's one-prompt-becomes-a-fleet-of-agents mode — on Codex: the same workflow scripts, running on your Codex subscription, or on OpenCode (coming soon).
 
-> **fable plans, codex executes, fable verifies**
+> **Fable plans, Codex executes, Fable verifies**
 
 Your best model plans and judges; the subscription you're not rationing does the work. Verified results land back in the session that asked. Quit the terminal — runs are detached processes over plain files, nothing dies. And any model can write these workflows: the [authoring skill](skills/agent-script-authoring/SKILL.md) and a [nine-shape example gallery](examples/) ship in the box.
 
