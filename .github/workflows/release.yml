@@ -20,10 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
+      # NOTE: no registry-url here — setup-node's registry-url writes an .npmrc
+      # with a token placeholder, and a configured-but-empty token makes npm
+      # SKIP the trusted-publishing OIDC exchange (unauthenticated PUT → 404).
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
       # Trusted publishing (tokenless OIDC) requires npm >= 11.5; Node 22's
       # bundled npm 10.x signs provenance but then publishes UNAUTHENTICATED,
       # which the registry rejects as a masked 404. Learned the hard way.
