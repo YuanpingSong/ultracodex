@@ -28,15 +28,27 @@ deviations = the skill text needs strengthening, not the models.
 - **A. Tool-description ↔ fixture diff** — DONE 2026-07-06 (main-loop
   Claude, live system-prompt description in context). Findings below;
   fixture re-captured as strict JSON.
-- **B. Excavate past workflows.** Claude Code persists every Workflow
-  invocation's script. Known cache locations:
-  - `~/.claude/projects/<project-slug>/<session-id>/workflows/scripts/*.js`
-    (glob across ALL projects/sessions — expect dozens)
-  - `/tmp/bunny-chatgpt-pass/workflows/*.js` (9 real scripts from a prior
-    session — **contain PHI context in prompts; generalize with care**)
-  - this repo's session dir + `~/Desktop/repos/loop-research/`
-  Inventory → categorize into shapes (fan-out/synthesize, staged build with
-  gates, review→verify→fix, actor–critic loop, until-dry sweep, judge panel…).
+- **B. Excavate past workflows.** DONE 2026-07-06. Claude Code persists
+  every Workflow invocation's script under its session caches; a census
+  workflow (58 unique scripts, one classifier per script → taxonomy
+  synthesis → adversarial critic, corrections applied) grouped the corpus
+  into 10 shape families: map-over-corpus/sharded-batch (15),
+  review-verify-fix (8; two subshapes: audit-existing vs
+  implement-verify-fix), research-sweep (8), fanout-synthesize incl.
+  pilot-then-full (7), map-over-repos with in-worker gates (6),
+  verify-sweep (5), staged-build-with-gates (5),
+  design-exploration/diverge-then-judge (2), plan-critique-revise (1),
+  judge-panel (1). Six representatives nominated — one per major family,
+  all from non-sensitive sources, critic-verified disjoint.
+  **Coverage gaps** (nothing in the corpus exercises these — the gallery
+  must fold them in deliberately): budget rails, workflow() nesting,
+  script-level until-dry/actor-critic convergence loops (the repo fixture
+  `scripts/fixtures/haiku-actor-critic.js` is the one true loop exemplar),
+  engine resume (scripts approximate it via args offsets instead);
+  isolation/effort/agentType appear but sparsely.
+  The full census (which cites private source paths) is deliberately a
+  local session artifact, not a repo file; any privately-sourced example
+  ships only after full de-identification (hard requirement).
 - **C. Generalize 4–5 representative shapes** into examples: strip all
   personal specifics (PHI hard requirement), keep the problem SHAPE; write
   problem statement + the Claude reference script for each.
