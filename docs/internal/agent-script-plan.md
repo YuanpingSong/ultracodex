@@ -85,7 +85,7 @@ the conformance kit.
 > — M4c matured into a model-agnostic AUTHORING skill + example gallery +
 > cross-model parity testing (accepted 2026-07-06, in progress).
 
-1. Promote `docs/agent_script_spec.md` v0.1 → v1.0: resolve every
+1. Promote `docs/agent-script-spec.md` v0.1 → v1.0: resolve every
    [CLARIFICATION]/[EXTENSION] flag, freeze the portable subset.
 2. **Conformance corpus** — dual-run scripts (upstream Workflow tool vs
    ultracodex) asserting the semantic invariants, in CI. `cmp-doc-digest`
@@ -97,7 +97,7 @@ the conformance kit.
 
 ## Loop engineering (future work, decided 2026-07-03; superseded by ADR-0001)
 
-> **See [docs/adr/0001-loop-engineering-extensions.md](adr/0001-loop-engineering-extensions.md)**
+> **See [docs/internal/adr/0001-loop-engineering-extensions.md](adr/0001-loop-engineering-extensions.md)**
 > — the accepted, research-backed plan (2026-07-06). The two items below are
 > retained inside it.
 

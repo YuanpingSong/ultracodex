@@ -9,9 +9,9 @@ export const meta = {
 }
 
 const DOCS = [
-  'docs/ARCHITECTURE.md',
-  'docs/PROGRESS.md',
-  'docs/OPERATIONS.md',
+  'docs/architecture.md',
+  'docs/internal/PROGRESS.md',
+  'docs/operations.md',
 ]
 
 const SUMMARY_SCHEMA = {

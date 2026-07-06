@@ -75,4 +75,4 @@ Walkthrough of the topology:
 ultracodex run examples/fanout-synthesize/workflow.js --watch
 ```
 
-Runs as-is with no setup: the sources are this repo's own docs (`README.md`, `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md`), so the workflow reads real files the moment you clone. Point it at your own document set by editing the `FILES` array. Cost is about five agents — three readers, one synthesizer, one critic — all short, single-turn calls.
+Runs as-is with no setup: the sources are this repo's own docs (`README.md`, `docs/architecture.md`, `docs/operations.md`), so the workflow reads real files the moment you clone. Point it at your own document set by editing the `FILES` array. Cost is about five agents — three readers, one synthesizer, one critic — all short, single-turn calls.

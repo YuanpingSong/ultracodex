@@ -52,10 +52,10 @@ publish landed.
 
 - **Upstream compatibility is the product.** Behavior of the script surface
   (the seven globals, null-vs-throw semantics, caps) must match the upstream
-  Workflow tool; `docs/agent_script_spec.md` is the contract and
+  Workflow tool; `docs/agent-script-spec.md` is the contract and
   `fixtures/workflow_schema.json` is the upstream snapshot. Anything we add
   must be config-side, never script-visible.
-- `docs/module_api.md` defines internal module contracts — change the doc
+- `docs/internal/module_api.md` defines internal module contracts — change the doc
   and the code together.
 - ESM + NodeNext: relative imports carry `.js` suffixes.
 - Never weaken a test to make it pass.

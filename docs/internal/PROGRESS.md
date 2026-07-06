@@ -21,7 +21,7 @@ Status as of 2026-07-02. **M1–M3 complete and shipped.**
 
 ## Earlier foundation work
 
-- Product spec locked (`docs/product_context.md` v3): app-server executor
+- Product spec locked (`docs/internal/product_context.md` v3): app-server executor
   architecture, files-as-state, journal-as-spine, no daemon, dual-runnable
   scripts, config-only routing.
 - Empirical protocol pinning against codex 0.142.4: generated TypeScript
@@ -33,7 +33,7 @@ Status as of 2026-07-02. **M1–M3 complete and shipped.**
   gpt-5.3-codex-spark (efforts low–xhigh, workflow `max` → `xhigh`).
 - Project scaffold: pnpm + TypeScript (NodeNext ESM), vitest, Ink 7;
   shared contracts in `src/types.ts` + `src/constants.ts`; module API
-  contract in `docs/module_api.md`.
+  contract in `docs/internal/module_api.md`.
 
 ## In flight
 

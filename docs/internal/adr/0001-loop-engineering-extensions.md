@@ -10,7 +10,7 @@ We ran a research workflow (`uc_mr9f4j558lqog`, 8 agents, cross-vendor
 critique via the claude backend) over the two resources representing the
 community's state of the art on "loop engineering": the *Loop Engineering
 Orange Book* and the *awesome-loop-engineering* corpus. Full community map:
-[docs/research/loop-engineering-community-map.md](../research/loop-engineering-community-map.md).
+[docs/internal/research/loop-engineering-community-map.md](../research/loop-engineering-community-map.md).
 
 Key findings:
 
@@ -103,9 +103,9 @@ that runs only on ultracodex is a bug, not a feature.
 ## References
 
 - Research run: `uc_mr9f4j558lqog` (loop-research project, 2026-07-06);
-  community map vendored at `docs/research/loop-engineering-community-map.md`.
+  community map vendored at `docs/internal/research/loop-engineering-community-map.md`.
 - Sources: alchaincyf/loop-engineering-orange-book (v260615 PDF);
   invincible04/awesome-loop-engineering (README, docs/01–10, prompts, skill).
-- Related: `docs/agent-script-plan.md` (M4 + approvals roadmap),
-  `docs/agent_script_spec.md` §5.9 (loops), §3.5 (no script-visible
+- Related: `docs/internal/agent-script-plan.md` (M4 + approvals roadmap),
+  `docs/agent-script-spec.md` §5.9 (loops), §3.5 (no script-visible
   extensions), `examples/03-builder-verifier.js`.

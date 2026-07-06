@@ -12,7 +12,7 @@ export const meta = {
   ],
 }
 
-const FILES = ['README.md', 'docs/ARCHITECTURE.md', 'docs/OPERATIONS.md']
+const FILES = ['README.md', 'docs/architecture.md', 'docs/operations.md']
 
 // JSON Schema → agent() returns a validated object instead of raw text.
 // The engine enforces this (prompt contract + validation + repair turns).

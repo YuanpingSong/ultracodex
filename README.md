@@ -94,7 +94,7 @@ return { verified: verified.filter(v => v && v.verdict) }
 
 `agent()` opts: `label` (display + routing), `phase`, `schema` (JSON Schema), `model` / `effort` (advisory tiers, mapped in config), `isolation: 'worktree'`, `agentType` (config profile, e.g. read-only explorer).
 
-Three axes, one format: `parallel()` is breadth, `pipeline()` is flow, **loops are depth** — plain-JS `while`/`for` that iterate until verified good, with `budget` as the governor and live pause/skip/stop as the brakes. The canonical loop, its three safety rails, and the verifier-calibration lesson live in [examples/actor-critic-loop/](examples/actor-critic-loop/). The full normative definition is [docs/agent_script_spec.md](docs/agent_script_spec.md); `ultracodex validate --strict` checks a script stays in the portable subset that runs identically under Claude Code's Workflow tool and ultracodex.
+Three axes, one format: `parallel()` is breadth, `pipeline()` is flow, **loops are depth** — plain-JS `while`/`for` that iterate until verified good, with `budget` as the governor and live pause/skip/stop as the brakes. The canonical loop, its three safety rails, and the verifier-calibration lesson live in [examples/actor-critic-loop/](examples/actor-critic-loop/). The full normative definition is [docs/agent-script-spec.md](docs/agent-script-spec.md); `ultracodex validate --strict` checks a script stays in the portable subset that runs identically under Claude Code's Workflow tool and ultracodex.
 
 ## Write your own workflows
 
@@ -120,7 +120,7 @@ default_model  = "gpt-5.5"
 default_effort = "xhigh"
 ```
 
-Routing lives in config, never in scripts — that's what keeps scripts portable across runtimes and backends. Full reference (backends, model maps, sandbox/network escalation ladder, concurrency): [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Routing lives in config, never in scripts — that's what keeps scripts portable across runtimes and backends. Full reference (backends, model maps, sandbox/network escalation ladder, concurrency): [docs/operations.md](docs/operations.md).
 
 ## CLI
 
@@ -150,11 +150,11 @@ script.js ──▶ loader (acorn meta parse + vm) ──▶ runtime (semantics,
 
 Structured output is belt-and-suspenders: schemas ride the wire where the backend supports it (Codex strict mode), and are always enforced on our side (prompt contract + ajv validation + repair turns on the same session). The entire test suite (380+ tests) runs hermetically against a scripted fake of the codex app-server — no API keys in CI.
 
-Deeper reading: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/OPERATIONS.md](docs/OPERATIONS.md) · [docs/skills.md](docs/skills.md) · [docs/agent_script_spec.md](docs/agent_script_spec.md) · [docs/agent-script-plan.md](docs/agent-script-plan.md) (roadmap: pluggable backends, OpenCode adapter, packaged loop workflows).
+Deeper reading: [docs/architecture.md](docs/architecture.md) · [docs/operations.md](docs/operations.md) · [docs/skills.md](docs/skills.md) · [docs/agent-script-spec.md](docs/agent-script-spec.md) · [docs/internal/agent-script-plan.md](docs/internal/agent-script-plan.md) (roadmap: pluggable backends, OpenCode adapter, packaged loop workflows).
 
 ## Status
 
-M1–M3 shipped: runner core, app-server executor, TUI, CLI, claude backend, validate, sync-skills. Validated end-to-end on live Codex, including a clean-room rebuild of this project by Codex agents orchestrated through ultracodex itself. See [docs/PROGRESS.md](docs/PROGRESS.md).
+M1–M3 shipped: runner core, app-server executor, TUI, CLI, claude backend, validate, sync-skills. Validated end-to-end on live Codex, including a clean-room rebuild of this project by Codex agents orchestrated through ultracodex itself.
 
 ## License
 

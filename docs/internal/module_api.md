@@ -17,7 +17,7 @@ Depends on: types, constants, smol-toml.
 ```ts
 export function loadConfig(projectDir: string): UltracodexConfig;
 // merge order: DEFAULT_CONFIG ← ~/.ultracodex/config.toml ← <projectDir>/.ultracodex/config.toml
-// TOML shape mirrors docs/product_context.md §2: [route] table (key=pattern, value=backend,
+// TOML shape mirrors docs/internal/product_context.md §2: [route] table (key=pattern, value=backend,
 // preserves file order; a "*" fallback appended if absent), [backends.codex], [backends.claude],
 // [profiles.<name>]. Unknown keys ignored with no error. concurrency under top-level [run] table
 // optional: run.concurrency.
@@ -149,7 +149,7 @@ export interface TurnResult {
   error: string | null;
 }
 export function runTurn(opts: RunTurnOptions): Promise<TurnResult>;
-// The captureTurn state machine (see docs/product_context.md §3.3 and the codex plugin):
+// The captureTurn state machine (see docs/internal/product_context.md §3.3 and the codex plugin):
 // - send turn/start {threadId, input: [{type:"text", text: prompt, text_elements: []}], model,
 //   effort, outputSchema}; response carries turn id — but notifications may arrive first: buffer
 //   notifications until turnId known, then route by threadId+turnId (accept subagent thread events).
@@ -389,7 +389,7 @@ export function syncSkills(projectDir: string): { written: string[] };
 ```
 
 ## src/cli.ts (bin) — commander
-Commands per docs/product_context.md §5. Highlights:
+Commands per docs/internal/product_context.md §5. Highlights:
 - `run <scriptOrName>`: resolve saved workflow name or path; validate (errors block; strict);
   create run dir; snapshot script/args/options; spawn detached
   `process.execPath dist/runner.js <runDir>` (detached: true, stdio → runner.log, unref);

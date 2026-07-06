@@ -235,7 +235,7 @@ ultracodex enables it with `run --strict` and lints it with
 Engines SHOULD record a replayable event journal per run (run/phase/agent
 lifecycle, activity, usage, warnings, result). Scripts cannot observe the
 journal. The ultracodex event schema is defined in
-`docs/product_context.md` §4. [EXTENSION]
+`docs/internal/product_context.md` §4. [EXTENSION]
 
 ## 9. Backend abstraction (engine implementers) [EXTENSION]
 

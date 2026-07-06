@@ -53,7 +53,7 @@ Two variants, depending on the session's context:
 
 > Author the workflow exactly as you would for the Workflow tool — same script, byte for byte — but instead of invoking the tool, save it to a file and run `ultracodex run <file> --json --budget 300k`. Relay the result JSON verbatim; if the run fails, report the failure.
 
-**Option B — teach from the authoring skill** (plain sessions, headless `claude -p`, other agents entirely): as Option A, but point at `skills/agent-script-authoring/SKILL.md` — "author it per the agent-script-authoring skill" — and state the task. This is the tested path: codex and opencode agents given only that file plus a problem statement authored scripts comparable to Claude-written references. The spec (`docs/agent_script_spec.md`) is the engine-implementer document; the skill is the writer document.
+**Option B — teach from the authoring skill** (plain sessions, headless `claude -p`, other agents entirely): as Option A, but point at `skills/agent-script-authoring/SKILL.md` — "author it per the agent-script-authoring skill" — and state the task. This is the tested path: codex and opencode agents given only that file plus a problem statement authored scripts comparable to Claude-written references. The spec (`docs/agent-script-spec.md`) is the engine-implementer document; the skill is the writer document.
 
 ## Saved workflows as skills
 

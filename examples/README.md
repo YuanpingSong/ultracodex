@@ -26,4 +26,4 @@ ultracodex run examples/fanout-synthesize/workflow.js
 ultracodex run examples/actor-critic-loop/workflow.js --watch --budget 200k
 ```
 
-Format reference for writers: [the authoring skill](../skills/agent-script-authoring/SKILL.md) — its shape catalog names two more shapes (verify-sweep, judge-panel) that compose from the pieces shown here. For engine implementers: [the spec](../docs/agent_script_spec.md).
+Format reference for writers: [the authoring skill](../skills/agent-script-authoring/SKILL.md) — its shape catalog names two more shapes (verify-sweep, judge-panel) that compose from the pieces shown here. For engine implementers: [the spec](../docs/agent-script-spec.md).

@@ -1,0 +1,14 @@
+# ultracodex docs
+
+User-facing documentation:
+
+| doc | what it's for |
+|---|---|
+| [skills.md](skills.md) | installing the run + authoring skills into Claude Code, codex, opencode, or a raw prompt |
+| [operations.md](operations.md) | CLI reference, configuration & routing, state layout, the sandbox/network escalation ladder |
+| [architecture.md](architecture.md) | how the runtime works: loader, journal-as-spine, executors, TUI |
+| [agent-script-spec.md](agent-script-spec.md) | the Agent Script language & runtime specification — for engine implementers (script *writers* want the [authoring skill](../skills/agent-script-authoring/SKILL.md) instead) |
+
+The nine-shape example gallery lives in [examples/](../examples/), and the skills themselves in [skills/](../skills/).
+
+[internal/](internal/) holds the project's working papers — product spec, roadmap, decision records, build logs, research — kept public for transparency but written for ourselves.

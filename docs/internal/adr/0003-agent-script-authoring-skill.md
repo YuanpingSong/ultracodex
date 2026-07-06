@@ -228,7 +228,7 @@ as an extra divergence).
 
 - Byte-compatibility unchanged: the skill teaches the UPSTREAM format;
   nothing script-visible may be ultracodex-specific (spec §3.5).
-- The existing spec (`docs/agent_script_spec.md` v0.1) is engine/implementer
+- The existing spec (`docs/agent-script-spec.md` v0.1) is engine/implementer
   oriented; the skill is a separate, shorter, writer-oriented artifact —
   don't merge them, cross-link them.
 - Related: ADR-0001 (loop patterns feed the example gallery), ADR-0002.

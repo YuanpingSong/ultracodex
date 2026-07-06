@@ -785,7 +785,7 @@ async function doctorAction(): Promise<void> {
       `${model} · effort ${effort} · sandbox ${c.sandbox} · ${net} · service tier ${c.serviceTier ?? "inherited"} · approvals auto-denied`,
     );
     if (c.sandbox === "danger-full-access") {
-      info("sandbox", "danger-full-access has no file confinement — see the escalation ladder in docs/OPERATIONS.md");
+      info("sandbox", "danger-full-access has no file confinement — see the escalation ladder in docs/operations.md");
     }
     reportInteractiveDivergence(c, info);
   }

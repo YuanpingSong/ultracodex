@@ -6,7 +6,7 @@ description: >-
 
 # Writing Agent Scripts
 
-An Agent Script is one JavaScript file that orchestrates a fleet of AI agents deterministically: the script decides what fans out, what gets verified, and how results flow; the agents do all the actual reading, writing, and thinking. You are writing the harness, not the workers. The format is model-agnostic and engine-portable — the same file runs on Claude Code's Workflow tool and on ultracodex (engine-implementer spec: `docs/agent_script_spec.md` in the ultracodex repo).
+An Agent Script is one JavaScript file that orchestrates a fleet of AI agents deterministically: the script decides what fans out, what gets verified, and how results flow; the agents do all the actual reading, writing, and thinking. You are writing the harness, not the workers. The format is model-agnostic and engine-portable — the same file runs on Claude Code's Workflow tool and on ultracodex (engine-implementer spec: `docs/agent-script-spec.md` in the ultracodex repo).
 
 **Part 1 is the contract — violating it breaks the script. Part 2 is the craft — what separates a good workflow from a merely valid one.**
 
