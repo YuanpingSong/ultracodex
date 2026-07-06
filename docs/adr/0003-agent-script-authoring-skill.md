@@ -52,13 +52,36 @@ deviations = the skill text needs strengthening, not the models.
 - **C. Generalize 4–5 representative shapes** into examples: strip all
   personal specifics (PHI hard requirement), keep the problem SHAPE; write
   problem statement + the Claude reference script for each.
-- **D. Authoring skill + parity test.** Update `docs/agent_script_spec.md`
-  (fold in Phase A findings), distill the AUTHORING skill (distinct from the
-  existing run-oriented `sync-skills` output), then: codex agents (+
-  opencode if installed — check `which opencode`) get skill + problem
-  statement only → author scripts → `validate --strict` → compare shape vs
-  references (phases/labels/schemas/null-handling/budget rails). This is
-  dogfooding/debugging for the skill text; iterate until parity.
+- **D. Authoring skill + parity test.** Skill shipped:
+  `skills/agent-script-authoring/SKILL.md` (self-contained, writer-oriented,
+  distilled from the live tool description by the main loop). **Round 1
+  (2026-07-06):** codex (gpt-5.5) and opencode (default model:
+  google/gemma-4-31b-it, 31B open-weights) each authored all 7 gallery
+  problems from skill + problem statement alone; opus judges compared
+  against the Claude references.
+  - **codex: PARITY ACHIEVED** — 7/7 comparable-or-stronger (1 stronger),
+    mean 8.8/10, every script `validate --strict` clean. Deviations were
+    uniformly *supersets* of the reference topology (extra verifiers,
+    budget rails, checkpointing) — over-building, never under-delivering.
+  - **opencode/gemma-31B: not yet** — 5 weaker (6–6.5) + 2 parse failures,
+    mean ≈5.5. Misses clustered into five SKILL-ADDRESSABLE gaps (nested
+    fan-out closer punctuation; validate-first framing; parallel-fixers-
+    need-isolation; fan-out-may-end-at-fan-out; resume-tuple emission +
+    slice-scoped coverage) — all of which codex got right from the same
+    text, proving them learnable. (Bookkeeping note: one judge mis-filled
+    its `tool` field, making the synthesis report a phantom third tool;
+    the corrected opencode line is 5 weaker + 2 failed of 7.)
+  - **Strengthening round applied** to SKILL.md (5 must + 6 should + 4
+    altitude edits): multi-line closer template + paren checklist item,
+    validate-as-item-0, isolation hard rule, raw-fan-out rule, resume
+    tuple/slice math, closed-set enums, terminal-producer strictest
+    schema, real newlines, id-keyed joins, call-budget accounting,
+    effort↔budget-rail link, phase granularity, try/catch policy,
+    cross-iteration null guard.
+  - Round 2 = opencode-only re-run against the strengthened skill; a
+    residual gap after that indicates tool/model capability, not skill
+    text. Full round-1 report: local session artifact
+    (`/tmp/parity-result.json`).
 - **E. Publishing.** Decide packaging (repo `skills/` dir + npm, gallery in
   docs, awesome-list PR per ADR-0001 item 6) once parity is proven.
 

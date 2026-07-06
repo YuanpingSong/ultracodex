@@ -30,7 +30,11 @@ vendor's runtime. (Spec, for engine implementers:
 - **meta fields**: `name` (required, kebab-case), `description` (required,
   one line), `whenToUse` (optional), `phases` (optional array of
   `{ title, detail? }`). Each `phases[].title` must **exactly match** a
-  `phase()` call in the body — matching is by string equality.
+  `phase()` call in the body — matching is by string equality. Declare
+  *every* phase the body runs: undeclared `phase()` groups are legal but
+  lose the run's upfront progress map. A step deserves its own phase when
+  it groups agent calls; a step that's just bookkeeping gets a `log()`
+  line inside the current phase.
 - Everything after the meta export is the **body**, evaluated as an async
   function body: top-level `await` and top-level `return` are legal. The
   body's return value is the run's result.
@@ -65,12 +69,22 @@ if (!scan) return { error: 'scan agent failed' }
 
 phase('Fix')
 const fixes = (await parallel(scan.tests.map((t) => () =>
-  agent(`Diagnose why test "${t}" is flaky and fix it. Run the test 5x to confirm stability.`, { label: `fix:${t}` }),
-))).filter(Boolean)
+  agent(
+    `Diagnose why test "${t}" is flaky and fix it. Run the test 5x to confirm stability.`,
+    { label: `fix:${t}` },
+  ),      // <- closes agent(
+)))       // <- closes map(, then parallel(, then the (await ...) wrapper
+  .filter(Boolean)
 
 log(`${fixes.length}/${scan.tests.length} tests fixed`)
 return { fixed: fixes.length, of: scan.tests.length }
 ```
+
+Note the closer of the nested fan-out idiom: the wrapping paren in
+`(await parallel(items.map((x) => () => agent(...))))` must be closed
+**before** `.filter(Boolean)`. Unbalanced closers on exactly this
+multi-line construct are the single most common way authored scripts fail
+to parse — count the parens on every `map`/`parallel`/`pipeline` close.
 
 ## 3. The complete API — eight injected globals
 
@@ -100,7 +114,11 @@ against that schema.
   extract, reformat), high tiers for the hardest verify/judge stages.
 - `isolation: 'worktree'` — runs the agent in a fresh git worktree. Costly
   per agent; use **only** when parallel agents mutate the same files and
-  would conflict. Disjoint file ownership does not need it.
+  would conflict. Disjoint file ownership does not need it. **Hard rule:**
+  scaling any write-capable stage (fixers, builders) to `parallel()` over a
+  shared working tree *requires* `isolation: 'worktree'` on each — without
+  it the agents trample each other's edits and each one runs the project's
+  checks against a tree its siblings are mutating mid-flight.
 - `agentType` — an engine-defined agent profile (e.g. a read-only explorer
   type). Engine-specific; the script still runs on engines that map it
   differently or fall back to the default agent.
@@ -162,9 +180,23 @@ Consequences you must write for:
 - Null-check `prev` in every pipeline stage after the first.
 - Null-check single awaited agents before touching properties.
 - In loops, both the builder **and the verifier** can come back `null` —
-  decide explicitly whether null means retry, skip, or abort.
+  decide explicitly whether null means retry, skip, or abort. If null means
+  *skip*, anything a later iteration reads back (accumulators, the previous
+  verdict, a feedback source) must be guarded for the not-yet-populated
+  case; degrading the verifier to a synthetic failing verdict is usually
+  safer than `continue`, because control flow then never dereferences an
+  empty history.
 - Prefer degrading to a synthetic finding (`{ pass: false, issues:
   ['verifier failed'] }`) over silently losing an item.
+- **Key results by id, not by position.** When fan-out results must be
+  joined back to their inputs, put the item's id *inside* the result
+  schema. Never rely on array position, `indexOf` of returned objects, or
+  index-joining two independently `.filter(Boolean)`-ed arrays — filtering
+  shifts indices and silently misaligns the join on the first `null`.
+- Don't wrap `agent()` in `try/catch` by default. It only throws on the
+  budget ceiling and the two caps; if you already guard loops on
+  `budget.total`, a catch adds nothing. Let a genuine cap overrun abort the
+  run — that's the signal working as designed.
 
 ## 5. Determinism rules (breaking these breaks resume)
 
@@ -187,6 +219,17 @@ Not justifications: "I need to flatten/map/filter first" (do it inside a
 stage), "the stages are conceptually separate" (that's what pipeline
 models), "it's cleaner" (barrier latency is real — the fast finders idle
 while the slowest finishes).
+
+The mirror error is adding stages the deliverable forbids: **a fan-out may
+legitimately end at the fan-out.** When the problem says results must stay
+raw, verbatim, or exactly-structured, do NOT append a synthesizer — the
+schema *is* the aggregation, and a free-text consolidation agent cannot be
+trusted to preserve exact paths, sizes, and counts even when told not to
+summarize. Before adding any stage, ask: does this stage's output replace a
+deliverable the problem defined more strictly than this stage can
+guarantee? Extra verification passes carry the same altitude question —
+each refute/audit layer multiplies calls; stack them when false positives
+are expensive, not by reflex.
 
 Smell test — if you wrote:
 
@@ -229,12 +272,23 @@ mismatch. Write schemas for portability:
   authoring this way runs identically everywhere. Model optionality as
   `type: ['string', 'null']` or a sentinel (e.g. empty string) instead of
   omitting keys.
-- Use `enum` for verdicts and severities (`'blocker' | 'major' | 'minor'`)
-  — free aggregation logic, no string-matching.
+- **Any field the problem describes as a fixed set must be an `enum`** —
+  verdicts, severities, strata, categories, membership tiers. A boolean is
+  not a substitute for a three-way verdict; a bare string is not a
+  substitute for a named category set. Enums are load-bearing downstream:
+  severity-first fixing and bucket aggregation only work when the values
+  are closed.
 - Add `description` fields to properties: they are prompt material and
   meaningfully improve output quality.
+- **The terminal producer gets the strictest schema.** When a final
+  synthesis/merge agent's output *is* the run's deliverable, its schema
+  must require every concrete field the problem demands (tokens, ordered
+  steps, exact values) — a prompt request without a schema invites prose
+  where the problem demanded buildable data.
 - Keep result payloads compact; agents should write bulky artifacts to
-  files and return paths/counts/verdicts.
+  files and return paths/counts/verdicts. Don't emit the same records in
+  two shapes (a per-group view *and* a flattened queue of the identical
+  findings) — pick the one the consumer needs.
 
 ## 8. Prompting the workers
 
@@ -245,6 +299,11 @@ mismatch. Write schemas for portability:
   only the JSON / the list / the diff — no preamble".
 - Factor shared context into a `const PREAMBLE = ...` and compose per-agent
   deltas — same-prefix prompts are also cache-friendly.
+- Use **real line breaks** inside template-literal prompts. A `\n` escape
+  works, but authors who *intend* paragraph breaks and write `\\n` (or
+  build prompts in raw strings) ship literal backslash-n text to the agent
+  and silently degrade the prompt's structure. Multi-line templates with
+  actual newlines are the safe default.
 - Verification prompts: **separate agent, refute-by-default framing**
   ("Try to refute this finding; default to refuted if uncertain"). Asking
   the producer to check itself doesn't control false positives.
@@ -262,16 +321,32 @@ at 1000 agent calls. Within those:
 
 - **Resumability**: for big corpora, take `args.start`/`args.count` slice
   bounds so an interrupted run restarts where it stopped, and chunk the
-  fan-out into waves.
+  fan-out into waves. Two corollaries: (a) on *every* early stop, don't
+  just `log()` what was dropped — the **return value must carry a
+  copy-pasteable resume tuple** (e.g. `{ start: nextStart, count }`); (b)
+  coverage/"missing" accounting is computed over the current slice
+  `[start, start+count)`, never the whole corpus — otherwise a partial run
+  reports everything outside its slice as missing.
+- **Call-budget accounting**: overhead calls count against the 1000-call
+  lifetime cap too. Before sizing a fan-out, budget it:
+  `attempts + ceil(attempts/waveSize) checkpoint/gate calls + fixed
+  overhead ≤ 1000`. For very large corpora the primary knob is **batching
+  several items into one worker** (index-range shards over a shared input),
+  not one-agent-per-item.
 - **Budget rail**: between waves or rounds, check
-  `budget.total && budget.remaining() < THRESHOLD` and stop early.
+  `budget.total && budget.remaining() < THRESHOLD` and stop early. Its
+  companion lever: `effort: 'low'` on the mechanical per-item map/judge
+  agents is often the single biggest control on whether the rail ever
+  fires — tier the effort *before* tuning the threshold.
 - **No silent caps**: whenever the script bounds coverage — top-N,
   sampling, early stop, failed items — `log()` exactly what was dropped.
   A run that silently truncates reads as "covered everything" when it
   didn't.
 - **Pilot before scale**: for expensive per-item transforms over thousands
   of items, run a stratified sample end-to-end and return a quality report
-  for human sign-off before the full run.
+  for human sign-off before the full run. When the pilot derives a
+  taxonomy *and* picks the sample, keep those in **one agent** — a sample
+  chosen blind to just-discovered categories can't cover them.
 
 ## 10. Shape catalog
 
@@ -282,11 +357,11 @@ ultracodex repo.
 
 | Shape | Use when | Core trick |
 |---|---|---|
-| **research-sweep** | Broad question, one context can't hold it | Facet prompts on a shared preamble + one findings schema; return raw structured results, let the caller synthesize |
+| **research-sweep** | Broad question, one context can't hold it | Facet prompts on a shared preamble + one findings schema; the fan-out's raw structured results ARE the deliverable — adding a synthesizer violates a keep-it-raw constraint |
 | **fanout-synthesize** | Many partial views → one artifact | Parallel extractors → `.filter(Boolean)` → single synthesizer (+ optional single critique pass) |
-| **map-over-corpus** | Same judgment/transform per item, big N | Shard in JS, waves under the cap, `args` offsets for resume, self-verification inside each worker |
-| **pilot-then-full** | Unproven prompt × expensive corpus | Scout derives taxonomy + stratified sample → sample fan-out → quality report → human gate |
-| **review-verify-fix** | Findings where false positives are costly | Dimension reviewers → dedup → 2 refute-by-default skeptics per finding → conditional fixer, suite kept green |
+| **map-over-corpus** | Same judgment/transform per item, big N | Shard in JS, waves under the cap, `args` offsets for resume (returned on early stop), `effort:'low'` judges, self-verification inside each worker |
+| **pilot-then-full** | Unproven prompt × expensive corpus | ONE scout derives taxonomy + stratified sample together → sample fan-out → quality report → human gate |
+| **review-verify-fix** | Findings where false positives are costly | Dimension reviewers → dedup → 2 refute-by-default skeptics per finding → conditional fixer, suite kept green (parallel fixers ⇒ `isolation:'worktree'` each) |
 | **verify-sweep** | Pure QA of finished artifacts | Item × lens cross-product, severity-enum verdicts, failed verifiers degrade to synthetic findings |
 | **staged-build-gates** | Build with real dependency order | Waves of parallel builders (disjoint file ownership) → gate agent reconciling against a contract doc → integrator loops to green |
 | **actor-critic-loop** | One artifact must satisfy an exacting bar | Draft → schema'd `{pass, issues}` critic → revise on issues → repeat until pass/cap (see §6 loop) |
@@ -297,22 +372,39 @@ ultracodex repo.
 
 Before returning a script, verify:
 
-1. First statement is `export const meta = {...}`, pure literal, with
-   `name` + `description`; every `phases[].title` matches a `phase()` call.
-2. No imports/require/fs/process/network; no TypeScript syntax.
-3. No `Date.now()` / `Math.random()` / argless `new Date()`.
+0. **It parses.** A script that doesn't parse fails everything else
+   automatically. If the ultracodex CLI is available, run
+   `ultracodex validate --strict <file>` FIRST — it must print
+   `ok: no issues`. No CLI? Mentally lint, then re-read every
+   `map`/`parallel`/`pipeline` closer.
+1. **Parens balanced** on every nested fan-out: the
+   `(await parallel(items.map((x) => () => agent(...))))` wrapper closes
+   *before* `.filter(Boolean)` (§2).
+2. First statement is `export const meta = {...}`, pure literal, with
+   `name` + `description`; every `phase()` the body runs is declared in
+   `meta.phases` and matches by exact string.
+3. No imports/require/fs/process/network; no TypeScript syntax; no
+   `Date.now()` / `Math.random()` / argless `new Date()`.
 4. Every `parallel()` result is `.filter(Boolean)`-ed or null-handled;
    every pipeline stage null-checks `prev`; single agent results are
-   null-checked before property access.
-5. Loops: round caps or budget guards; dedup vs *seen*.
-6. Schemas: `additionalProperties: false`, `required` = all keys, enums
-   for verdicts.
-7. Fan-outs sized (≤4096/call, ≤1000/run); coverage bounds are `log()`-ed.
-8. Prompts are self-contained; verifiers are separate agents framed to
-   refute.
-9. `phase` passed as an option inside concurrent callbacks (not the global
-   `phase()`).
-10. The body `return`s a compact, structured result.
-
-Mechanical check, if the ultracodex CLI is available:
-`ultracodex validate --strict <file>` must print `ok: no issues`.
+   null-checked before property access; results are keyed by id, never
+   joined by array position after filtering.
+5. Loops: round caps or budget guards; dedup vs *seen*; no later
+   iteration reads state a skipped iteration never populated.
+6. Schemas: `additionalProperties: false`, `required` = all keys, an
+   `enum` for every field the problem named as a closed set; the terminal
+   producer carries the strictest schema.
+7. Fan-outs sized with overhead counted (≤4096/call; attempts + gate/
+   checkpoint calls ≤1000/run); coverage bounds are `log()`-ed AND early
+   stops `return` a concrete resume tuple.
+8. Tunables come from `args` (paths, slice bounds, batch sizes) rather
+   than hard-coding; structured inputs are consumed as real values.
+9. Parallel write-capable agents on a shared tree each carry
+   `isolation: 'worktree'`.
+10. No added stage violates an explicit deliverable-shape constraint
+    (raw-results problems get no synthesizer; §6).
+11. Prompts are self-contained; verifiers are separate agents framed to
+    refute; `phase` passed as an option inside concurrent callbacks (not
+    the global `phase()`).
+12. The body `return`s a compact, structured result — one shape per
+    record set.
