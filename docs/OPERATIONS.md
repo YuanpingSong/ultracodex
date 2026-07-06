@@ -50,6 +50,13 @@ Everything is inspectable text; `journal.jsonl` is append-only and replayable.
 
 ## Routing example
 
+Zero config is required — everything below except the `"critique:*"` route
+and `[run] concurrency` matches the shipped defaults (see
+`DEFAULT_CONFIG`/`DEFAULT_CODEX_CONFIG` in `src/constants.ts`; `ultracodex
+doctor` prints the resolved profile). Config files exist to override:
+global `~/.ultracodex/config.toml` first, then project
+`.ultracodex/config.toml` on top.
+
 ```toml
 [route]
 "critique:*" = "claude"   # ADVANCED: in-run judge; usually unneeded — results

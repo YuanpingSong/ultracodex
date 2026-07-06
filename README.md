@@ -107,7 +107,7 @@ Installing the skills into Claude Code, codex, opencode, or a raw prompt: [docs/
 
 ## Configuration & routing
 
-`.ultracodex/config.toml` (project) or `~/.ultracodex/config.toml` (global):
+**Zero config required** — the values below are the shipped defaults (`ultracodex doctor` prints the resolved profile). Create `.ultracodex/config.toml` (project) or `~/.ultracodex/config.toml` (global) only to override:
 
 ```toml
 [route]                        # first match wins: label, then phase
