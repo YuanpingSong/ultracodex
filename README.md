@@ -125,6 +125,27 @@ conformance — is in [docs/agent_script_spec.md](docs/agent_script_spec.md).
 The same file runs under Claude Code's Workflow tool and ultracodex;
 `ultracodex validate --strict` checks a script stays in the portable subset.
 
+## Write your own workflows
+
+Everything needed to author Agent Scripts — or to teach **any** model to author them — ships with the package:
+
+- **[skills/agent-script-authoring/SKILL.md](skills/agent-script-authoring/SKILL.md)** — the authoring skill: one self-contained document (~4.7k tokens; core contract up front, craft reference behind). It is model-agnostic and battle-tested: given only this file plus a problem statement, GPT-5.5 authored scripts judged comparable-or-stronger than the Claude-written references on 7/7 problems, and the text was hardened across three evidence rounds against three model families (frontier, 31B-class open-weights, and a reasoning model used as a fuzzer).
+- **[examples/](examples/)** — the shape gallery: seven orchestration shapes distilled from a census of 58 real production workflows. Each entry is a self-contained problem statement plus a reference script that passes `validate --strict`; the problem statements double as authoring exercises.
+
+Using it:
+
+- **Claude Code** — sessions with the Workflow tool already know the format natively. To teach a plain session (or strengthen authoring quality), install the skill:
+
+  ```bash
+  cp -r "$(npm root -g)/ultracodex/skills/agent-script-authoring" .claude/skills/
+  ```
+
+- **Any other agent (codex, opencode, a raw API call…)** — prepend the skill file to the prompt, state the problem, ask for a `workflow.js`. Then gate the result mechanically:
+
+  ```bash
+  ultracodex validate --strict workflow.js   # must print: ok: no issues
+  ```
+
 ## Quickstart
 
 Prerequisites: Node ≥ 20, [pnpm](https://pnpm.io), and the
@@ -192,12 +213,15 @@ mode; Claude already knows the format as that tool's schema):
 > file and run `ultracodex run <file> --json --budget 300k`. Relay the
 > result JSON verbatim; if the run fails, report the failure.
 
-**Option B — teach from the spec** (plain sessions, headless `claude -p`,
-other agents entirely): as Option A, but point at the format docs —
-"using the Agent Script format in docs/agent_script_spec.md" — and state
-the task. (That's how this repo validated itself: a fresh headless Claude
-authored staged build workflows from the spec and drove them through this
-CLI to rebuild the project with Codex agents.)
+**Option B — teach from the authoring skill** (plain sessions, headless
+`claude -p`, other agents entirely): as Option A, but point at
+[skills/agent-script-authoring/SKILL.md](skills/agent-script-authoring/SKILL.md)
+— "author it per the agent-script-authoring skill" — and state the task.
+This is the tested path: codex and opencode agents given only that file
+plus a problem statement authored scripts comparable to Claude-written
+references (see the ADR-0003 parity program). The spec
+(docs/agent_script_spec.md) is the engine-implementer document; the skill
+is the writer document.
 
 ### Saved workflows + skills
 
