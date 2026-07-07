@@ -62,8 +62,21 @@ is journaled as cookbook raw material (ADR-0001 item 3 falls out for free).
   real HTTP, real provider — text + wire-schema round-trips verified).
   N=3 conforming backends; the M4a "third adapter from docs alone" exit
   criterion is now empirically demonstrated, not just asserted.
-  Step 4 NEXT: recursive exit workload (mixed routing on this repo:
-  impl→opencode, gate→codex, review→claude, one journal).
+- Step 4 DONE (2026-07-06): **recursive exit workload GREEN — the M4 arc is
+  closed.** Run `uc_mra21uf355nrn` (13m53s, 33.8k out tok, 5 agents, ONE
+  journal): `impl:doctor-opencode`→opencode/deepseek-chat (first-pass
+  typecheck+tests green, 598 tok), `gate:verify`→codex/gpt-5.5 (pass),
+  `review:doctor`→claude/sonnet (request-changes: real findings),
+  `gate:fix-1`→codex, `review:doctor-r1`→claude (APPROVE). The workload was
+  real backlog: doctor's opencode section (probe-doc posture). Run 1 blocked
+  honestly: the codex gate refused an out-of-scope diff that turned out to be
+  the OPERATOR's bug (.ultracodex/config.toml gitignored-but-tracked) — fixed,
+  re-run pure. Engine = RC tarball install (/tmp/ucx-m4rc); routing via local
+  config (impl:*→opencode, review:*→claude, *→codex). 465 tests. Exit
+  criterion met by demonstration: implementation on one vendor, gates on a
+  second, adversarial review on a third, green in one journal, on the
+  engine's own repo. Next: v0.4.0 release decision (user's call), then
+  ADR-0004 org-mode P0.
 - Guardrails: fleet runs under the **globally installed ultracodex 0.3.0**,
   never repo dist (no self-modification races); probe-first discipline for
   opencode; contract doc frozen before any wave starts.
