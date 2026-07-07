@@ -13,6 +13,7 @@ import {
   SCRIPT_SNAPSHOT,
   SIGTERM_GRACE_MS,
   TESTED_CODEX_VERSION,
+  TESTED_OPENCODE_VERSION,
   WORKFLOWS_DIR_NAME,
   defaultConcurrency,
 } from "./constants.js";
@@ -637,6 +638,76 @@ function execFileP(
 
 const DOCTOR_PROBE_TIMEOUT_MS = 5_000;
 
+export async function opencodeDoctorReport(
+  config: UltracodexConfig,
+  probeVersion: (binary: string) => Promise<string>,
+): Promise<{
+  lines: Array<{ kind: "ok" | "fail" | "info"; label: string; detail: string; hint?: string }>;
+  hardFail: boolean;
+}> {
+  const lines: Array<{ kind: "ok" | "fail" | "info"; label: string; detail: string; hint?: string }> = [];
+  const routed = config.route.some((r) => r.backend === "opencode");
+  if (!routed) {
+    lines.push({ kind: "info", label: "opencode", detail: "not routed; skipping checks" });
+    return { lines, hardFail: false };
+  }
+
+  const binary = config.opencode.binary;
+  try {
+    const versionLine = (await probeVersion(binary)).trim();
+    const matchesPin = versionLine.includes(TESTED_OPENCODE_VERSION);
+    lines.push({
+      kind: "ok",
+      label: "opencode binary",
+      detail: matchesPin
+        ? `${versionLine} (matches tested pin ${TESTED_OPENCODE_VERSION})`
+        : `${versionLine} (tested against ${TESTED_OPENCODE_VERSION})`,
+    });
+    if (!matchesPin) {
+      lines.push({
+        kind: "info",
+        label: "opencode version",
+        detail: `not the tested pin (${TESTED_OPENCODE_VERSION}); the server protocol is experimental — if runs misbehave, this is the first suspect`,
+      });
+    }
+  } catch (err) {
+    return {
+      lines: [
+        {
+          kind: "fail",
+          label: "opencode binary",
+          detail: `cannot run "${binary} --version": ${errMsg(err)}`,
+          hint: "install opencode (https://opencode.ai) or set [backends.opencode].binary in config.toml",
+        },
+      ],
+      hardFail: true,
+    };
+  }
+
+  lines.push(
+    {
+      kind: "info",
+      label: "opencode sandbox",
+      detail:
+        "agents run WITHOUT OS sandboxing — the engine warns and passes through; per-call tools map can suppress builtin tools (shell, edit, write) but MCP tools are not blocked — see mcp note below",
+    },
+    {
+      kind: "info",
+      label: "opencode permissions",
+      detail:
+        "headless default executes tools including shell with no approval gate",
+    },
+    {
+      kind: "info",
+      label: "opencode mcp",
+      detail:
+        "MCP servers from the user's opencode config are inherited into every agent session",
+    },
+  );
+
+  return { lines, hardFail: false };
+}
+
 /**
  * Read the user's INTERACTIVE codex config (~/.codex/config.toml, or
  * $CODEX_HOME) read-only and surface where the fleet diverges from it — the
@@ -687,8 +758,9 @@ async function doctorAction(): Promise<void> {
     if (!ok && hint) process.stdout.write(`  → ${hint}\n`);
   };
   // Facts, not failures — never touch the exit code.
-  const info = (label: string, detail: string): void => {
+  const info = (label: string, detail: string, hint?: string): void => {
     process.stdout.write(`ℹ ${label}: ${detail}\n`);
+    if (hint) process.stdout.write(`  → ${hint}\n`);
   };
 
   const nodeMajor = Number(process.versions.node.split(".")[0]);
@@ -788,6 +860,21 @@ async function doctorAction(): Promise<void> {
       info("sandbox", "danger-full-access has no file confinement — see the escalation ladder in docs/operations.md");
     }
     reportInteractiveDivergence(c, info);
+  }
+
+  if (config) {
+    const opencodeResult = await opencodeDoctorReport(config, (binary) =>
+      execFileP(binary, ["--version"], { timeout: DOCTOR_PROBE_TIMEOUT_MS }).then((r) => r.stdout),
+    );
+    for (const line of opencodeResult.lines) {
+      if (line.kind === "ok") report(true, line.label, line.detail, line.hint);
+      else if (line.kind === "fail") {
+        report(false, line.label, line.detail, line.hint);
+      } else {
+        info(line.label, line.detail, line.hint);
+      }
+    }
+    if (opencodeResult.hardFail) hardFail = true;
   }
 
   try {
@@ -916,7 +1003,7 @@ export function buildProgram(): Command {
 
   program
     .command("doctor")
-    .description("check node, the codex binary, app-server auth, and config")
+    .description("check node, the codex binary, app-server auth, config, and routed backends (opencode)")
     .action(act(doctorAction));
 
   return program;

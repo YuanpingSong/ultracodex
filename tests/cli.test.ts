@@ -8,12 +8,13 @@ import {
   buildProgram,
   fmtEvent,
   lsElapsed,
+  opencodeDoctorReport,
   parseBudget,
   reportInteractiveDivergence,
   resolveScript,
   sanitizeText,
 } from "../src/cli.js";
-import { DEFAULT_CODEX_CONFIG } from "../src/constants.js";
+import { DEFAULT_CODEX_CONFIG, TESTED_CODEX_VERSION, TESTED_OPENCODE_VERSION } from "../src/constants.js";
 import { JournalWriter } from "../src/journal.js";
 import { createRunDir, pidAlive, writePidFile } from "../src/rundir.js";
 import { fmtDuration } from "../src/tui/format.js";
@@ -140,6 +141,28 @@ describe("buildProgram", () => {
     );
   });
 });
+
+function writeCodexWrapper(projectDir: string, versionLine: string): string {
+  const bin = path.join(projectDir, "codex-wrapper.cjs");
+  fs.writeFileSync(
+    bin,
+    `#!/usr/bin/env node
+const { spawn } = require("node:child_process");
+const fake = ${JSON.stringify(fakeCodexPath())};
+if (process.argv[2] === "--version") {
+  process.stdout.write(${JSON.stringify(`${versionLine}\n`)});
+  process.exit(0);
+}
+const child = spawn(process.execPath, [fake, ...process.argv.slice(2)], { stdio: "inherit" });
+child.on("exit", (code, signal) => {
+  if (signal) process.kill(process.pid, signal);
+  else process.exit(code ?? 0);
+});
+`,
+  );
+  fs.chmodSync(bin, 0o755);
+  return bin;
+}
 
 // ---------------------------------------------------------------------------
 // Journal-text sanitization (--watch / ls rendering)
@@ -325,6 +348,32 @@ describe("show on dead runs", () => {
   });
 });
 
+describe("doctor", () => {
+  it("pins codex protocol drift wording", async () => {
+    const projectDir = tmpProject();
+    const codexHome = path.join(projectDir, "codex-home");
+    const binary = writeCodexWrapper(projectDir, "codex-cli 9.9.9 (fake)");
+    fs.mkdirSync(path.join(projectDir, ".ultracodex"), { recursive: true });
+    fs.mkdirSync(codexHome, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectDir, ".ultracodex", "config.toml"),
+      `[route]\n"*" = "codex"\n\n[backends.codex]\nbinary = ${JSON.stringify(binary)}\n`,
+    );
+
+    const prevCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    try {
+      const res = await runCliInProc(["doctor"], projectDir);
+      expect(res.code).toBe(0);
+      expect(res.stdout).toContain(`not the tested pin (${TESTED_CODEX_VERSION})`);
+      expect(res.stdout).toContain("the app-server protocol is experimental");
+    } finally {
+      if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = prevCodexHome;
+    }
+  });
+});
+
 describe("show --wait --timeout-ms validation", () => {
   it("rejects non-numeric values instead of arming a NaN timer", async () => {
     const proj = tmpProject();
@@ -488,5 +537,96 @@ describe("reportInteractiveDivergence (doctor)", () => {
   it("silent when ~/.codex/config.toml is absent or unparseable", () => {
     withCodexHome(null, (info) => expect(info).toHaveLength(0));
     withCodexHome("[broken\ntoml", (info) => expect(info).toHaveLength(0));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// opencodeDoctorReport
+// ---------------------------------------------------------------------------
+
+describe("opencodeDoctorReport", () => {
+  const cfgNoRoute: UltracodexConfig = {
+    route: [{ pattern: "*", backend: "codex" }],
+    concurrency: null,
+    codex: DEFAULT_CODEX_CONFIG,
+    claude: { binary: "claude", defaultModel: "sonnet", modelMap: {}, extraArgs: [] },
+    opencode: { binary: "opencode", model: "deepseek/deepseek-chat", modelMap: {}, variantMap: {}, schemaRetries: 3, extraArgs: [] },
+    profiles: {},
+  };
+  const cfgRouted: UltracodexConfig = {
+    ...cfgNoRoute,
+    route: [{ pattern: "*", backend: "opencode" }],
+  };
+  const testVersion = `opencode/${TESTED_OPENCODE_VERSION}`;
+
+  const probeResolve =
+    (v: string) =>
+    async (_bin: string): Promise<string> =>
+      v;
+
+  const probeReject =
+    (msg: string) =>
+    async (_bin: string): Promise<string> => {
+      throw new Error(msg);
+    };
+
+  it("not routed: single info, no probe call", async () => {
+    const spy = vi.fn(async (_bin: string) => "opencode/x.y.z");
+    const r = await opencodeDoctorReport(cfgNoRoute, spy);
+    expect(spy).not.toHaveBeenCalled();
+    expect(r.lines).toHaveLength(1);
+    expect(r.lines[0]).toMatchObject({ kind: "info", label: "opencode", detail: "not routed; skipping checks" });
+    expect(r.hardFail).toBe(false);
+  });
+
+  it("routed + probe rejects: fail line + hardFail true", async () => {
+    const r = await opencodeDoctorReport(cfgRouted, probeReject("ENOENT"));
+    expect(r.lines).toHaveLength(1);
+    expect(r.lines[0]).toMatchObject({ kind: "fail", label: "opencode binary" });
+    expect(r.lines[0].detail).toContain("ENOENT");
+    expect(r.lines[0].hint).toMatch(/install opencode|opencode\.binary/);
+    expect(r.hardFail).toBe(true);
+  });
+
+  it("routed + version matches pin: ok line with 'matches tested pin', three posture lines, no drift info", async () => {
+    const r = await opencodeDoctorReport(cfgRouted, probeResolve(testVersion));
+    const okLines = r.lines.filter((l) => l.kind === "ok");
+    const infoLines = r.lines.filter((l) => l.kind === "info");
+    expect(okLines).toHaveLength(1);
+    expect(okLines[0].label).toBe("opencode binary");
+    expect(okLines[0].detail).toContain(`matches tested pin ${TESTED_OPENCODE_VERSION}`);
+    const driftLines = infoLines.filter((l) => l.label === "opencode version");
+    expect(driftLines).toHaveLength(0);
+    const posture = infoLines.filter((l) => l.label.startsWith("opencode "));
+    expect(posture).toHaveLength(3);
+    expect(posture[0].label).toBe("opencode sandbox");
+    expect(posture[0].detail).toContain("WITHOUT OS sandboxing");
+    expect(posture[0].detail).toContain("per-call tools map can suppress builtin tools");
+    expect(posture[0].detail).toContain("MCP tools are not blocked");
+    expect(posture[1].label).toBe("opencode permissions");
+    expect(posture[1].detail).toContain("tools including shell");
+    expect(posture[1].detail).toContain("no approval gate");
+    expect(posture[2].label).toBe("opencode mcp");
+    expect(posture[2].detail).toContain("MCP servers");
+    expect(posture[2].detail).toContain("inherited into every agent session");
+    expect(r.hardFail).toBe(false);
+  });
+
+  it("routed + version differs: 'tested against' + drift info line", async () => {
+    const r = await opencodeDoctorReport(cfgRouted, probeResolve("opencode/1.17.0"));
+    const okLines = r.lines.filter((l) => l.kind === "ok");
+    const driftLines = r.lines.filter((l) => l.kind === "info" && l.label === "opencode version");
+    expect(okLines).toHaveLength(1);
+    expect(okLines[0].label).toBe("opencode binary");
+    expect(okLines[0].detail).toContain(`tested against ${TESTED_OPENCODE_VERSION}`);
+    expect(driftLines).toHaveLength(1);
+    expect(driftLines[0].detail).toContain(TESTED_OPENCODE_VERSION);
+    expect(driftLines[0].detail).toContain("the server protocol is experimental");
+    // Version drift must not suppress the posture facts (review finding).
+    const posture = r.lines.filter(
+      (l) => l.kind === "info" && l.label.startsWith("opencode ") && l.label !== "opencode version",
+    );
+    expect(posture).toHaveLength(3);
+    expect(r.hardFail).toBe(false);
   });
 });

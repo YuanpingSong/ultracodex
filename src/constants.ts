@@ -33,6 +33,9 @@ export const RUN_ID_PREFIX = "uc_";
 /** Codex CLI version this release was developed and tested against. */
 export const TESTED_CODEX_VERSION = "0.142.4";
 
+/** OpenCode CLI version this release was developed and tested against. */
+export const TESTED_OPENCODE_VERSION = "1.16.2";
+
 // Run directory layout (§4).
 export const STATE_DIR_NAME = ".ultracodex";
 export const RUNS_DIR_NAME = "runs";
