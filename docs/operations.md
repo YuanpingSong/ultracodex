@@ -6,6 +6,9 @@
 - OpenAI Codex CLI installed and authenticated (`codex login` or
   `OPENAI_API_KEY`). Pinned against codex 0.142.4.
 - Optional: Claude Code CLI for the `claude` backend routes.
+- Optional: [OpenCode](https://opencode.ai) for the `opencode` backend routes
+  (tested against 1.16.2; any provider/model configured in your opencode,
+  local models included).
 
 Run `ultracodex doctor` to check all of the above with actionable next steps.
 Beyond pass/fail checks it also prints (as `ℹ` info lines, never affecting the
@@ -59,9 +62,10 @@ global `~/.ultracodex/config.toml` first, then project
 
 ```toml
 [route]
-"critique:*" = "claude"   # ADVANCED: in-run judge; usually unneeded — results
-                          # return to your Claude session, which verifies free
-"*"          = "codex"    # execution goes to Codex
+"impl:*"     = "opencode" # mixed routing: implementation on one vendor…
+"critique:*" = "claude"   # …judgment on another. ADVANCED: usually unneeded —
+                          # results return to your Claude session, which verifies free
+"*"          = "codex"    # everything else goes to Codex
 
 [backends.codex]
 sandbox        = "workspace-write"
@@ -69,6 +73,12 @@ default_model  = "gpt-5.5"
 default_effort = "xhigh"
 service_tier   = "standard"    # never inherit fast mode from ~/.codex
 model_map      = { opus = "gpt-5.5", sonnet = "gpt-5.4", haiku = "gpt-5.4-mini" }
+
+[backends.opencode]
+model       = "deepseek/deepseek-chat"  # "provider/model" as your opencode names them
+binary      = "opencode"                # override for a pinned install
+model_map   = { sonnet = "deepseek/deepseek-chat" }   # script tier → provider/model
+variant_map = { high = "high" }         # script effort → provider variant (omit = none)
 
 [run]
 concurrency = 6                # default: min(16, cores-2)
@@ -79,6 +89,11 @@ INSIDE the run — per-round loop verifiers, per-item gates, or unattended
 (cron/CI) workflows where no parent session is waiting. Routing lives in
 config, never in scripts — that is what keeps scripts portable across
 runtimes and backends.
+
+Mixed routing is the cross-vendor story in one table: label your script's
+agents by role (`impl:*`, `gate:*`, `review:*`) and route each role to the
+backend best cast for it — implementation on the cheap/open vendor, gates on
+Codex, adversarial review on Claude, one journal for all of it.
 
 ## Sandbox & network: the escalation ladder
 
@@ -110,6 +125,15 @@ default, and never combine tier 1 with untrusted inputs. Tier 2 is for
 sessions a human is actively watching — never for unattended fleet runs.
 Default posture for anything that reads fetched/third-party content: stock
 defaults (no network) and pre-fetch inputs into the project dir.
+
+**The opencode backend has no OS sandbox at all** — treat every opencode
+route as tier 2. Headless opencode executes tools including shell with no
+approval gate, has network, and inherits the MCP servers from your opencode
+user config into every agent session. The engine journals a warning when a
+profile requests a sandbox opencode cannot honor, and `ultracodex doctor`
+prints the full posture whenever a route targets opencode. Route
+implementation work you'd be comfortable running as yourself; keep
+untrusted-content ingestion on the codex backend's sandbox.
 
 ## Failure playbook
 

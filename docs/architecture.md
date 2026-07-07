@@ -22,17 +22,29 @@ ultracodex ("fable plans, codex executes, fable verifies").
   items/fan-out); an output-token budget that makes further `agent()` calls
   throw once exhausted; `workflow()` runs a saved child workflow sharing
   counters, budget, and journal, one nesting level only.
-- **Executors** (`src/executor/`) — backend adapters behind one interface.
+- **Executors** (`src/executor/`) — backend adapters behind one documented
+  seam, the [Executor Contract](executor-contract.md)
+  (`src/executor/contract.ts`): every adapter declares a capability
+  descriptor (schema wire/prompt-only, resume, interrupt, usage, activity,
+  sandbox), the engine owns the degradation rules for whatever a backend
+  lacks, and a shared 10-assertion conformance kit (`tests/executor-kit/`)
+  runs against each adapter via a scripted fake of its harness.
   The codex executor speaks JSON-RPC (JSONL over stdio) to `codex app-server`,
   one server process per agent slot: `initialize` → `thread/start` →
   `turn/start {input, model, effort, outputSchema}` → streamed `item/*`
   notifications → `turn/completed`. The final message is the `agentMessage`
-  item with `phase: "final_answer"`. Structured output is belt-and-suspenders:
-  `outputSchema` on the wire plus a prompt-inlined schema contract, ajv
-  validation of the reply, and repair turns on the same thread. The claude
-  executor shells to `claude -p --output-format json` for judgment-heavy
-  routes. Routing is config-only (`.ultracodex/config.toml` `[route]` table
-  matching agent label, then phase) so scripts stay portable.
+  item with `phase: "final_answer"`. The opencode executor spawns
+  `opencode serve` per call and drives its HTTP API (`POST /session` →
+  synchronous `POST /session/{id}/message`, SSE `/event` for activity + live
+  usage ticks, `POST /abort` for graceful interrupt), with wire structured
+  output (`format: json_schema`) that degrades to prompt-only mid-call when
+  a provider rejects it. The claude executor shells to
+  `claude -p --output-format json` for judgment-heavy routes. Structured
+  output is belt-and-suspenders on every backend: wire schema where
+  supported plus a prompt-inlined contract, ajv validation against the
+  AUTHORED schema, and repair turns on the same session. Routing is
+  config-only (`.ultracodex/config.toml` `[route]` table matching agent
+  label, then phase) so scripts stay portable.
 - **Journal** (`src/journal.ts`) — the spine. The runner appends one JSON
   event per line to `runs/<runId>/journal.jsonl` (`run_start`, `phase`,
   `agent_start/activity/usage/end`, `log`, `warn`, `paused/resumed`,

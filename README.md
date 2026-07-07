@@ -4,9 +4,9 @@
 [![npm](https://img.shields.io/npm/v/ultracodex)](https://www.npmjs.com/package/ultracodex)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Run Claude Code workflow scripts, unmodified, on the OpenAI Codex CLI.**
+**Run Claude Code workflow scripts, unmodified, on the OpenAI Codex CLI — and on OpenCode.**
 
-Ultracode too expensive? **ultracodex** is ultracode — Claude Code's one-prompt-becomes-a-fleet-of-agents mode — on Codex: the same workflow scripts, running on your Codex subscription, or on OpenCode (coming soon).
+Ultracode too expensive? **ultracodex** is ultracode — Claude Code's one-prompt-becomes-a-fleet-of-agents mode — on Codex: the same workflow scripts, running on your Codex subscription, on OpenCode (any provider it speaks, local models included), or on both at once: one `[route]` table sends implementation to one vendor and adversarial review to another, in the same run.
 
 > **Fable plans, Codex executes, Fable verifies**
 
@@ -21,7 +21,7 @@ https://github.com/user-attachments/assets/4a7366cd-429c-4581-9703-7c28a9605c0e
 
 ## Quickstart
 
-Prerequisites: Node ≥ 20 and the [Codex CLI](https://github.com/openai/codex) installed and authenticated (`codex login`; tested against codex-cli 0.142.4).
+Prerequisites: Node ≥ 20 and the [Codex CLI](https://github.com/openai/codex) installed and authenticated (`codex login`; tested against codex-cli 0.142.4). [OpenCode](https://opencode.ai) is optional (tested against 1.16.2) — one `[route]` line turns it on.
 
 ```bash
 npm install -g ultracodex      # or: pnpm add -g ultracodex
@@ -112,12 +112,16 @@ Installing the skills into Claude Code, codex, opencode, or a raw prompt: [docs/
 ```toml
 [route]                        # first match wins: label, then phase
 "*"          = "codex"         # default: everything runs on Codex
-# "verify:*" = "claude"        # advanced: in-run cross-vendor judging
+# "impl:*"   = "opencode"      # mixed routing: implementation on OpenCode…
+# "review:*" = "claude"        # …adversarial review on a third vendor
 
 [backends.codex]
 sandbox        = "workspace-write"
 default_model  = "gpt-5.5"
 default_effort = "xhigh"
+
+[backends.opencode]
+model = "deepseek/deepseek-chat"   # any provider/model your opencode knows
 ```
 
 Routing lives in config, never in scripts — that's what keeps scripts portable across runtimes and backends. Full reference (backends, model maps, sandbox/network escalation ladder, concurrency): [docs/operations.md](docs/operations.md).
@@ -142,19 +146,22 @@ Every run directory (`.ultracodex/runs/<runId>/`) is plain files — journal, pe
 ```
 script.js ──▶ loader (acorn meta parse + vm) ──▶ runtime (semantics, caps,
               budget, semaphore) ──▶ executors per [route]:
-                codex  → `codex app-server` JSON-RPC, one process per slot
-                claude → headless `claude -p`
+                codex    → `codex app-server` JSON-RPC, one process per slot
+                opencode → `opencode serve` HTTP + SSE, one server per call
+                claude   → headless `claude -p`
               journal.jsonl ◀── every event        control.jsonl ◀── pause/stop/skip
               TUI / show / --json = pure folds over the journal
 ```
 
-Structured output is belt-and-suspenders: schemas ride the wire where the backend supports it (Codex strict mode), and are always enforced on our side (prompt contract + ajv validation + repair turns on the same session). The entire test suite (380+ tests) runs hermetically against a scripted fake of the codex app-server — no API keys in CI.
+Every backend implements one documented seam — the [Executor Contract](docs/executor-contract.md): a capability descriptor (schema/resume/interrupt/usage/activity/sandbox) plus a 10-assertion conformance kit that all three adapters pass. Structured output is belt-and-suspenders: schemas ride the wire where the backend supports it (Codex strict mode, OpenCode `json_schema`), degrade to a prompt contract mid-call when a provider rejects them, and are always enforced on our side (ajv validation + repair turns on the same session). The entire test suite (460+ tests) runs hermetically against scripted fakes of all three harnesses — no API keys in CI.
 
-Deeper reading: [docs/architecture.md](docs/architecture.md) · [docs/operations.md](docs/operations.md) · [docs/skills.md](docs/skills.md) · [docs/agent-script-spec.md](docs/agent-script-spec.md) · [docs/internal/agent-script-plan.md](docs/internal/agent-script-plan.md) (roadmap: pluggable backends, OpenCode adapter, packaged loop workflows).
+Deeper reading: [docs/architecture.md](docs/architecture.md) · [docs/operations.md](docs/operations.md) · [docs/skills.md](docs/skills.md) · [docs/agent-script-spec.md](docs/agent-script-spec.md) · [docs/executor-contract.md](docs/executor-contract.md) (write your own backend) · [docs/internal/agent-script-plan.md](docs/internal/agent-script-plan.md) (roadmap: approvals aggregator, packaged loop workflows).
 
 ## Status
 
 M1–M3 shipped: runner core, app-server executor, TUI, CLI, claude backend, validate, sync-skills. Validated end-to-end on live Codex, including a clean-room rebuild of this project by Codex agents orchestrated through ultracodex itself.
+
+M4 shipped (v0.4.0): the executor seam is a versioned contract with a conformance kit, and OpenCode is the third backend to pass it. The acceptance test was recursive — one run on this repo where OpenCode implemented a feature, Codex gated it, and Claude adversarially reviewed it, green in a single journal. Every build wave of M4 was itself executed by ultracodex fleets.
 
 ## License
 
