@@ -1,0 +1,725 @@
+#!/usr/bin/env node
+"use strict";
+// Fake `opencode serve` for hermetic tests. HTTP + SSE, no package deps.
+// It implements the probed opencode 1.16.2 server subset used by the adapter.
+//
+// Prompt directives:
+//   [[reply:TEXT]] / [[reply2:TEXT]] final text reply for turn 1/2 (replyN works).
+//   [[structured:JSON]] / [[structured2:JSON]] structured object for turn 1/2 (structuredN works).
+//   [[wire-reject]] reject ONLY message requests carrying format.type="json_schema"
+//                   with the live thinking-mode APIError shape; the same request
+//                   without format succeeds.
+//   [[invalid-first]] first structured/schema-like reply is invalid; later turns repair.
+//   [[always-invalid]] all structured/schema-like replies stay invalid.
+//   [[provider-auth-error]] ProviderAuthError envelope.
+//   [[unknown-error]] UnknownError envelope.
+//   [[message-output-length-error]] MessageOutputLengthError envelope.
+//   [[message-aborted-error]] MessageAbortedError envelope without driving /abort.
+//   [[structured-output-error]] StructuredOutputError envelope.
+//   [[context-overflow-error]] ContextOverflowError envelope.
+//   [[api-error]] generic APIError envelope.
+//   [[expect-system:TEXT]] fail unless request body system contains TEXT.
+//   [[slow:MS]] delay before settling the message request.
+//   [[hang]] never settle until /abort or SIGTERM.
+//   [[crash-mid-turn]] exit 1 after the turn starts.
+//   [[garbage]] return a non-JSON HTTP response body.
+//   [[usage:IN,OUT]] / [[usage2:IN,OUT]] token numbers for turn 1/2 (usageN works).
+// Env: FAKE_OPENCODE_INVOCATIONS=/path/log.jsonl -> startup + request log path.
+//      FAKE_OPENCODE_SESSION_ID=ses_x -> deterministic first session id.
+//      FAKE_OPENCODE_SOCKET_PATH=/tmp/fake.sock -> test-only Unix socket HTTP transport.
+//      FAKE_OPENCODE_STDIO_HTTP=1 -> test-only stdio transport for sandboxes that block listen().
+//      FAKE_OPENCODE_GARBAGE_BODY=1 -> force [[garbage]] for every message.
+//      FAKE_OPENCODE_CRASH_MID_TURN=1 -> force [[crash-mid-turn]] for every message.
+//      FAKE_OPENCODE_HANG=1 -> force [[hang]] for every message.
+
+const argv = process.argv.slice(2);
+if (argv[0] === "--version") {
+  process.stdout.write("opencode 1.16.2 (fake)\n");
+  process.exit(0);
+}
+if (argv[0] !== "serve") process.exit(2);
+
+Promise.all([import("node:http"), import("node:fs"), import("node:path"), import("node:crypto")])
+  .then(function (mods) {
+    run(mods[0], mods[1], mods[2], mods[3]);
+  })
+  .catch(function (err) {
+    process.stderr.write(String((err && err.stack) || err) + "\n");
+    process.exit(1);
+  });
+
+function run(http, fs, path, crypto) {
+  const sessions = new Map();
+  const active = new Map();
+  const clients = new Set();
+  let seq = 0;
+
+  function log(record) {
+    const fallback = path.join(path.dirname(process.argv[1]), "invocations.jsonl");
+    const logPath = process.env.FAKE_OPENCODE_INVOCATIONS || fallback;
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.appendFileSync(logPath, JSON.stringify(record) + "\n");
+  }
+
+  function rid(prefix) {
+    seq += 1;
+    return prefix + "_" + Date.now().toString(36) + seq.toString(36);
+  }
+
+  function sessionID() {
+    const fixed = process.env.FAKE_OPENCODE_SESSION_ID;
+    if (fixed && !sessions.has(fixed)) return fixed;
+    if (fixed) return fixed + "_" + (sessions.size + 1);
+    return "ses_" + crypto.randomBytes(10).toString("hex");
+  }
+
+  function event(type, properties) {
+    const payload = { id: rid("evt"), type: type, properties: properties || {} };
+    const line = "data: " + JSON.stringify(payload) + "\n\n";
+    for (const res of clients) res.write(line);
+  }
+
+  function json(res, status, value) {
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(value));
+  }
+
+  function text(res, status, value) {
+    res.writeHead(status, { "content-type": "text/plain" });
+    res.end(value);
+  }
+
+  function body(req, res, cb) {
+    let raw = "";
+    req.setEncoding("utf8");
+    req.on("data", function (chunk) {
+      raw += chunk;
+    });
+    req.on("end", function () {
+      if (!raw.trim()) {
+        cb({});
+        return;
+      }
+      try {
+        cb(JSON.parse(raw));
+      } catch (_) {
+        json(res, 400, { error: "invalid json" });
+      }
+    });
+  }
+
+  function sessionInfo(s) {
+    const created = s.created;
+    return {
+      id: s.id,
+      slug: "fake-session",
+      projectID: "global",
+      directory: s.cwd,
+      path: s.cwd.replace(/^\//, ""),
+      cost: 0,
+      tokens: tokenObj(0, 0),
+      title: "New session - " + new Date(created).toISOString(),
+      version: "1.16.2",
+      time: { created: created, updated: Date.now() },
+    };
+  }
+
+  function handle(req, res) {
+    const url = new URL(req.url || "/", "http://127.0.0.1");
+    if (req.method === "GET" && url.pathname === "/event") {
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      clients.add(res);
+      res.write("data: " + JSON.stringify({ id: rid("evt"), type: "server.connected", properties: {} }) + "\n\n");
+      req.on("close", function () {
+        clients.delete(res);
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/doc") {
+      json(res, 200, { ok: true, version: "1.16.2", fake: true });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/session") {
+      body(req, res, function (payload) {
+        log({ kind: "request", method: "POST", path: "/session", body: payload });
+        const s = { id: sessionID(), cwd: process.cwd(), turnCount: 0, created: Date.now() };
+        sessions.set(s.id, s);
+        const info = sessionInfo(s);
+        event("session.created", { sessionID: s.id, info: info });
+        json(res, 200, info);
+      });
+      return;
+    }
+
+    const abortMatch = url.pathname.match(/^\/session\/([^/]+)\/abort$/);
+    if (req.method === "POST" && abortMatch) {
+      body(req, res, function (payload) {
+        const sid = decodeURIComponent(abortMatch[1]);
+        log({ kind: "request", method: "POST", path: url.pathname, body: payload });
+        const turn = active.get(sid);
+        if (turn) finishError(turn, abortedError(), true);
+        json(res, 200, true);
+      });
+      return;
+    }
+
+    const msgMatch = url.pathname.match(/^\/session\/([^/]+)\/message$/);
+    if (req.method === "POST" && msgMatch) {
+      body(req, res, function (payload) {
+        const sid = decodeURIComponent(msgMatch[1]);
+        log({ kind: "request", method: "POST", path: url.pathname, body: payload });
+        const s = sessions.get(sid);
+        if (!s) {
+          json(res, 404, { error: "unknown session " + sid });
+          return;
+        }
+        startTurn(s, payload, res);
+      });
+      return;
+    }
+
+    json(res, 404, { error: "not found" });
+  }
+
+  function startTurn(session, payload, res) {
+    session.turnCount += 1;
+    const prompt = promptText(payload);
+    const ordinal = session.turnCount;
+    const messageID = rid("msg");
+    const created = Date.now();
+    const tokens = usage(prompt, ordinal);
+    const turn = {
+      session: session,
+      payload: payload,
+      prompt: prompt,
+      ordinal: ordinal,
+      res: res,
+      messageID: messageID,
+      created: created,
+      tokens: tokens,
+      timer: null,
+      done: false,
+    };
+
+    active.set(session.id, turn);
+    event("session.status", { sessionID: session.id, status: { type: "busy" } });
+    event("message.updated", {
+      sessionID: session.id,
+      info: assistantInfo(turn, tokenObj(0, 0), null, null, null, false),
+    });
+    event("message.part.updated", {
+      sessionID: session.id,
+      part: stepStartPart(turn),
+      time: Date.now(),
+    });
+
+    if (process.env.FAKE_OPENCODE_CRASH_MID_TURN === "1" || flag(prompt, "crash-mid-turn")) {
+      setTimeout(function () {
+        process.exit(1);
+      }, 25);
+      return;
+    }
+
+    if (process.env.FAKE_OPENCODE_GARBAGE_BODY === "1" || flag(prompt, "garbage")) {
+      active.delete(session.id);
+      text(res, 200, "this is not json\n");
+      return;
+    }
+
+    if (process.env.FAKE_OPENCODE_HANG === "1" || flag(prompt, "hang")) return;
+
+    const settle = function () {
+      const systemError = expectedSystemError(prompt, payload);
+      if (systemError) {
+        finishError(turn, systemError, false);
+        return;
+      }
+      if (hasWireFormat(payload) && flag(prompt, "wire-reject")) {
+        finishError(turn, wireRejectError(), false);
+        return;
+      }
+      const staged = stagedError(prompt);
+      if (staged) {
+        finishError(turn, staged, false);
+        return;
+      }
+      finishSuccess(turn);
+    };
+
+    const wait = Math.max(0, Number(turnDirective(prompt, "slow", ordinal)) || 0);
+    turn.timer = setTimeout(settle, wait);
+  }
+
+  function finishSuccess(turn) {
+    if (turn.done) return;
+    turn.done = true;
+    if (turn.timer) clearTimeout(turn.timer);
+    active.delete(turn.session.id);
+
+    const schemaLike =
+      hasWireFormat(turn.payload) ||
+      directive(turn.prompt, "structured") !== null ||
+      turnDirective(turn.prompt, "structured", turn.ordinal) !== null ||
+      flag(turn.prompt, "invalid-first") ||
+      flag(turn.prompt, "always-invalid") ||
+      flag(turn.prompt, "wire-reject");
+    const structured = schemaLike ? structuredFor(turn.prompt, turn.ordinal) : null;
+    const asWire = hasWireFormat(turn.payload);
+    const textReply = structured !== null && !asWire ? JSON.stringify(structured) : replyFor(turn.prompt, turn.ordinal);
+    const info = assistantInfo(turn, turn.tokens, asWire ? structured : null, asWire ? null : textReply, null, true);
+    const parts = asWire ? structuredParts(turn, structured) : textParts(turn, textReply);
+
+    if (asWire) {
+      event("message.part.updated", {
+        sessionID: turn.session.id,
+        part: structuredToolPart(turn, structured),
+        time: Date.now(),
+      });
+    } else {
+      emitTextDeltas(turn, textReply);
+    }
+    finishEvents(turn, info, false);
+    json(turn.res, 200, { info: info, parts: parts });
+  }
+
+  function finishError(turn, error, fromAbort) {
+    if (turn.done) return;
+    turn.done = true;
+    if (turn.timer) clearTimeout(turn.timer);
+    active.delete(turn.session.id);
+    const tokens = error.name === "APIError" && error.data && error.data.statusCode === 400 ? wireRejectTokens() : tokenObj(0, 0);
+    const info = assistantInfo(turn, tokens, null, null, error, true);
+    event("session.error", { sessionID: turn.session.id, error: error });
+    finishEvents(turn, info, true);
+    json(turn.res, 200, { info: info, parts: [] });
+    if (fromAbort) event("message.part.updated", { sessionID: turn.session.id, part: abortedToolPart(turn), time: Date.now() });
+  }
+
+  function finishEvents(turn, info, isError) {
+    if (!isError) {
+      event("message.part.updated", {
+        sessionID: turn.session.id,
+        part: stepFinishPart(turn),
+        time: Date.now(),
+      });
+    }
+    event("message.updated", { sessionID: turn.session.id, info: info });
+    event("session.status", { sessionID: turn.session.id, status: { type: "idle" } });
+    event("session.idle", { sessionID: turn.session.id });
+  }
+
+  function emitTextDeltas(turn, value) {
+    const partID = rid("prt");
+    event("message.part.updated", {
+      sessionID: turn.session.id,
+      part: { id: partID, messageID: turn.messageID, sessionID: turn.session.id, type: "text", text: "", time: { start: Date.now() } },
+      time: Date.now(),
+    });
+    event("message.part.delta", {
+      sessionID: turn.session.id,
+      messageID: turn.messageID,
+      partID: partID,
+      field: "text",
+      delta: value,
+    });
+    event("message.part.updated", {
+      sessionID: turn.session.id,
+      part: {
+        id: partID,
+        messageID: turn.messageID,
+        sessionID: turn.session.id,
+        type: "text",
+        text: value,
+        time: { start: Date.now(), end: Date.now() },
+      },
+      time: Date.now(),
+    });
+  }
+
+  function promptText(payload) {
+    return Array.isArray(payload.parts)
+      ? payload.parts
+          .filter(function (p) {
+            return p && p.type === "text";
+          })
+          .map(function (p) {
+            return String(p.text || "");
+          })
+          .join("\n")
+      : "";
+  }
+
+  function hasWireFormat(payload) {
+    return payload && payload.format && payload.format.type === "json_schema";
+  }
+
+  function tokenObj(input, output) {
+    return { total: input + output, input: input, output: output, reasoning: 0, cache: { write: 0, read: 0 } };
+  }
+
+  function wireRejectTokens() {
+    return { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } };
+  }
+
+  function usage(prompt, ordinal) {
+    const spec = turnDirective(prompt, "usage", ordinal);
+    if (spec === null) return tokenObj(100, 10);
+    const parts = spec.split(",");
+    return tokenObj(Number(parts[0]) || 0, Number(parts[1]) || 0);
+  }
+
+  function assistantInfo(turn, tokens, structured, textValue, error, completed) {
+    const model = turn.payload.model || {};
+    const info = {
+      parentID: rid("msg"),
+      role: "assistant",
+      mode: "build",
+      agent: "build",
+      path: { cwd: turn.session.cwd, root: "/" },
+      cost: 0,
+      tokens: tokens,
+      modelID: model.modelID || model.id || "deepseek-chat",
+      providerID: model.providerID || "deepseek",
+      time: completed ? { created: turn.created, completed: Date.now() } : { created: turn.created },
+      id: turn.messageID,
+      sessionID: turn.session.id,
+    };
+    if (error) info.error = error;
+    else info.finish = structured !== null ? "tool-calls" : "stop";
+    if (structured !== null) info.structured = structured;
+    void textValue;
+    return info;
+  }
+
+  function stepStartPart(turn) {
+    return { type: "step-start", id: rid("prt"), sessionID: turn.session.id, messageID: turn.messageID };
+  }
+
+  function textParts(turn, value) {
+    return [
+      stepStartPart(turn),
+      {
+        type: "text",
+        text: value,
+        time: { start: turn.created, end: Date.now() },
+        id: rid("prt"),
+        sessionID: turn.session.id,
+        messageID: turn.messageID,
+      },
+      stepFinishPart(turn),
+    ];
+  }
+
+  function structuredToolPart(turn, structured) {
+    return {
+      type: "tool",
+      tool: "StructuredOutput",
+      callID: rid("call"),
+      state: {
+        status: "completed",
+        input: structured,
+        output: "Structured output captured successfully.",
+        metadata: { valid: true },
+        title: "Structured Output",
+        time: { start: Date.now(), end: Date.now() },
+      },
+      id: rid("prt"),
+      sessionID: turn.session.id,
+      messageID: turn.messageID,
+    };
+  }
+
+  function structuredParts(turn, structured) {
+    return [stepStartPart(turn), structuredToolPart(turn, structured), stepFinishPart(turn)];
+  }
+
+  function stepFinishPart(turn) {
+    return {
+      reason: hasWireFormat(turn.payload) ? "tool-calls" : "stop",
+      type: "step-finish",
+      tokens: turn.tokens,
+      cost: 0,
+      id: rid("prt"),
+      sessionID: turn.session.id,
+      messageID: turn.messageID,
+    };
+  }
+
+  function abortedToolPart(turn) {
+    return {
+      type: "tool",
+      tool: "write",
+      callID: rid("call"),
+      state: { status: "error", input: {}, raw: "", error: "Tool execution aborted", metadata: { interrupted: true } },
+      id: rid("prt"),
+      sessionID: turn.session.id,
+      messageID: turn.messageID,
+    };
+  }
+
+  function replyFor(prompt, ordinal) {
+    const reply = turnDirective(prompt, "reply", ordinal);
+    return reply !== null ? reply : "ok";
+  }
+
+  function structuredFor(prompt, ordinal) {
+    if (flag(prompt, "always-invalid")) return { invalid: true };
+    if (flag(prompt, "invalid-first") && ordinal === 1) return { invalid: true };
+    const raw = turnDirective(prompt, "structured", ordinal);
+    if (raw !== null) {
+      try {
+        return JSON.parse(raw);
+      } catch (_) {
+        return raw;
+      }
+    }
+    return { answer: "42" };
+  }
+
+  function stagedError(prompt) {
+    const specs = [
+      ["provider-auth-error", "ProviderAuthError", "Fake provider authentication failed", null],
+      ["unknown-error", "UnknownError", "Fake unknown error", null],
+      ["message-output-length-error", "MessageOutputLengthError", "Fake output length exceeded", null],
+      ["message-aborted-error", "MessageAbortedError", "Aborted", null],
+      ["structured-output-error", "StructuredOutputError", "Fake structured output failure", null],
+      ["context-overflow-error", "ContextOverflowError", "Fake context window exceeded", null],
+      ["api-error", "APIError", "Fake API error", 500],
+    ];
+    for (const spec of specs) {
+      const msg = directive(prompt, spec[0]);
+      if (msg !== null || flag(prompt, spec[0])) {
+        const data = { message: msg || spec[2] };
+        if (spec[3] !== null) data.statusCode = spec[3];
+        return { name: spec[1], data: data };
+      }
+    }
+    return null;
+  }
+
+  function expectedSystemError(prompt, payload) {
+    const expected = directive(prompt, "expect-system");
+    if (expected === null) return null;
+    const actual = typeof payload.system === "string" ? payload.system : "";
+    if (actual.includes(expected)) return null;
+    return {
+      name: "UnknownError",
+      data: { message: "expected system to contain " + JSON.stringify(expected) },
+    };
+  }
+
+  function abortedError() {
+    return { name: "MessageAbortedError", data: { message: "Aborted" } };
+  }
+
+  function wireRejectError() {
+    return {
+      name: "APIError",
+      data: {
+        message: "Thinking mode does not support this tool_choice",
+        statusCode: 400,
+        isRetryable: false,
+        responseHeaders: {
+          "access-control-allow-credentials": "true",
+          connection: "keep-alive",
+          "content-length": "146",
+          "content-type": "application/octet-stream",
+          date: "Tue, 07 Jul 2026 01:31:13 GMT",
+          server: "elb",
+          "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+          vary: "origin, access-control-request-method, access-control-request-headers",
+          via: "1.1 f1d21247856e07e69e3f5fe1ef9bf908.cloudfront.net (CloudFront)",
+          "x-amz-cf-id": "cPdz6gu7FIVekbj6H4ef6yLNFdMPk0RB1ilC3obcjIvHKOehQHyN3w==",
+          "x-amz-cf-pop": "PIT50-P2",
+          "x-cache": "Error from cloudfront",
+          "x-content-type-options": "nosniff",
+          "x-ds-trace-id": "eecace9f99e5bcbbc5dedb368b805fc4",
+        },
+        responseBody:
+          '{"error":{"message":"Thinking mode does not support this tool_choice","type":"invalid_request_error","param":null,"code":"invalid_request_error"}}',
+        metadata: { url: "https://api.deepseek.com/chat/completions" },
+      },
+    };
+  }
+
+  function directive(prompt, name) {
+    const m = prompt.match(new RegExp("\\[\\[" + name + ":([\\s\\S]*?)\\]\\]"));
+    return m ? m[1] : null;
+  }
+
+  function turnDirective(prompt, base, ordinal) {
+    if (ordinal > 1) {
+      const specific = directive(prompt, base + ordinal);
+      if (specific !== null) return specific;
+    }
+    return directive(prompt, base);
+  }
+
+  function flag(prompt, name) {
+    return prompt.includes("[[" + name + "]]");
+  }
+
+  function argValue(name, fallback) {
+    const idx = argv.indexOf(name);
+    return idx === -1 ? fallback : argv[idx + 1] || fallback;
+  }
+
+  log({ kind: "process", args: argv, cwd: process.cwd() });
+
+  const hostname = argValue("--hostname", "127.0.0.1");
+  const port = Number(argValue("--port", "0")) || 0;
+  const socketPath = process.env.FAKE_OPENCODE_SOCKET_PATH;
+  const server = http.createServer(handle);
+  server.on("error", function (err) {
+    if (err && err.code === "EPERM" && process.env.FAKE_OPENCODE_EVAL_BOOTSTRAP !== "1") {
+      reexecViaEval(path);
+      return;
+    }
+    process.stderr.write(String((err && err.stack) || err) + "\n");
+    process.exit(1);
+  });
+  process.on("SIGTERM", function () {
+    process.exit(0);
+  });
+  if (process.env.FAKE_OPENCODE_STDIO_HTTP === "1") {
+    process.stdout.write("opencode server listening on http://" + hostname + ":0\n");
+    stdioServe(handle);
+  } else if (socketPath) {
+    try {
+      fs.rmSync(socketPath);
+    } catch {}
+    server.listen(socketPath, function () {
+      process.stdout.write("opencode server listening on http://" + hostname + ":0\n");
+    });
+  } else {
+    server.listen(port, hostname, function () {
+      const addr = server.address();
+      process.stdout.write("opencode server listening on http://" + hostname + ":" + addr.port + "\n");
+    });
+  }
+}
+
+function stdioServe(handler) {
+  const requests = new Map();
+  let buf = "";
+
+  function send(msg) {
+    process.stdout.write(JSON.stringify(msg) + "\n");
+  }
+
+  function makeReq(msg) {
+    const handlers = new Map();
+    return {
+      method: msg.method,
+      url: msg.path,
+      setEncoding: function () {},
+      on: function (name, cb) {
+        const list = handlers.get(name) || [];
+        list.push(cb);
+        handlers.set(name, list);
+        return this;
+      },
+      emit: function (name, arg) {
+        for (const cb of handlers.get(name) || []) cb(arg);
+      },
+    };
+  }
+
+  function makeRes(id, req) {
+    let status = 200;
+    let headers = {};
+    let body = "";
+    return {
+      writeHead: function (nextStatus, nextHeaders) {
+        status = nextStatus;
+        headers = nextHeaders || {};
+        send({ kind: "headers", id: id, status: status, headers: headers });
+      },
+      write: function (chunk) {
+        send({ kind: "chunk", id: id, chunk: String(chunk) });
+      },
+      end: function (chunk) {
+        if (chunk !== undefined) body += String(chunk);
+        send({ kind: "response", id: id, status: status, headers: headers, body: body });
+        req.emit("close");
+        requests.delete(id);
+      },
+    };
+  }
+
+  function dispatch(msg) {
+    if (msg.kind === "close") {
+      const req = requests.get(msg.id);
+      if (req) {
+        req.emit("close");
+        requests.delete(msg.id);
+      }
+      return;
+    }
+    if (msg.kind !== "request") return;
+    const req = makeReq(msg);
+    const res = makeRes(msg.id, req);
+    requests.set(msg.id, req);
+    handler(req, res);
+    setImmediate(function () {
+      if (msg.body !== undefined) req.emit("data", JSON.stringify(msg.body));
+      req.emit("end");
+    });
+  }
+
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", function (chunk) {
+    buf += chunk;
+    let idx = buf.indexOf("\n");
+    while (idx !== -1) {
+      const line = buf.slice(0, idx);
+      buf = buf.slice(idx + 1);
+      if (line.trim()) {
+        try {
+          dispatch(JSON.parse(line));
+        } catch (_) {}
+      }
+      idx = buf.indexOf("\n");
+    }
+  });
+  process.stdin.on("end", function () {
+    process.exit(0);
+  });
+}
+
+function reexecViaEval(path) {
+  Promise.all([import("node:child_process"), import("node:url")])
+    .then(function (mods) {
+      const childProcess = mods[0];
+      const url = mods[1];
+      const fileURL = url.pathToFileURL(path.resolve(process.argv[1])).href;
+      const boot = "process.argv = " + JSON.stringify(process.argv) + "; import(" + JSON.stringify(fileURL) + ");";
+      const child = childProcess.spawn(process.execPath, ["-e", boot], {
+        cwd: process.cwd(),
+        env: Object.assign({}, process.env, { FAKE_OPENCODE_EVAL_BOOTSTRAP: "1" }),
+        stdio: ["ignore", "inherit", "inherit"],
+      });
+      process.on("SIGTERM", function () {
+        child.kill("SIGTERM");
+      });
+      child.on("exit", function (code, signal) {
+        if (signal === "SIGTERM") process.exit(0);
+        if (signal) process.kill(process.pid, signal);
+        process.exit(code === null ? 0 : code);
+      });
+      child.on("error", function (err) {
+        process.stderr.write(String((err && err.stack) || err) + "\n");
+        process.exit(1);
+      });
+    })
+    .catch(function (err) {
+      process.stderr.write(String((err && err.stack) || err) + "\n");
+      process.exit(1);
+    });
+}

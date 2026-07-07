@@ -6,6 +6,7 @@ import {
   DEFAULT_CONFIG,
   DEFAULT_CODEX_CONFIG,
   DEFAULT_CLAUDE_CONFIG,
+  DEFAULT_OPENCODE_CONFIG,
   STATE_DIR_NAME,
 } from "./constants.js";
 import type {
@@ -13,6 +14,7 @@ import type {
   RouteRule,
   CodexBackendConfig,
   ClaudeBackendConfig,
+  OpencodeBackendConfig,
   AgentProfileConfig,
 } from "./types.js";
 
@@ -92,6 +94,99 @@ function mergeClaudeConfig(
   return result;
 }
 
+function hasOwn(raw: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(raw, key);
+}
+
+function isTable(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function opencodeConfigError(field: string, detail: string): never {
+  throw new Error(`[backends.opencode].${field} ${detail}`);
+}
+
+function expectString(raw: Record<string, unknown>, key: string): string | undefined {
+  if (!hasOwn(raw, key)) return undefined;
+  const value = raw[key];
+  if (typeof value !== "string") opencodeConfigError(key, "must be a string");
+  if (value.length === 0) opencodeConfigError(key, "must not be empty");
+  return value;
+}
+
+function expectStringArray(raw: Record<string, unknown>, key: string): string[] | undefined {
+  if (!hasOwn(raw, key)) return undefined;
+  const value = raw[key];
+  if (!Array.isArray(value) || !value.every((v) => typeof v === "string"))
+    opencodeConfigError(key, "must be an array of strings");
+  return value;
+}
+
+function expectNonNegativeInteger(raw: Record<string, unknown>, key: string): number | undefined {
+  if (!hasOwn(raw, key)) return undefined;
+  const value = raw[key];
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0)
+    opencodeConfigError(key, "must be a non-negative integer");
+  return value;
+}
+
+function isProviderModel(value: string): boolean {
+  const slash = value.indexOf("/");
+  return slash > 0 && slash < value.length - 1;
+}
+
+function expectProviderModel(value: string, field: string): string {
+  if (!isProviderModel(value))
+    opencodeConfigError(field, "must be a provider/model string");
+  return value;
+}
+
+function expectStringRecord(raw: Record<string, unknown>, key: string): Record<string, string> | undefined {
+  if (!hasOwn(raw, key)) return undefined;
+  const value = raw[key];
+  if (!isTable(value)) opencodeConfigError(key, "must be a table of strings");
+  const result: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (typeof v !== "string") opencodeConfigError(`${key}.${k}`, "must be a string");
+    if (v.length === 0) opencodeConfigError(`${key}.${k}`, "must not be empty");
+    result[k] = v;
+  }
+  return result;
+}
+
+function mergeOpencodeConfig(
+  base: OpencodeBackendConfig,
+  raw: Record<string, unknown>,
+): OpencodeBackendConfig {
+  const result: OpencodeBackendConfig = { ...base };
+  const binary = expectString(raw, "binary");
+  if (binary !== undefined) result.binary = binary;
+  const model = expectString(raw, "model");
+  if (model !== undefined) result.model = expectProviderModel(model, "model");
+  const schemaRetries = expectNonNegativeInteger(raw, "schema_retries");
+  if (schemaRetries !== undefined) result.schemaRetries = schemaRetries;
+  const extraArgs = expectStringArray(raw, "extra_args");
+  if (extraArgs !== undefined) result.extraArgs = extraArgs;
+  const modelMap = expectStringRecord(raw, "model_map");
+  if (modelMap !== undefined) {
+    for (const [tier, value] of Object.entries(modelMap)) {
+      modelMap[tier] = expectProviderModel(value, `model_map.${tier}`);
+    }
+    result.modelMap = {
+      ...base.modelMap,
+      ...modelMap,
+    };
+  }
+  const variantMap = expectStringRecord(raw, "variant_map");
+  if (variantMap !== undefined) {
+    result.variantMap = {
+      ...base.variantMap,
+      ...variantMap,
+    };
+  }
+  return result;
+}
+
 function parseRouteTable(raw: Record<string, unknown>): RouteRule[] {
   const rules: RouteRule[] = Object.entries(raw).map(([pattern, backend]) => ({
     pattern,
@@ -139,6 +234,12 @@ function applyToml(cfg: UltracodexConfig, raw: Record<string, unknown>): Ultraco
         claude: mergeClaudeConfig(result.claude, b["claude"] as Record<string, unknown>),
       };
     }
+    if (b["opencode"] !== null && typeof b["opencode"] === "object") {
+      result = {
+        ...result,
+        opencode: mergeOpencodeConfig(result.opencode, b["opencode"] as Record<string, unknown>),
+      };
+    }
   }
 
   // [profiles.<name>]
@@ -182,6 +283,11 @@ export function loadConfig(
       ...DEFAULT_CLAUDE_CONFIG,
       modelMap: { ...DEFAULT_CLAUDE_CONFIG.modelMap },
     },
+    opencode: {
+      ...DEFAULT_OPENCODE_CONFIG,
+      modelMap: { ...DEFAULT_OPENCODE_CONFIG.modelMap },
+      variantMap: { ...DEFAULT_OPENCODE_CONFIG.variantMap },
+    },
     profiles: { ...DEFAULT_CONFIG.profiles },
     route: [...DEFAULT_CONFIG.route],
   };
@@ -211,6 +317,14 @@ export function resolveCodexEffort(cfg: CodexBackendConfig, effort: string | und
 
 export function resolveClaudeModel(cfg: ClaudeBackendConfig, tier: string | undefined): string {
   return tier ? (cfg.modelMap[tier] ?? tier) : cfg.defaultModel;
+}
+
+export function resolveOpencodeModel(cfg: OpencodeBackendConfig, tier: string | undefined): string {
+  return tier ? (cfg.modelMap[tier] ?? tier) : cfg.model;
+}
+
+export function resolveOpencodeEffort(cfg: OpencodeBackendConfig, effort: string | undefined): string | null {
+  return effort ? (cfg.variantMap[effort] ?? null) : null;
 }
 
 export function matchGlob(pattern: string, value: string): boolean {

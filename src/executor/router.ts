@@ -3,6 +3,7 @@ import type { AgentProfileConfig, UltracodexConfig } from "../types.js";
 import type { Executor } from "./contract.js";
 import { CodexExecutor } from "./codex.js";
 import { ClaudeExecutor } from "./claude.js";
+import { OpencodeExecutor } from "./opencode.js";
 
 export interface ExecutorRegistry {
   executors: Record<string, Executor>;
@@ -99,6 +100,7 @@ export function createExecutors(
   const executors = createExecutorRegistry([
     new CodexExecutor(config.codex, config.profiles),
     new ClaudeExecutor(config.claude, config.profiles),
+    new OpencodeExecutor(config.opencode, config.profiles),
   ]);
   return {
     executors,

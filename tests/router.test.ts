@@ -37,7 +37,11 @@ function cfgWithRoute(route: RouteRule[]): UltracodexConfig {
 }
 
 describe("pickExecutor", () => {
-  const executors: Record<string, Executor> = { codex: stub("codex"), claude: stub("claude") };
+  const executors: Record<string, Executor> = {
+    codex: stub("codex"),
+    claude: stub("claude"),
+    opencode: stub("opencode"),
+  };
 
   test("routes by label, first match wins", () => {
     const config = cfgWithRoute([
@@ -67,19 +71,31 @@ describe("pickExecutor", () => {
 });
 
 describe("createExecutors", () => {
-  test("returns codex + claude executors wired to config", () => {
+  test("returns codex + claude + opencode executors wired to config", () => {
     const { executors, warnings } = createExecutors(DEFAULT_CONFIG);
-    expect(Object.keys(executors).sort()).toEqual(["claude", "codex"]);
+    expect(Object.keys(executors).sort()).toEqual(["claude", "codex", "opencode"]);
     expect(executors["codex"]!.backend).toBe("codex");
     expect(executors["claude"]!.backend).toBe("claude");
+    expect(executors["opencode"]!.backend).toBe("opencode");
     expect(executors["codex"]!.capabilities.schema).toBe("wire");
     expect(executors["claude"]!.capabilities.schema).toBe("prompt-only");
+    expect(executors["opencode"]!.capabilities).toEqual({
+      schema: "wire",
+      resume: true,
+      interrupt: "graceful",
+      usage: "per-turn",
+      activity: true,
+      sandbox: [],
+    });
     expect(typeof executors["codex"]!.run).toBe("function");
     expect(typeof executors["claude"]!.run).toBe("function");
+    expect(typeof executors["opencode"]!.run).toBe("function");
     expect(warnings).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/backend "claude" cannot honor profile "Explore" sandbox="read-only"/),
         expect.stringMatching(/backend "claude" cannot honor profile "Plan" sandbox="read-only"/),
+        expect.stringMatching(/backend "opencode" cannot honor profile "Explore" sandbox="read-only"/),
+        expect.stringMatching(/backend "opencode" cannot honor profile "Plan" sandbox="read-only"/),
       ]),
     );
   });
@@ -88,6 +104,14 @@ describe("createExecutors", () => {
     const { executors } = createExecutors(DEFAULT_CONFIG);
     // DEFAULT_CONFIG routes everything to codex
     expect(pickExecutor(executors, DEFAULT_CONFIG, "anything", "Any phase").backend).toBe("codex");
+    expect(
+      pickExecutor(
+        executors,
+        { ...DEFAULT_CONFIG, route: [{ pattern: "*", backend: "opencode" }] },
+        "anything",
+        "Any phase",
+      ).backend,
+    ).toBe("opencode");
   });
 
   test("validates capability descriptors and rejects duplicate backend keys", () => {

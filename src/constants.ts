@@ -1,5 +1,10 @@
 import os from "node:os";
-import type { CodexBackendConfig, ClaudeBackendConfig, UltracodexConfig } from "./types.js";
+import type {
+  CodexBackendConfig,
+  ClaudeBackendConfig,
+  OpencodeBackendConfig,
+  UltracodexConfig,
+} from "./types.js";
 
 // Upstream Workflow tool caps (fixtures/workflow_schema.json) — do not change.
 export const LIFETIME_AGENT_CAP = 1000;
@@ -83,11 +88,21 @@ export const DEFAULT_CLAUDE_CONFIG: ClaudeBackendConfig = {
   extraArgs: ["--allowedTools", "Read", "Glob", "Grep"],
 };
 
+export const DEFAULT_OPENCODE_CONFIG: OpencodeBackendConfig = {
+  binary: "opencode",
+  model: "deepseek/deepseek-chat",
+  modelMap: {},
+  variantMap: {},
+  schemaRetries: DEFAULT_SCHEMA_RETRIES,
+  extraArgs: [],
+};
+
 export const DEFAULT_CONFIG: UltracodexConfig = {
   route: [{ pattern: "*", backend: "codex" }],
   concurrency: null,
   codex: DEFAULT_CODEX_CONFIG,
   claude: DEFAULT_CLAUDE_CONFIG,
+  opencode: DEFAULT_OPENCODE_CONFIG,
   profiles: {
     Explore: {
       sandbox: "read-only",

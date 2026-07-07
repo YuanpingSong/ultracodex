@@ -302,6 +302,21 @@ export interface ClaudeBackendConfig {
   extraArgs: string[];
 }
 
+export interface OpencodeBackendConfig {
+  /** Binary name/path, default "opencode". */
+  binary: string;
+  /** Default model in provider/model form; adapter splits on the first slash. */
+  model: string;
+  /** tier name -> provider/model. */
+  modelMap: Record<string, string>;
+  /** workflow effort -> provider variant string. Missing map entry omits variant. */
+  variantMap: Record<string, string>;
+  /** ajv-validation repair attempts on the same session. Default 3. */
+  schemaRetries: number;
+  /** Extra argv appended to every `opencode serve` spawn. */
+  extraArgs: string[];
+}
+
 export interface AgentProfileConfig {
   /** Overrides backend sandbox for this profile (e.g. Explore → read-only). */
   sandbox?: string;
@@ -317,6 +332,7 @@ export interface UltracodexConfig {
   concurrency: number | null;
   codex: CodexBackendConfig;
   claude: ClaudeBackendConfig;
+  opencode: OpencodeBackendConfig;
   profiles: Record<string, AgentProfileConfig>;
 }
 

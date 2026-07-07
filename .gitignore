@@ -3,3 +3,4 @@ dist/
 .ultracodex/runs/
 .claude/skills/
 .release-checks/
+tests/fake-opencode/invocations.jsonl

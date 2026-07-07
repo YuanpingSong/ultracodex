@@ -2,8 +2,19 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig, matchGlob, routeBackend } from "../src/config.js";
-import { DEFAULT_CONFIG, DEFAULT_CODEX_CONFIG, DEFAULT_CLAUDE_CONFIG } from "../src/constants.js";
+import {
+  loadConfig,
+  matchGlob,
+  resolveOpencodeEffort,
+  resolveOpencodeModel,
+  routeBackend,
+} from "../src/config.js";
+import {
+  DEFAULT_CONFIG,
+  DEFAULT_CODEX_CONFIG,
+  DEFAULT_CLAUDE_CONFIG,
+  DEFAULT_OPENCODE_CONFIG,
+} from "../src/constants.js";
 
 function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "uc-config-test-"));
@@ -26,7 +37,7 @@ function makeGlobalDir(content: string): string {
 // ---------------------------------------------------------------------------
 
 describe("loadConfig — defaults when no files", () => {
-  it("returns default route, concurrency, codex and claude configs", () => {
+  it("returns default route, concurrency and backend configs", () => {
     const projectDir = makeTmpDir();
     const globalDir = makeTmpDir();
     const cfg = loadConfig(projectDir, { globalDir });
@@ -40,6 +51,12 @@ describe("loadConfig — defaults when no files", () => {
     expect(cfg.codex.effortMap).toEqual(DEFAULT_CODEX_CONFIG.effortMap);
     expect(cfg.claude.binary).toBe(DEFAULT_CLAUDE_CONFIG.binary);
     expect(cfg.claude.defaultModel).toBe(DEFAULT_CLAUDE_CONFIG.defaultModel);
+    expect(cfg.opencode.binary).toBe(DEFAULT_OPENCODE_CONFIG.binary);
+    expect(cfg.opencode.model).toBe(DEFAULT_OPENCODE_CONFIG.model);
+    expect(cfg.opencode.schemaRetries).toBe(DEFAULT_OPENCODE_CONFIG.schemaRetries);
+    expect(cfg.opencode.modelMap).toEqual(DEFAULT_OPENCODE_CONFIG.modelMap);
+    expect(cfg.opencode.variantMap).toEqual(DEFAULT_OPENCODE_CONFIG.variantMap);
+    expect(cfg.opencode.extraArgs).toEqual([]);
     expect(cfg.profiles).toMatchObject(DEFAULT_CONFIG.profiles);
   });
 });
@@ -93,9 +110,13 @@ describe("loadConfig — global overrides", () => {
     const globalDir = makeTmpDir();
     const cfg1 = loadConfig(projectDir, { globalDir });
     cfg1.codex.modelMap["opus"] = "tampered";
+    cfg1.opencode.modelMap["haiku"] = "tampered/provider";
+    cfg1.opencode.variantMap["high"] = "tampered";
     cfg1.route.push({ pattern: "x", backend: "y" });
     const cfg2 = loadConfig(projectDir, { globalDir });
     expect(cfg2.codex.modelMap["opus"]).toBe(DEFAULT_CODEX_CONFIG.modelMap["opus"]);
+    expect(cfg2.opencode.modelMap).toEqual(DEFAULT_OPENCODE_CONFIG.modelMap);
+    expect(cfg2.opencode.variantMap).toEqual(DEFAULT_OPENCODE_CONFIG.variantMap);
     expect(cfg2.route).toEqual(DEFAULT_CONFIG.route);
   });
 });
@@ -137,7 +158,7 @@ describe("loadConfig — project overrides", () => {
     expect(cfg.claude.extraArgs).toEqual(["--allowedTools", "Read", "Glob", "Grep"]);
   });
 
-  it("extra_args override for both backends (array of strings only)", () => {
+  it("extra_args override for codex and claude (array of strings only)", () => {
     const projectDir = makeTmpDir();
     writeToml(
       projectDir,
@@ -166,6 +187,33 @@ describe("loadConfig — project overrides", () => {
     expect(cfg.claude.binary).toBe("myclaud");
     expect(cfg.claude.defaultModel).toBe("opus");
     expect(cfg.claude.schemaRetries).toBe(2);
+  });
+
+  it("project backends.opencode overrides fields and round-trips maps", () => {
+    const projectDir = makeTmpDir();
+    const globalDir = makeTmpDir();
+    writeToml(
+      projectDir,
+      [
+        "[backends.opencode]",
+        'binary = "fake-opencode"',
+        'model = "cerebras/gemma-4-31b"',
+        "schema_retries = 4",
+        'extra_args = ["--trace", "--quiet=false"]',
+        'model_map = { haiku = "deepseek/deepseek-v4-flash", opus = "cerebras/gemma-4-31b" }',
+        'variant_map = { high = "thinking", max = "max" }',
+      ].join("\n"),
+    );
+    const cfg = loadConfig(projectDir, { globalDir });
+    expect(cfg.opencode.binary).toBe("fake-opencode");
+    expect(cfg.opencode.model).toBe("cerebras/gemma-4-31b");
+    expect(cfg.opencode.schemaRetries).toBe(4);
+    expect(cfg.opencode.extraArgs).toEqual(["--trace", "--quiet=false"]);
+    expect(cfg.opencode.modelMap).toEqual({
+      haiku: "deepseek/deepseek-v4-flash",
+      opus: "cerebras/gemma-4-31b",
+    });
+    expect(cfg.opencode.variantMap).toEqual({ high: "thinking", max: "max" });
   });
 
   it("profiles are added from project config", () => {
@@ -227,6 +275,77 @@ describe("loadConfig — model_map and effort_map per-key merge", () => {
     expect(cfg.codex.effortMap["max"]).toBe("high");
     expect(cfg.codex.effortMap["low"]).toBe(DEFAULT_CODEX_CONFIG.effortMap["low"]);
   });
+
+  it("opencode model_map and variant_map merge per key across files", () => {
+    const projectDir = makeTmpDir();
+    const globalDir = makeGlobalDir(
+      '[backends.opencode]\nmodel_map = { haiku = "deepseek/deepseek-v4-flash" }\nvariant_map = { high = "thinking" }',
+    );
+    writeToml(
+      projectDir,
+      '[backends.opencode]\nmodel_map = { opus = "cerebras/gemma-4-31b" }\nvariant_map = { max = "max" }',
+    );
+    const cfg = loadConfig(projectDir, { globalDir });
+    expect(cfg.opencode.modelMap).toEqual({
+      haiku: "deepseek/deepseek-v4-flash",
+      opus: "cerebras/gemma-4-31b",
+    });
+    expect(cfg.opencode.variantMap).toEqual({ high: "thinking", max: "max" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadConfig — OpenCode validation and resolution
+// ---------------------------------------------------------------------------
+
+describe("loadConfig — OpenCode validation and resolution", () => {
+  it("rejects invalid provider/model config values", () => {
+    const projectDir = makeTmpDir();
+    writeToml(projectDir, '[backends.opencode]\nmodel = "deepseek-chat"');
+    expect(() => loadConfig(projectDir, { globalDir: makeTmpDir() })).toThrow(
+      /model .*provider\/model/,
+    );
+
+    const mapDir = makeTmpDir();
+    writeToml(mapDir, '[backends.opencode]\nmodel_map = { haiku = "deepseek-chat" }');
+    expect(() => loadConfig(mapDir, { globalDir: makeTmpDir() })).toThrow(
+      /model_map\.haiku .*provider\/model/,
+    );
+  });
+
+  it("rejects non-string arrays, maps, and retry counts", () => {
+    const argsDir = makeTmpDir();
+    writeToml(argsDir, '[backends.opencode]\nextra_args = ["--ok", 1]');
+    expect(() => loadConfig(argsDir, { globalDir: makeTmpDir() })).toThrow(
+      /extra_args .*array of strings/,
+    );
+
+    const variantDir = makeTmpDir();
+    writeToml(variantDir, "[backends.opencode]\nvariant_map = { high = 1 }");
+    expect(() => loadConfig(variantDir, { globalDir: makeTmpDir() })).toThrow(
+      /variant_map\.high .*string/,
+    );
+
+    const retryDir = makeTmpDir();
+    writeToml(retryDir, "[backends.opencode]\nschema_retries = -1");
+    expect(() => loadConfig(retryDir, { globalDir: makeTmpDir() })).toThrow(
+      /schema_retries .*non-negative integer/,
+    );
+  });
+
+  it("resolves OpenCode model tiers and effort variants", () => {
+    const cfg = {
+      ...DEFAULT_OPENCODE_CONFIG,
+      modelMap: { haiku: "deepseek/deepseek-v4-flash" },
+      variantMap: { high: "thinking" },
+    };
+    expect(resolveOpencodeModel(cfg, undefined)).toBe(DEFAULT_OPENCODE_CONFIG.model);
+    expect(resolveOpencodeModel(cfg, "haiku")).toBe("deepseek/deepseek-v4-flash");
+    expect(resolveOpencodeModel(cfg, "custom/provider-model")).toBe("custom/provider-model");
+    expect(resolveOpencodeEffort(cfg, undefined)).toBeNull();
+    expect(resolveOpencodeEffort(cfg, "high")).toBe("thinking");
+    expect(resolveOpencodeEffort(cfg, "low")).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -280,6 +399,18 @@ describe("loadConfig — route table", () => {
       { pattern: "critique:*", backend: "claude" },
       { pattern: "*", backend: "codex" },
     ]);
+  });
+
+  it("accepts opencode as a route target", () => {
+    const projectDir = makeTmpDir();
+    const globalDir = makeTmpDir();
+    writeToml(projectDir, '[route]\n"research:*" = "opencode"\n"*" = "codex"');
+    const cfg = loadConfig(projectDir, { globalDir });
+    expect(cfg.route).toEqual([
+      { pattern: "research:*", backend: "opencode" },
+      { pattern: "*", backend: "codex" },
+    ]);
+    expect(routeBackend(cfg, "research:probe", null)).toBe("opencode");
   });
 });
 

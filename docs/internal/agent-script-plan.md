@@ -47,8 +47,23 @@ is journaled as cookbook raw material (ADR-0001 item 3 falls out for free).
   carries activity + live usage ticks); headless default runs shell with NO
   permission gate (tools-disable map is the read-only lever; MCP inherited).
   Descriptor frozen: wire/resume/graceful/per-turn/activity/sandbox [].
-  Next: fleet builds fake + adapter + kit wiring from the frozen doc.
-  Step 4: recursive exit workload (mixed routing on this repo).
+- Step 3 build DONE (2026-07-06, fleet run `uc_mr9zesrk8eig4`, green first
+  pass on every gate — zero fix rounds; the step-2 friction lessons in the
+  prompts paid off): `src/executor/opencode.ts` (dual transport: fetch to
+  the announced port, stdio shim for listen()-blocked sandboxes),
+  `[backends.opencode]` config surface, `tests/fake-opencode/` (full
+  directive repertoire incl. every typed error class + [[wire-reject]]
+  mirroring the live APIError), kit wiring 10/10 with assertion #4 LIVE.
+  417→457 tests. Parent-verify added what the sandboxed fleet could not:
+  `tests/executor-opencode-tcp.test.ts` (fake over a real bound port,
+  self-skips where listen() is denied — the suites force the stdio shim, so
+  the fetch path was otherwise uncovered) and
+  `tests/live-opencode.smoke.test.ts` (LIVE_OPENCODE=1-gated: real serve,
+  real HTTP, real provider — text + wire-schema round-trips verified).
+  N=3 conforming backends; the M4a "third adapter from docs alone" exit
+  criterion is now empirically demonstrated, not just asserted.
+  Step 4 NEXT: recursive exit workload (mixed routing on this repo:
+  impl→opencode, gate→codex, review→claude, one journal).
 - Guardrails: fleet runs under the **globally installed ultracodex 0.3.0**,
   never repo dist (no self-modification races); probe-first discipline for
   opencode; contract doc frozen before any wave starts.
