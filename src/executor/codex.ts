@@ -2,15 +2,18 @@ import { AppServerClient } from "../appserver/client.js";
 import { resolveCodexEffort, resolveCodexModel } from "../config.js";
 import { runTurn, type TurnResult } from "../appserver/turn.js";
 import { assemblePrompt } from "./prompt.js";
-import { createValidator, strictify, strictifyForWire } from "./schema.js";
+import { createValidator, strictifyForWire } from "./schema.js";
 import { addUsage, ZERO_USAGE } from "../types.js";
 import type {
-  AgentProfileConfig,
-  CodexBackendConfig,
+  CapabilityDescriptor,
   Executor,
   ExecutorContext,
   ExecutorRequest,
   ExecutorResult,
+} from "./contract.js";
+import type {
+  AgentProfileConfig,
+  CodexBackendConfig,
   Usage,
 } from "../types.js";
 
@@ -52,8 +55,23 @@ function repairPrompt(errors: string, originalPrompt: string): string {
   ].join("\n\n");
 }
 
+function isWireSchemaRejection(result: TurnResult): boolean {
+  return (
+    result.status === "failed" &&
+    /invalid_json_schema|Invalid schema for response_format/.test(result.error ?? "")
+  );
+}
+
 export class CodexExecutor implements Executor {
   readonly backend = "codex";
+  readonly capabilities: CapabilityDescriptor = {
+    schema: "wire",
+    resume: true,
+    interrupt: "graceful",
+    usage: "per-turn",
+    activity: true,
+    sandbox: ["read-only", "workspace-write", "danger-full-access"],
+  };
 
   constructor(
     private readonly cfg: CodexBackendConfig,
@@ -79,11 +97,11 @@ export class CodexExecutor implements Executor {
     //   prompt-inlined contract + ajv repair loop carries it alone).
     // - validation/prompt use the AUTHORED schema — upstream semantics
     //   (optional properties stay optional) are judged as written.
-    const wireSchema = req.schema ? strictifyForWire(req.schema) : null;
-    const validate = req.schema ? createValidator(strictify(req.schema)) : null;
+    let wireSchema = req.schema ? strictifyForWire(req.schema) : null;
+    const validate = req.schema ? createValidator(req.schema) : null;
     const prompt = assemblePrompt({
       prompt: req.prompt,
-      schema: req.schema ? strictify(req.schema) : undefined,
+      schema: req.schema,
       profilePreamble: profile?.preamble,
     });
 
@@ -145,18 +163,27 @@ export class CodexExecutor implements Executor {
         return result;
       };
 
+      const turnWithWireFallback = async (turnPrompt: string): Promise<TurnResult> => {
+        let result = await turn(turnPrompt);
+        if (wireSchema && isWireSchemaRejection(result)) {
+          wireSchema = null;
+          result = await turn(turnPrompt);
+        }
+        return result;
+      };
+
       const fail = (result: TurnResult): ExecutorResult =>
         result.status === "interrupted"
           ? { ok: false, error: "interrupted", usage: total, threadId }
           : { ok: false, error: result.error ?? "codex turn failed", usage: total, threadId };
 
-      let result = await turn(prompt);
+      let result = await turnWithWireFallback(prompt);
       if (result.status !== "completed") return fail(result);
       if (!validate) return { ok: true, text: result.finalText ?? "", usage: total, threadId };
 
       let verdict = validate(result.finalText ?? "");
       for (let attempt = 0; !verdict.ok && attempt < this.cfg.schemaRetries; attempt++) {
-        result = await turn(repairPrompt(verdict.errors, req.prompt));
+        result = await turnWithWireFallback(repairPrompt(verdict.errors, req.prompt));
         if (result.status !== "completed") return fail(result);
         verdict = validate(result.finalText ?? "");
       }

@@ -29,7 +29,7 @@ export async function runnerMain(runDir: string): Promise<void> {
   let source: string;
   let script: ReturnType<typeof loadScript>;
   let config: ReturnType<typeof loadConfig>;
-  let executors: ReturnType<typeof createExecutors>;
+  let executorRegistry: ReturnType<typeof createExecutors>;
   let loaded: {
     options: RunOptions;
     source: string;
@@ -46,7 +46,7 @@ export async function runnerMain(runDir: string): Promise<void> {
     // Config/executor init must sit inside the startup guard too: a bad
     // config.toml would otherwise throw before any journal exists ("dead").
     config = loadConfig(options.projectDir);
-    executors = createExecutors(config);
+    executorRegistry = createExecutors(config, { budgetSet: options.budgetTotal !== null });
   } catch (err) {
     // Startup failure: journal a run_end so consumers see "failed", not "dead".
     try {
@@ -89,11 +89,14 @@ export async function runnerMain(runDir: string): Promise<void> {
     budgetTotal: options.budgetTotal,
     concurrency: options.concurrency,
   });
+  for (const text of executorRegistry.warnings) {
+    journal.append({ t: "warn", ts: Date.now(), text });
+  }
   writePidFile(runDir, process.pid);
 
   const runtime = createRuntime({
     journal,
-    executors,
+    executors: executorRegistry.executors,
     config,
     options,
     meta: script.meta,

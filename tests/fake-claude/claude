@@ -1,0 +1,193 @@
+#!/usr/bin/env node
+"use strict";
+// Fake `claude -p --output-format json` for hermetic tests.
+// One JSON envelope is written to stdout unless a failure directive says otherwise.
+// The script has no package dependencies and runs under either CJS or ESM package mode.
+//
+// Prompt directives:
+//   [[reply:TEXT]]       result TEXT (default "ok").
+//   [[nosession]]        omit session_id from successful envelopes.
+//   [[fail:MSG]]         is_error envelope with subtype "error_during_execution".
+//   [[bad-subtype:SUB]]  non-error envelope with subtype SUB instead of "success".
+//   [[missing-result]]   success envelope without result.
+//   [[expect-prompt:TEXT]] fail unless TEXT appears outside fake directives.
+//   [[always-invalid]]   result is invalid text, including repair calls.
+//   [[invalid-first]]    first result is invalid text; repair calls return {"answer":"42"}.
+//   [[slow:MS]]          delay before answering.
+//   [[hang]]             never answer; exits promptly on SIGTERM.
+//   [[garbage]]          write non-JSON stdout and exit 0.
+//   [[empty-error:MSG]]  write MSG to stderr, no stdout, and exit 1.
+//   [[crash-mid-call]]   write partial stdout, then exit 1.
+//   [[usage:IN,OUT]]     override usage input/output tokens (cached defaults to 5).
+//   [[usage:IN,OUT,C]]   also override cache_read_input_tokens.
+// Env: FAKE_CLAUDE_INVOCATIONS=/path/log.jsonl -> invocation log path
+//      FAKE_CLAUDE_GARBAGE_STDOUT=1 -> force [[garbage]]
+//      FAKE_CLAUDE_EMPTY_STDERR_EXIT=MSG -> force [[empty-error:MSG]]
+//      FAKE_CLAUDE_CRASH_MID_CALL=1 -> force [[crash-mid-call]]
+//      FAKE_CLAUDE_HANG=1 -> force [[hang]]
+//      FAKE_CLAUDE_ORPHAN_CHILD=1 -> spawn a long-lived child process
+//      FAKE_CLAUDE_CHILD_PID_FILE=/path/pid -> child pid output path
+
+Promise.all([import("node:fs"), import("node:path"), import("node:child_process")])
+  .then(function (mods) {
+    const fs = mods[0];
+    const path = mods[1];
+    const childProcess = mods[2];
+    const args = process.argv.slice(2);
+    let input = "";
+
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", function (d) {
+      input += d;
+    });
+    process.stdin.on("end", function () {
+      run(fs, path, childProcess, args, input);
+    });
+  })
+  .catch(function (err) {
+    process.stderr.write(String((err && err.stack) || err) + "\n");
+    process.exit(1);
+  });
+
+function directive(prompt, name) {
+  const m = prompt.match(new RegExp("\\[\\[" + name + ":([\\s\\S]*?)\\]\\]"));
+  return m ? m[1] : null;
+}
+
+function flag(prompt, name) {
+  return prompt.includes("[[" + name + "]]");
+}
+
+function promptWithoutDirectives(prompt) {
+  return prompt.replace(/\[\[[\s\S]*?\]\]/g, "");
+}
+
+function run(fs, path, childProcess, args, input) {
+  maybeSpawnOrphanChild(fs, childProcess);
+  logInvocation(fs, path, args, input);
+
+  if (process.env.FAKE_CLAUDE_HANG === "1" || flag(input, "hang")) {
+    hang();
+    return;
+  }
+  if (process.env.FAKE_CLAUDE_GARBAGE_STDOUT === "1" || flag(input, "garbage")) {
+    process.stdout.write("this is not json\n");
+    process.exit(0);
+  }
+  const forcedEmpty = process.env.FAKE_CLAUDE_EMPTY_STDERR_EXIT;
+  const emptyError = forcedEmpty !== undefined ? forcedEmpty : directive(input, "empty-error");
+  if (emptyError !== null) {
+    process.stderr.write((emptyError || "fake claude stderr") + "\n");
+    process.exit(1);
+  }
+  if (process.env.FAKE_CLAUDE_CRASH_MID_CALL === "1" || flag(input, "crash-mid-call")) {
+    process.stdout.write('{"type":"result","subtype":"success"');
+    process.stderr.write("fake claude crashed mid-call\n");
+    process.exit(1);
+  }
+
+  const finish = function () {
+    const expectedPrompt = directive(input, "expect-prompt");
+    if (expectedPrompt !== null && !promptWithoutDirectives(input).includes(expectedPrompt)) {
+      reply({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        session_id: "sess-expect",
+        usage: usage(input),
+        error: "expected prompt to contain " + JSON.stringify(expectedPrompt),
+      });
+      return;
+    }
+
+    const fail = directive(input, "fail");
+    if (fail !== null) {
+      reply({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        session_id: "sess-fail",
+        usage: usage(input),
+        error: fail || "fake claude failure",
+      });
+      return;
+    }
+
+    const badSubtype = directive(input, "bad-subtype");
+    if (badSubtype !== null) {
+      reply({
+        type: "result",
+        subtype: badSubtype || "error_during_execution",
+        is_error: false,
+        result: "bad subtype result",
+        session_id: "sess-abc123",
+        usage: usage(input),
+      });
+      return;
+    }
+
+    const envelope = {
+      type: "result",
+      subtype: "success",
+      usage: usage(input),
+    };
+    if (!flag(input, "nosession")) envelope.session_id = "sess-abc123";
+    if (!flag(input, "missing-result")) envelope.result = resultFor(args, input);
+    reply(envelope);
+  };
+
+  const slow = directive(input, "slow");
+  if (slow !== null) setTimeout(finish, Math.max(0, Number(slow) || 0));
+  else finish();
+}
+
+function logInvocation(fs, path, args, input) {
+  const fallback = path.join(path.dirname(process.argv[1]), "invocations.jsonl");
+  const logPath = process.env.FAKE_CLAUDE_INVOCATIONS || fallback;
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  fs.appendFileSync(logPath, JSON.stringify({ args: args, stdin: input }) + "\n");
+}
+
+function maybeSpawnOrphanChild(fs, childProcess) {
+  if (process.env.FAKE_CLAUDE_ORPHAN_CHILD !== "1") return;
+  const child = childProcess.spawn(process.execPath, ["-e", "setInterval(function () {}, 1000);"], {
+    stdio: "ignore",
+  });
+  if (process.env.FAKE_CLAUDE_CHILD_PID_FILE) {
+    fs.writeFileSync(process.env.FAKE_CLAUDE_CHILD_PID_FILE, String(child.pid));
+  }
+}
+
+function usage(prompt) {
+  const spec = directive(prompt, "usage");
+  const parts = spec === null ? [] : spec.split(",");
+  const inputTokens = parts.length > 0 ? Number(parts[0]) || 0 : 100;
+  const outputTokens = parts.length > 1 ? Number(parts[1]) || 0 : 10;
+  const cachedTokens = parts.length > 2 ? Number(parts[2]) || 0 : 5;
+  return {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    cache_read_input_tokens: cachedTokens,
+  };
+}
+
+function resultFor(args, input) {
+  const isRepairCall = args.includes("--resume") || input.includes("not valid JSON");
+  if (flag(input, "always-invalid")) return "still not json, sorry";
+  if (isRepairCall) return '{"answer":"42"}';
+  if (flag(input, "invalid-first")) return "Sure! Here is some prose without any braces or JSON in it.";
+  const r = directive(input, "reply");
+  return r !== null ? r : "ok";
+}
+
+function reply(obj) {
+  process.stdout.write(JSON.stringify(obj) + "\n");
+  process.exit(0);
+}
+
+function hang() {
+  process.on("SIGTERM", function () {
+    process.exit(0);
+  });
+  setInterval(function () {}, 1000);
+}

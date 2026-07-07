@@ -10,10 +10,31 @@ is journaled as cookbook raw material (ADR-0001 item 3 falls out for free).
   monotonicity, capability descriptor + written degradation rules, schema
   discipline, fake-fidelity rule, 10-assertion conformance-kit definition).
   Contract is FROZEN for fleet purposes — gate agents use it as arbiter.
-- Step 2 NEXT: ultracodex fleet builds M4a-3/4 (conformance kit at
-  `tests/executor-kit/`, `src/executor/contract.ts` extraction, both
-  adapters declare capabilities + pass kit). Staged-build-gates shape;
-  parent-verify between phases.
+- Step 2 DONE (2026-07-06, fleet run `uc_mr9v4ql893ynu`: 11 agents, 1h15m,
+  221k out tok, staged-build-gates, run under npm-installed 0.3.0):
+  `src/executor/contract.ts` extracted (field-for-field vs the doc), both
+  adapters declare capabilities, `createExecutors` → `{executors, warnings}`
+  with a pure `executorDegradationWarnings()` (journaled as `warn` events),
+  10-assertion kit at `tests/executor-kit/` green against BOTH adapters
+  (338→417 tests; the 1 skip = claude #4, capability-declared). The kit
+  caught three real adapter bugs: claude abort killed only the direct child
+  (now process-group SIGTERM→SIGKILL escalation inside the grace window);
+  both adapters validated against the strictified instead of authored schema
+  (contract §4 violation); codex had no live wire-rejection fallback (now
+  `turnWithWireFallback` degrades to prompt-only mid-call). Side effect:
+  `runnerPidAlive` hardened for ps-less sandboxes (full-path match + child-
+  handle fallback). Friction harvest (30 items) → cookbook clusters:
+  (1) schema/prompt drift — the gate schema lacked a `decisions` field its
+  prompt demanded, hit by every gate → rule: derive the schema FROM the
+  RETURN clause; (2) shared-worktree hygiene — later gates saw earlier
+  phases' diffs as out-of-scope noise, causing most of the kit-wave fix-loop
+  churn → rule: gates need the CUMULATIVE allowlist, not their wave's;
+  (3) codex sandbox blocks `ps` and `.git/index.lock` (no scoped restore).
+  Contract v1.1 candidates (deferred, doc stays frozen): explicit
+  `networkAccess` capability field (currently inferred from non-empty
+  sandbox); a warning-observability channel so the kit can assert warn-once
+  through the adapter itself; #4 wording (avoid-sending vs live-rejection —
+  kit now proves both).
 - Step 3: OpenCode probe → I freeze fixture contract → fleet builds fake +
   adapter. Step 4: recursive exit workload (mixed routing on this repo).
 - Guardrails: fleet runs under the **globally installed ultracodex 0.3.0**,

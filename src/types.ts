@@ -88,10 +88,6 @@ export function addUsage(a: Usage, b: Usage): Usage {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Executor interface (§3.2) — one per backend (codex, claude, fake)
-// ---------------------------------------------------------------------------
-
 export type ActivityKind = "exec" | "patch" | "tool" | "search" | "reasoning" | "status";
 export type ActivityPhase = "running" | "verifying";
 
@@ -102,50 +98,14 @@ export interface ActivityEvent {
   phase?: ActivityPhase;
 }
 
-export interface ExecutorRequest {
-  prompt: string;
-  /** Raw JSON Schema from the script (NOT strictified — executor strictifies). */
-  schema?: Record<string, unknown>;
-  /** Workflow-level tier name (opus/sonnet/haiku/fable/...) — executor maps via config. */
-  model?: string;
-  /** Workflow-level effort — executor maps via config (max → xhigh for codex). */
-  effort?: Effort;
-  cwd: string;
-  label: string;
-  /** agentType from the script — resolved to a config-defined profile. */
-  agentProfile?: string;
-}
-
-export interface ExecutorContext {
-  signal: AbortSignal;
-  onActivity(ev: ActivityEvent): void;
-  /** Cumulative usage for this agent call so far (monotonic ticks). */
-  onUsage(usage: Usage): void;
-  /** Called once when the backend session/thread id becomes known. */
-  onThread?(threadId: string): void;
-}
-
-export type ExecutorResult =
-  | {
-      ok: true;
-      /** Final message text (schema-less calls). */
-      text?: string;
-      /** Validated parsed object (schema calls). */
-      object?: unknown;
-      usage: Usage;
-      threadId?: string;
-    }
-  | {
-      ok: false;
-      error: string;
-      usage?: Usage;
-      threadId?: string;
-    };
-
-export interface Executor {
-  readonly backend: string;
-  run(req: ExecutorRequest, ctx: ExecutorContext): Promise<ExecutorResult>;
-}
+// Executor Contract v1 source of truth lives in src/executor/contract.ts.
+export type {
+  CapabilityDescriptor,
+  Executor,
+  ExecutorContext,
+  ExecutorRequest,
+  ExecutorResult,
+} from "./executor/contract.js";
 
 // ---------------------------------------------------------------------------
 // Journal events (§4) — THE SPINE. TUI/CLI render from these only.

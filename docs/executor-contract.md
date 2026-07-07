@@ -1,4 +1,4 @@
-# Executor Contract v1 (draft)
+# Executor Contract v1
 
 **Audience:** backend adapter authors. This document is the complete contract for adding an execution backend to ultracodex — the M4a exit criterion is that a third adapter can be written from this document alone, without reading engine source. The Agent Script format itself never sees any of this (spec §3.5: engines must not add script-visible extensions); backends are pure engine configuration.
 

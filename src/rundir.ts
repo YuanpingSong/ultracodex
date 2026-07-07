@@ -69,18 +69,40 @@ function pidCommandLine(pid: number): string | null {
   return null;
 }
 
+function activeChildCommandLine(pid: number): string | null {
+  const handles = (process as unknown as { _getActiveHandles?: () => unknown[] })._getActiveHandles?.();
+  for (const h of handles ?? []) {
+    const child = h as { pid?: unknown; spawnargs?: unknown };
+    if (
+      child.pid === pid &&
+      Array.isArray(child.spawnargs) &&
+      child.spawnargs.every((arg) => typeof arg === "string")
+    ) {
+      return child.spawnargs.join(" ");
+    }
+  }
+  return null;
+}
+
+function commandLineMatchesRunDir(cmd: string, runDir: string): boolean {
+  return cmd.includes(path.resolve(runDir));
+}
+
 /**
  * True when `pid` is alive AND verifiably this run's runner process — its
- * command line mentions the run directory's basename (the runId, which the
- * CLI passes as the runner's argv). Guards against the OS recycling a crashed
+ * command line mentions the run directory path, which the CLI passes as the
+ * runner's argv. Guards against the OS recycling a crashed
  * runner's pid: an alive-but-foreign pid is NOT a live runner. When the
  * command line cannot be inspected, falls back to plain pid liveness.
  */
 export function runnerPidAlive(runDir: string, pid: number): boolean {
   if (!pidAlive(pid)) return false;
   const cmd = pidCommandLine(pid);
-  if (cmd === null) return true;
-  return cmd.includes(path.basename(runDir));
+  if (cmd !== null) return commandLineMatchesRunDir(cmd, runDir);
+  if (pid === process.pid) return commandLineMatchesRunDir(process.argv.join(" "), runDir);
+  const childCmd = activeChildCommandLine(pid);
+  if (childCmd !== null) return commandLineMatchesRunDir(childCmd, runDir);
+  return true;
 }
 
 /**

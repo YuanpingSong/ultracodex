@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { ClaudeExecutor } from "../src/executor/claude.js";
 import type {
   ActivityEvent,
@@ -10,66 +11,7 @@ import type {
   Usage,
 } from "../src/types.js";
 
-const FAKE_CLAUDE = `#!/usr/bin/env node
-const fs = require("node:fs");
-const path = require("node:path");
-
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (d) => (input += d));
-process.stdin.on("end", () => {
-  const args = process.argv.slice(2);
-  const dir = path.dirname(process.argv[1]);
-  fs.appendFileSync(
-    path.join(dir, "invocations.jsonl"),
-    JSON.stringify({ args, stdin: input }) + "\\n",
-  );
-
-  const m = (re) => {
-    const r = input.match(re);
-    return r ? r[1] : null;
-  };
-  const reply = (obj) => {
-    process.stdout.write(JSON.stringify(obj) + "\\n");
-    process.exit(0);
-  };
-  const usage = { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 5 };
-
-  const finish = () => {
-    const fail = m(/\\[\\[fail:([^\\]]*)\\]\\]/);
-    if (fail !== null) {
-      reply({
-        type: "result",
-        subtype: "error_during_execution",
-        is_error: true,
-        session_id: "sess-fail",
-        usage,
-      });
-      return;
-    }
-    const sessionId = input.includes("[[nosession]]") ? undefined : "sess-abc123";
-    const isRepairCall = args.includes("--resume") || input.includes("not valid JSON");
-    let result;
-    if (input.includes("[[always-invalid]]")) {
-      result = "still not json, sorry";
-    } else if (isRepairCall) {
-      result = '{"answer":"42"}';
-    } else if (input.includes("[[invalid-first]]")) {
-      result = "Sure! Here is some prose without any braces or JSON in it.";
-    } else {
-      const r = m(/\\[\\[reply:([^\\]]*)\\]\\]/);
-      result = r !== null ? r : "ok";
-    }
-    const envelope = { type: "result", subtype: "success", result, usage };
-    if (sessionId) envelope.session_id = sessionId;
-    reply(envelope);
-  };
-
-  const slow = m(/\\[\\[slow:(\\d+)\\]\\]/);
-  if (slow !== null) setTimeout(finish, Number(slow));
-  else finish();
-});
-`;
+const FAKE_CLAUDE = path.join(path.dirname(fileURLToPath(import.meta.url)), "fake-claude", "claude");
 
 interface Invocation {
   args: string[];
@@ -79,7 +21,8 @@ interface Invocation {
 function writeFakeClaude(): { bin: string; dir: string; invocations: () => Invocation[] } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uc-fake-claude-"));
   const bin = path.join(dir, "claude");
-  fs.writeFileSync(bin, FAKE_CLAUDE, { mode: 0o755 });
+  fs.copyFileSync(FAKE_CLAUDE, bin);
+  fs.chmodSync(bin, 0o755);
   const logPath = path.join(dir, "invocations.jsonl");
   return {
     bin,
@@ -230,6 +173,21 @@ describe("ClaudeExecutor schema calls", () => {
     );
     expect(res).toMatchObject({ ok: true, object: { answer: "direct" } });
     expect(fake.invocations()).toHaveLength(1);
+  });
+
+  test("validates against the authored schema, not a strictified schema", async () => {
+    const fake = writeFakeClaude();
+    const ex = new ClaudeExecutor(makeCfg(fake.bin), {});
+    const res = await ex.run(
+      {
+        prompt: '[[reply:{"answer":"direct","extra":true}]]',
+        schema: ANSWER_SCHEMA,
+        cwd: fake.dir,
+        label: "l",
+      },
+      makeCtx().ctx,
+    );
+    expect(res).toMatchObject({ ok: true, object: { answer: "direct", extra: true } });
   });
 
   test("invalid reply → repair via --resume with the session id, accumulating usage", async () => {

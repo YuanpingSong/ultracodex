@@ -10,6 +10,7 @@ import { ACTIVITY_TEXT_MAX, DEFAULT_CONFIG } from "../src/constants.js";
 import type {
   AgentEndEvent,
   AgentStartEvent,
+  CapabilityDescriptor,
   Executor,
   ExecutorContext,
   ExecutorRequest,
@@ -21,6 +22,15 @@ import type {
 
 const cleanups: string[] = [];
 const journals: JournalWriter[] = [];
+
+const CAPABILITIES: CapabilityDescriptor = {
+  schema: "prompt-only",
+  resume: false,
+  interrupt: "kill-only",
+  usage: "final",
+  activity: false,
+  sandbox: [],
+};
 
 afterEach(() => {
   for (const j of journals.splice(0)) {
@@ -48,6 +58,7 @@ function okExecutor(
   const invocations: ExecutorRequest[] = [];
   return {
     backend: opts?.backend ?? "codex",
+    capabilities: CAPABILITIES,
     invocations,
     async run(req: ExecutorRequest): Promise<ExecutorResult> {
       invocations.push(req);
@@ -67,6 +78,7 @@ function deferredExecutor(): { executor: Executor; calls: DeferredCall[] } {
   const calls: DeferredCall[] = [];
   const executor: Executor = {
     backend: "codex",
+    capabilities: CAPABILITIES,
     run(req, ctx) {
       return new Promise<ExecutorResult>((resolve) => {
         calls.push({ req, ctx, resolve });
@@ -166,6 +178,7 @@ describe("agent()", () => {
     const obj = { x: 1, items: ["a", "b"] };
     const executor: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       run: async () => ({ ok: true, object: obj, usage: usage(3) }),
     };
     const { g, runDir } = makeRuntime({ executor });
@@ -182,6 +195,7 @@ describe("agent()", () => {
   it("returns null on executor failure and journals failed", async () => {
     const executor: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       run: async () => ({ ok: false, error: "boom", usage: usage(2) }),
     };
     const { g, runDir } = makeRuntime({ executor });
@@ -197,6 +211,7 @@ describe("agent()", () => {
   it("never rejects: executor throwing sync or rejecting maps to null", async () => {
     const throwing: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       run: () => {
         throw new Error("sync explosion");
       },
@@ -206,6 +221,7 @@ describe("agent()", () => {
 
     const rejecting: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       run: () => Promise.reject(new Error("async explosion")),
     };
     const rt2 = makeRuntime({ executor: rejecting });
@@ -244,6 +260,7 @@ describe("agent()", () => {
     const long = "x".repeat(600);
     const executor: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       async run(_req, ctx) {
         ctx.onActivity({ kind: "exec", text: "a1" });
         ctx.onActivity({ kind: "exec", text: "a2" });
@@ -310,6 +327,7 @@ describe("journal sequence", () => {
   it("orders agent_start → agent_thread → agent_activity → agent_usage → agent_end", async () => {
     const executor: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       async run(_req, ctx) {
         ctx.onThread?.("th_abc");
         ctx.onActivity({ kind: "exec", text: "$ ls", phase: "running" });
@@ -462,6 +480,7 @@ describe("budget", () => {
   it("usage ticks push spent() over total → next agent() throws; dedupes cumulative ticks", async () => {
     const executor: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       async run(_req, ctx) {
         ctx.onUsage(usage(60));
         ctx.onUsage(usage(120)); // cumulative, replaces the 60
@@ -617,6 +636,7 @@ describe("control: pause / resume / skip / stop", () => {
     const calls: DeferredCall[] = [];
     const executor: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       run(req, ctx) {
         return new Promise<ExecutorResult>((resolve) => {
           calls.push({ req, ctx, resolve });
@@ -650,6 +670,7 @@ describe("control: pause / resume / skip / stop", () => {
     let captured: ExecutorContext | null = null;
     const executor: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       async run(_req, ctx) {
         captured = ctx;
         return { ok: true, text: "done", usage: usage(1) };
@@ -672,6 +693,7 @@ describe("control: pause / resume / skip / stop", () => {
   it("totals() folds statuses and per-backend usage ledgers", async () => {
     const executor: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       async run(req) {
         if (req.prompt === "bad") return { ok: false, error: "x", usage: usage(5) };
         return { ok: true, text: "y", usage: usage(10, 4) };
@@ -695,6 +717,7 @@ describe("caps", () => {
   it("throws after the 1000-agent lifetime cap (nested calls share the counter)", async () => {
     const executor: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       run: async () => ({ ok: true, text: "k", usage: usage(0) }),
     };
     const { g } = makeRuntime({ executor, concurrency: 16 });
@@ -756,6 +779,7 @@ describe("workflow()", () => {
   it("shares ordinals + budget with the child; prefixes child phases", async () => {
     const executor: Executor = {
       backend: "codex",
+      capabilities: CAPABILITIES,
       run: async () => ({ ok: true, text: "ok", usage: usage(10) }),
     };
     const { g, runDir } = childDeps(executor);

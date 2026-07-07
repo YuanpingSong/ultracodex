@@ -1,17 +1,21 @@
 import { spawn } from "node:child_process";
+import { INTERRUPT_GRACE_MS } from "../constants.js";
 import { resolveClaudeModel } from "../config.js";
 import type {
-  AgentProfileConfig,
-  ClaudeBackendConfig,
+  CapabilityDescriptor,
   Executor,
   ExecutorContext,
   ExecutorRequest,
   ExecutorResult,
+} from "./contract.js";
+import type {
+  AgentProfileConfig,
+  ClaudeBackendConfig,
   Usage,
 } from "../types.js";
 import { ZERO_USAGE, addUsage } from "../types.js";
 import { assemblePrompt } from "./prompt.js";
-import { createValidator, strictify } from "./schema.js";
+import { createValidator } from "./schema.js";
 
 interface CliOutcome {
   stdout: string;
@@ -33,13 +37,35 @@ function runCli(
     let stderr = "";
     let interrupted = false;
     let settled = false;
-    const child = spawn(binary, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+    let killTimer: NodeJS.Timeout | null = null;
+    const child = spawn(binary, args, {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    });
+    const killTree = (sig: NodeJS.Signals) => {
+      const pid = child.pid;
+      if (pid !== undefined && process.platform !== "win32") {
+        try {
+          process.kill(-pid, sig);
+          return;
+        } catch {}
+      }
+      try {
+        child.kill(sig);
+      } catch {}
+    };
     const onAbort = () => {
+      if (interrupted) return;
       interrupted = true;
-      child.kill("SIGTERM");
+      killTree("SIGTERM");
+      killTimer = setTimeout(() => killTree("SIGKILL"), Math.max(0, INTERRUPT_GRACE_MS - 100));
+      killTimer.unref?.();
     };
     const done = (o: CliOutcome) => {
       if (settled) return;
+      if (interrupted) killTree("SIGKILL");
+      if (killTimer) clearTimeout(killTimer);
       settled = true;
       signal.removeEventListener("abort", onAbort);
       resolve(o);
@@ -131,6 +157,14 @@ type CallResult = { failed: string; text?: undefined } | { failed: null; text: s
 
 export class ClaudeExecutor implements Executor {
   readonly backend = "claude";
+  readonly capabilities: CapabilityDescriptor = {
+    schema: "prompt-only",
+    resume: true,
+    interrupt: "kill-only",
+    usage: "final",
+    activity: true,
+    sandbox: [],
+  };
 
   constructor(
     private readonly cfg: ClaudeBackendConfig,
@@ -139,7 +173,7 @@ export class ClaudeExecutor implements Executor {
 
   async run(req: ExecutorRequest, ctx: ExecutorContext): Promise<ExecutorResult> {
     const model = resolveClaudeModel(this.cfg, req.model);
-    const schema = req.schema ? strictify(req.schema) : null;
+    const schema = req.schema ?? null;
     const rawValidate = schema ? createValidator(schema) : null;
     const validate = rawValidate
       ? (text: string) => {

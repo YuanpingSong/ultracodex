@@ -134,6 +134,23 @@ return { doubled: args.n * 2 }
       doubled: 42,
     });
   });
+
+  it("journals executor degradation warnings after run_start", async () => {
+    const script = `export const meta = { name: 'warnings', description: 'warning demo' }
+return 1
+`;
+    const { runDir } = setupRun(script);
+    await runnerMain(runDir);
+    const events = readJournal(runDir);
+    expect(events[0]!.t).toBe("run_start");
+    const warnings = events.filter((e) => e.t === "warn") as Array<{ text: string }>;
+    expect(warnings.map((w) => w.text)).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/backend "claude" cannot honor profile "Explore" sandbox="read-only"/),
+        expect.stringMatching(/backend "claude" cannot honor profile "Plan" sandbox="read-only"/),
+      ]),
+    );
+  });
 });
 
 describe("runnerMain control", () => {

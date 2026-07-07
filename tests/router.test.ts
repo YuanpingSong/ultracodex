@@ -1,11 +1,35 @@
 import { describe, expect, test } from "vitest";
-import { createExecutors, pickExecutor } from "../src/executor/router.js";
+import {
+  createExecutorRegistry,
+  createExecutors,
+  executorDegradationWarnings,
+  pickExecutor,
+  validateCapabilityDescriptor,
+} from "../src/executor/router.js";
 import { DEFAULT_CONFIG } from "../src/constants.js";
-import type { Executor, RouteRule, UltracodexConfig } from "../src/types.js";
+import type {
+  CapabilityDescriptor,
+  Executor,
+  RouteRule,
+  UltracodexConfig,
+} from "../src/types.js";
 import { ZERO_USAGE } from "../src/types.js";
 
+const CAPABILITIES: CapabilityDescriptor = {
+  schema: "prompt-only",
+  resume: false,
+  interrupt: "kill-only",
+  usage: "final",
+  activity: false,
+  sandbox: [],
+};
+
 function stub(backend: string): Executor {
-  return { backend, run: async () => ({ ok: true, text: backend, usage: ZERO_USAGE }) };
+  return {
+    backend,
+    capabilities: CAPABILITIES,
+    run: async () => ({ ok: true, text: backend, usage: ZERO_USAGE }),
+  };
 }
 
 function cfgWithRoute(route: RouteRule[]): UltracodexConfig {
@@ -44,17 +68,52 @@ describe("pickExecutor", () => {
 
 describe("createExecutors", () => {
   test("returns codex + claude executors wired to config", () => {
-    const executors = createExecutors(DEFAULT_CONFIG);
+    const { executors, warnings } = createExecutors(DEFAULT_CONFIG);
     expect(Object.keys(executors).sort()).toEqual(["claude", "codex"]);
     expect(executors["codex"]!.backend).toBe("codex");
     expect(executors["claude"]!.backend).toBe("claude");
+    expect(executors["codex"]!.capabilities.schema).toBe("wire");
+    expect(executors["claude"]!.capabilities.schema).toBe("prompt-only");
     expect(typeof executors["codex"]!.run).toBe("function");
     expect(typeof executors["claude"]!.run).toBe("function");
+    expect(warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/backend "claude" cannot honor profile "Explore" sandbox="read-only"/),
+        expect.stringMatching(/backend "claude" cannot honor profile "Plan" sandbox="read-only"/),
+      ]),
+    );
   });
 
   test("createExecutors output feeds pickExecutor", () => {
-    const executors = createExecutors(DEFAULT_CONFIG);
+    const { executors } = createExecutors(DEFAULT_CONFIG);
     // DEFAULT_CONFIG routes everything to codex
     expect(pickExecutor(executors, DEFAULT_CONFIG, "anything", "Any phase").backend).toBe("codex");
+  });
+
+  test("validates capability descriptors and rejects duplicate backend keys", () => {
+    expect(() => validateCapabilityDescriptor(stub("ok"))).not.toThrow();
+    expect(() =>
+      validateCapabilityDescriptor({
+        ...stub("bad"),
+        capabilities: { ...CAPABILITIES, usage: "streaming" as never },
+      }),
+    ).toThrow(/usage must/);
+    expect(() => createExecutorRegistry([stub("same"), stub("same")])).toThrow(/duplicate/);
+  });
+
+  test("computes degradation warnings for unsupported profiles and usage blind spots", () => {
+    const none = { ...stub("none"), capabilities: { ...CAPABILITIES, usage: "none" as const } };
+    const warnings = executorDegradationWarnings(
+      { none },
+      { Strict: { sandbox: "sealed", networkAccess: false } },
+      true,
+    );
+    expect(warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/cannot honor profile "Strict" sandbox="sealed"/),
+        expect.stringMatching(/cannot honor profile "Strict" networkAccess=false/),
+        expect.stringMatching(/declares no usage reporting/),
+      ]),
+    );
   });
 });

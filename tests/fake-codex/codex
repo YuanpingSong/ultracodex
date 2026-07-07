@@ -12,6 +12,9 @@
 //   [[exec:CMD]]     commandExecution item started+completed before answering.
 //   [[collab]]       collabAgentToolCall + subagent turn; drained 150ms later.
 //   [[no-turn-completed]]  suppress the main turn/completed (inference path).
+//   [[expect-prompt:TEXT]] fail unless TEXT appears outside fake directives.
+//   [[expect-no-output-schema]] fail if turn/start carries outputSchema.
+//   [[reject-output-schema]] fail with invalid_json_schema if outputSchema is present.
 //   [[usage:IN,OUT]] tokenUsage numbers (default 100,10).
 //   [[midusage:IN,OUT]]  extra tokenUsage update BEFORE the final one (multi-step turn).
 //   [[retry-error:MSG]]  error notification with willRetry:true, then normal completion.
@@ -69,6 +72,9 @@ function directive(prompt, name) {
 }
 function flag(prompt, name) {
   return prompt.includes("[[" + name + "]]");
+}
+function promptWithoutDirectives(prompt) {
+  return prompt.replace(/\[\[[\s\S]*?\]\]/g, "");
 }
 
 function createThread(cwd, ephemeral, nickname) {
@@ -245,6 +251,54 @@ function handleTurnStart(msg) {
     return;
   }
 
+  const failTurn = (message) => {
+    const err = { message: message, codexErrorInfo: "other", additionalDetails: null };
+    send({ method: "error", params: { threadId: t.id, turnId: turnId, error: err, willRetry: false } });
+    send({
+      method: "turn/completed",
+      params: { threadId: t.id, turn: turnObj(turnId, "failed", { startedAt: startedAt, completedAt: now(), error: err }) },
+    });
+  };
+
+  const failInvalidSchema = (problem) => {
+    const apiError = {
+      type: "error",
+      error: {
+        type: "invalid_request_error",
+        code: "invalid_json_schema",
+        message:
+          "Invalid schema for response_format 'codex_output_schema': " + problem,
+        param: "text.format.schema",
+      },
+      status: 400,
+    };
+    const message = JSON.stringify(apiError, null, 2);
+    send({
+      method: "error",
+      params: { threadId: t.id, turnId: turnId, error: { message: message, willRetry: false } },
+    });
+    send({
+      method: "turn/completed",
+      params: { threadId: t.id, turn: turnObj(turnId, "failed", { startedAt: startedAt, completedAt: now(), error: { message: message } }) },
+    });
+  };
+
+  const expectedPrompt = directive(prompt, "expect-prompt");
+  if (expectedPrompt !== null && !promptWithoutDirectives(prompt).includes(expectedPrompt)) {
+    failTurn("expected prompt to contain " + JSON.stringify(expectedPrompt));
+    return;
+  }
+
+  if (flag(prompt, "expect-no-output-schema") && p.outputSchema !== null && p.outputSchema !== undefined) {
+    failTurn("expected prompt-only schema delivery, got outputSchema");
+    return;
+  }
+
+  if (flag(prompt, "reject-output-schema") && p.outputSchema !== null && p.outputSchema !== undefined) {
+    failInvalidSchema("forced fake invalid_json_schema rejection");
+    return;
+  }
+
   // Emulate OpenAI strict structured-output validation (observed live
   // 2026-07-02): every object node must carry required = ALL property keys
   // and additionalProperties: false; a map-style additionalProperties
@@ -253,25 +307,7 @@ function handleTurnStart(msg) {
   if (p.outputSchema !== null && p.outputSchema !== undefined) {
     const problem = strictSchemaProblem(p.outputSchema);
     if (problem) {
-      const apiError = {
-        type: "error",
-        error: {
-          type: "invalid_request_error",
-          code: "invalid_json_schema",
-          message:
-            "Invalid schema for response_format 'codex_output_schema': " + problem,
-          param: "text.format.schema",
-        },
-        status: 400,
-      };
-      send({
-        method: "error",
-        params: { threadId: t.id, turnId: turnId, error: { message: JSON.stringify(apiError, null, 2), willRetry: false } },
-      });
-      send({
-        method: "turn/completed",
-        params: { threadId: t.id, turn: turnObj(turnId, "failed", { startedAt: startedAt, completedAt: now(), error: { message: JSON.stringify(apiError, null, 2) } }) },
-      });
+      failInvalidSchema(problem);
       return;
     }
   }
