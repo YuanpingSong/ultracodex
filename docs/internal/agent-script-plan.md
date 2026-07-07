@@ -35,8 +35,20 @@ is journaled as cookbook raw material (ADR-0001 item 3 falls out for free).
   sandbox); a warning-observability channel so the kit can assert warn-once
   through the adapter itself; #4 wording (avoid-sending vs live-rejection —
   kit now proves both).
-- Step 3: OpenCode probe → I freeze fixture contract → fleet builds fake +
-  adapter. Step 4: recursive exit workload (mixed routing on this repo).
+- Step 3 probe DONE (2026-07-06): opencode 1.16.2 probed live, fixture
+  contract FROZEN at `docs/internal/research/opencode-probe.md` + raw
+  captures in `fixtures/opencode/`. Headlines: the plan's prompt-only
+  assumption was WRONG — native wire structured output exists
+  (`format:{type:"json_schema"}` → `AssistantMessage.structured`), is
+  provider-dependent (deepseek thinking-mode 400s → per-call fallback), and
+  passes map-style schemas; the CLI is NOT the surface (broken/empty piped
+  output in 1.16.2) — the adapter targets `opencode serve` HTTP (sync
+  message endpoint, /abort settles typed MessageAbortedError in <1s, SSE
+  carries activity + live usage ticks); headless default runs shell with NO
+  permission gate (tools-disable map is the read-only lever; MCP inherited).
+  Descriptor frozen: wire/resume/graceful/per-turn/activity/sandbox [].
+  Next: fleet builds fake + adapter + kit wiring from the frozen doc.
+  Step 4: recursive exit workload (mixed routing on this repo).
 - Guardrails: fleet runs under the **globally installed ultracodex 0.3.0**,
   never repo dist (no self-modification races); probe-first discipline for
   opencode; contract doc frozen before any wave starts.
