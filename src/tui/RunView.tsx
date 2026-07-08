@@ -24,6 +24,9 @@ import {
   windowAgents,
 } from "./format.js";
 import { useFlash, useFileTail, useJournalState, useTick } from "./hooks.js";
+import { LoopView } from "./LoopView.js";
+import { detectLoops } from "./loops.js";
+import { makeAgentOutputReader } from "./loopFiles.js";
 import type { AgentView, TuiState } from "./reducer.js";
 import { Timeline } from "./Timeline.js";
 
@@ -57,6 +60,7 @@ export function runnerLooksDead(opts: {
 type Mode =
   | { kind: "main" }
   | { kind: "detail"; n: number }
+  | { kind: "loops" }
   | { kind: "timeline" }
   | { kind: "confirm"; action: "stop" | "skip"; n?: number };
 
@@ -76,6 +80,8 @@ export function RunView({ runDir, rows, onBack, onQuit }: RunViewProps): ReactEl
   const now = Date.now();
   const { stdout } = useStdout();
   const columns = stdout?.columns ?? 100;
+  const readAgentOutput = useMemo(() => makeAgentOutputReader(runDir), [runDir]);
+  const loops = useMemo(() => detectLoops(state, readAgentOutput, now), [state, readAgentOutput, now]);
 
   const [mode, setMode] = useState<Mode>({ kind: "main" });
   const [selIdx, setSelIdx] = useState(0);
@@ -192,6 +198,7 @@ export function RunView({ runDir, rows, onBack, onQuit }: RunViewProps): ReactEl
       } else if (key.return) {
         if (selectedAgent) setMode({ kind: "detail", n: selectedAgent.n });
       } else if (input === "t") setMode({ kind: "timeline" });
+      else if ((input === "L" || input === "l") && loops.length > 0) setMode({ kind: "loops" });
       else if (input === "p") {
         if (!controlsEnabled) showFlash(runnerDead ? "runner exited — controls disabled" : "run is not running");
         else {
@@ -215,6 +222,9 @@ export function RunView({ runDir, rows, onBack, onQuit }: RunViewProps): ReactEl
 
   if (mode.kind === "timeline") {
     return <Timeline state={state} now={now} onBack={() => setMode({ kind: "main" })} onQuit={onQuit} />;
+  }
+  if (mode.kind === "loops") {
+    return <LoopView runDir={runDir} onBack={() => setMode({ kind: "main" })} onQuit={onQuit} />;
   }
   if (mode.kind === "detail") {
     const agent = state.agents.get(mode.n);
@@ -294,7 +304,7 @@ export function RunView({ runDir, rows, onBack, onQuit }: RunViewProps): ReactEl
         ) : (
           <Text dimColor wrap="truncate-end">
             ↑↓ select · ←→ phase · ↵ detail · t timeline · p {state.paused ? "resume" : "pause"} · x stop · k skip ·
-            s result · esc home · q quit
+            s result{loops.length > 0 ? ` · ⟳ ${loops.length} loop${loops.length === 1 ? "" : "s"} · L` : ""} · esc home · q quit
           </Text>
         )}
         {flash && <Text color={col("cyan")}> {flash}</Text>}

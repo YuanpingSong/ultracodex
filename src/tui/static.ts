@@ -8,10 +8,20 @@ import {
   statusGlyph,
   truncate,
 } from "./format.js";
+import {
+  detectLoops,
+  formatLoopStatus,
+  formatLoopTotals,
+  roundVerdictLabel,
+  trajectoryStrip,
+} from "./loops.js";
 
 const NARRATOR_TAIL = 6;
 
-export function renderRunStatic(state: TuiState, opts?: { color?: boolean }): string {
+export function renderRunStatic(
+  state: TuiState,
+  opts?: { color?: boolean; readAgentOutput?: (resultRef: string) => string | null },
+): string {
   const enabled = (opts?.color ?? true) && !process.env.NO_COLOR;
   const c = pc.createColors(enabled);
 
@@ -95,6 +105,24 @@ export function renderRunStatic(state: TuiState, opts?: { color?: boolean }): st
     for (const entry of state.narrator.slice(-NARRATOR_TAIL)) {
       const text = `${fmtClock(entry.ts)} ${entry.text}`;
       lines.push("  " + (entry.warn ? c.yellow(text) : c.dim(text)));
+    }
+  }
+
+  const loops = detectLoops(state, opts?.readAgentOutput ?? (() => null), endTs);
+  if (loops.length > 0) {
+    lines.push("");
+    lines.push(c.bold("LOOPS"));
+    for (const loop of loops) {
+      lines.push(
+        `  ${loop.id} · ${formatLoopStatus(loop)} · ${trajectoryStrip(loop.rounds)} · ${formatLoopTotals(loop)}`,
+      );
+      for (const round of loop.rounds) {
+        lines.push(
+          `    r${round.n} ${roundVerdictLabel(round)} · ${round.agents.length} agent${
+            round.agents.length === 1 ? "" : "s"
+          } · ${fmtTokens(round.outputTokens)} tok · ${fmtDuration(round.durationMs)}`,
+        );
+      }
     }
   }
 

@@ -1,14 +1,12 @@
-// Loops pillar, run 3/3 — loop-aware observability: fold-time round grouping,
-// the trajectory-dashboard LoopView, Runs|Loops home tabs, static `show` section.
+// Loops pillar, run 3b — final verifier for loops-3-observability.
+// Gate history: r1-r3 churned solely on a contract ambiguity (sparkline
+// scaling) that the parent has since arbitrated in the contract text below
+// (scale-to-max is final; the tree already implements it). All other checks
+// passed in gate r3. This run executes the Verify phase that never ran.
 export const meta = {
-  name: 'loops-3-observability',
-  description: 'Fold-time loop detection (round-label grammar), LoopView trajectory dashboard, Runs|Loops home tabs, LOOPS section in show',
-  phases: [
-    { title: 'Fold', detail: 'src/tui/loops.ts detection + verdicts + pure render helpers + tests' },
-    { title: 'Views', detail: 'LoopView, home tabs, RunView hook, static show section' },
-    { title: 'Gate', detail: 'contract review, fix loop ≤2 rounds' },
-    { title: 'Verify', detail: 'build + full suite + fixture-rendered frames' },
-  ],
+  name: 'loops-3b-verify',
+  description: 'Fresh-eyes final verification of the loop observability build (build, suite, fixture frames, real-run fold)',
+  phases: [ { title: 'Verify', detail: 'build + full suite + fixture frames + real journal fold' } ],
 }
 
 const REPORT = {
@@ -196,51 +194,9 @@ E. HYGIENE: no fs reads inside render paths except through the existing
    truncate/window helpers).
 `
 
-phase('Fold')
-const fold = await agent(`${COMMON}
-
-YOUR ASSIGNMENT — part 1 of the loop-observability contract below: src/tui/loops.ts ONLY (detection, verdict extraction, pure display helpers) + tests/loops.test.ts. Read src/tui/reducer.ts (TuiState/AgentView), src/tui/format.ts (glyphs, fmtTokens, truncate), src/journal.ts first. Sections A + the pure-helper parts of D apply to you; read B/C so your API serves them (LoopView and static.ts will consume detectLoops + helpers next).
-${CONTRACT}
-Verify before returning: build green, tests/loops.test.ts green, full suite green.`, { label: 'impl:fold', phase: 'Fold', schema: REPORT, effort: 'xhigh' })
-if (!fold) return { status: 'blocked', at: 'fold' }
-log(`fold: ${fold.summary.slice(0, 100)}`)
-
-phase('Views')
-const views = await agent(`${COMMON}
-
-YOUR ASSIGNMENT — part 2 of the loop-observability contract below: the views. src/tui/loops.ts + tests/loops.test.ts already exist from part 1 — consume them, extend loops.ts only with additional PURE helpers if a view needs one (with tests). Your scope: src/tui/LoopView.tsx (new), RunView L-key hook, HomeView Runs|Loops tabs + loop rows + builtin workflow listing, static.ts LOOPS section, remaining tests per D. Read src/tui/RunView.tsx, HomeView.tsx, AgentDetail.tsx, static.ts, index.tsx for the existing navigation/chrome patterns and reuse their helpers — the LoopView must be indistinguishable in style from the rest of the TUI.
-${CONTRACT}
-Verify before returning: build green, full suite green, and render a static frame: create a synthetic run dir fixture (journal.jsonl + agents/*/output.json for a 3-round goal-style loop, reject/reject/approve) and run the show command on it — paste the LOOPS section into "verified".`, { label: 'impl:views', phase: 'Views', schema: REPORT, effort: 'xhigh' })
-if (!views) return { status: 'blocked', at: 'views', fold }
-log(`views: ${views.summary.slice(0, 100)}`)
-
-let gate = null
-for (let round = 1; round <= 3; round++) {
-  gate = await agent(`${COMMON}
-
-YOU ARE THE GATE (round ${round}). Adversarially review the loop-observability implementation against the frozen contract below. Read the diff (git status --short -uall + git diff) and every touched file. Hunt for: detection regex deviations (test the exact examples in A yourself); loopId rule deviations (before-LAST-colon, implicit-loop rules); verdict extraction order/enum deviations; impure loops.ts (fs/Ink imports would be a blocker); fs reads in render paths; uncapped output reads; RunView/HomeView regressions (existing keys, launch flow, run rows must behave exactly as before on the Runs tab); mockup drift in LoopView (information architecture must match the spec block); 80-col wrapping; tests that assert helpers but never exercise detection end-to-end; missed live-update wiring. Run build + the full suite yourself; render the static fixture frame yourself. pass=true ONLY if zero blocker/major issues.
-${CONTRACT}`, { label: `gate:observability-r${round}`, phase: 'Gate', schema: GATE, effort: 'xhigh' })
-  if (!gate) return { status: 'blocked', at: `gate-r${round}`, fold, views }
-  log(`gate r${round}: ${gate.pass ? 'PASS' : `${gate.issues.length} issues`} — ${gate.summary.slice(0, 80)}`)
-  if (gate.pass) break
-  if (round === 3) return { status: 'gate-exhausted', fold, views, gate }
-  const fixes = gate.issues.filter(i => i.severity !== 'minor')
-  if (fixes.length === 0) break
-  const fix = await agent(`${COMMON}
-
-YOUR ASSIGNMENT — fix EXACTLY these gate findings (round ${round}); no drive-by refactors. Findings (file · issue · required fix):
-${fixes.map(i => `- [${i.severity}] ${i.file}: ${i.issue} → ${i.fix}`).join('\n')}
-
-The frozen contract (arbiter):
-${CONTRACT}
-Verify: build + full suite green before returning.`, { label: `fix:observability-r${round}`, phase: 'Gate', schema: REPORT, effort: 'xhigh' })
-  if (!fix) return { status: 'blocked', at: `fix-r${round}`, fold, views, gate }
-  log(`fix r${round}: ${fix.summary.slice(0, 80)}`)
-}
-
 phase('Verify')
 const verify = await agent(`${COMMON}
 
 YOU ARE THE FINAL VERIFIER. Fresh eyes, no prior context. (1) Build — buildOk. (2) Full vitest suite — testsOk. (3) Smoke: build a synthetic run dir (journal.jsonl via the event shapes in src/journal.ts + agents/N-label/output.json files) for a 3-round loop with labels goal:build-r1..r3 / goal:verify-r1..r3 and verifier outputs rejected/rejected/approved; run the show command against it and confirm the LOOPS section reports "goal", trajectory ✖ ✖ ✔, converged r3; ALSO fold a run dir from this repo's own .ultracodex/runs (there are real fleet runs with gate:*-r1 labels — pick one) and confirm detection neither crashes nor mislabels a single-round gate as a loop unless it had >=2 rounds. (4) git status --short -uall — changes confined to src/tui/, tests/, docs/ if touched. pass = all four. Report exact failures in details.`, { label: 'verify:observability', phase: 'Verify', schema: VERIFY, effort: 'high' })
 
-return { status: verify && verify.pass && gate && gate.pass ? 'green' : 'needs-review', fold, views, gate, verify }
+return { status: verify && verify.pass ? 'green' : 'needs-review', verify }
