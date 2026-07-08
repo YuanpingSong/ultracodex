@@ -126,13 +126,36 @@ async function startFake(env: Record<string, string> = {}): Promise<FakeProc> {
 
   const baseUrl = await withTimeout(
     new Promise<string>((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        child.stdout!.off("data", inspect);
+        child.off("close", onClose);
+        child.off("error", onError);
+      };
       const inspect = () => {
+        if (settled) return;
         const match = stdout.match(/opencode server listening on (http:\/\/127\.0\.0\.1:\d+)/);
-        if (match) resolve(match[1]!);
+        if (!match) return;
+        settled = true;
+        cleanup();
+        resolve(match[1]!);
+      };
+      const onClose = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error(`fake exited before announce: ${stderr}`));
+      };
+      const onError = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
       };
       child.stdout!.on("data", inspect);
-      child.once("close", () => reject(new Error(`fake exited before announce: ${stderr}`)));
-      child.once("error", reject);
+      child.once("close", onClose);
+      child.once("error", onError);
+      inspect();
     }),
     1500,
   );

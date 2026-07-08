@@ -34,10 +34,15 @@ ultracodex kill uc_ab                       # control-stop → SIGTERM → SIGKI
 ultracodex logs uc_ab 4                     # raw codex events for agent 4
 ultracodex validate wf.js --strict          # dual-runnability lint
 ultracodex sync-skills                      # static skills + workflows/ → .claude/skills/*
+ultracodex schedule add digest --every 30m -- run digest.js
+ultracodex schedule ls                      # schedules for this project
+ultracodex schedule pause digest            # pause | resume | rm <name>
 ```
 
 Any `<runId>` accepts a unique prefix. Quitting the TUI never kills a run;
 runs are owned by their own detached runner process (pidfile in the run dir).
+Schedules are manager-owned crontab lines, not resident ultracodex daemons; see
+[Scheduling runs](schedule.md).
 
 ## State layout
 

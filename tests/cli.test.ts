@@ -17,6 +17,7 @@ import {
 import { DEFAULT_CODEX_CONFIG, TESTED_CODEX_VERSION, TESTED_OPENCODE_VERSION } from "../src/constants.js";
 import { JournalWriter } from "../src/journal.js";
 import { createRunDir, pidAlive, writePidFile } from "../src/rundir.js";
+import { scheduleSpecPath } from "../src/schedule/spec.js";
 import { fmtDuration } from "../src/tui/format.js";
 import type { JournalEvent } from "../src/types.js";
 import { fakeCodexPath } from "./helpers.js";
@@ -120,6 +121,7 @@ describe("buildProgram", () => {
         "logs",
         "validate",
         "sync-skills",
+        "schedule",
         "doctor",
       ]),
     );
@@ -269,6 +271,13 @@ function makeRun(projectDir: string, runId: string, events: JournalEvent[], pid?
   return runDir;
 }
 
+function writeCorruptScheduleSpec(projectDir: string): void {
+  const specPath = scheduleSpecPath(projectDir, "bad");
+  fs.mkdirSync(path.dirname(specPath), { recursive: true });
+  fs.writeFileSync(specPath, "{ not json", "utf8");
+  fs.writeFileSync(scheduleSpecPath(projectDir, "malformed"), '{"status":"active"}\n', "utf8");
+}
+
 async function runCliInProc(
   args: string[],
   cwd: string,
@@ -361,7 +370,9 @@ describe("doctor", () => {
     );
 
     const prevCodexHome = process.env.CODEX_HOME;
+    const prevCrontab = process.env.ULTRACODEX_CRONTAB_FILE;
     process.env.CODEX_HOME = codexHome;
+    process.env.ULTRACODEX_CRONTAB_FILE = path.join(projectDir, "crontab");
     try {
       const res = await runCliInProc(["doctor"], projectDir);
       expect(res.code).toBe(0);
@@ -370,6 +381,8 @@ describe("doctor", () => {
     } finally {
       if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = prevCodexHome;
+      if (prevCrontab === undefined) delete process.env.ULTRACODEX_CRONTAB_FILE;
+      else process.env.ULTRACODEX_CRONTAB_FILE = prevCrontab;
     }
   });
 });
@@ -442,6 +455,31 @@ describe("lsElapsed", () => {
     expect(row).toContain("dead");
     expect(row).toContain(fmtDuration(5000));
     expect(row).not.toContain("1h00m");
+  });
+});
+
+describe("missed-run nudges", () => {
+  it("does not let a corrupt schedule spec break top-level ls", async () => {
+    const proj = tmpProject();
+    writeCorruptScheduleSpec(proj);
+
+    const res = await runCliInProc(["ls"], proj);
+
+    expect(res.code).toBe(0);
+    expect(res.stdout).toBe("no runs\n");
+    expect(res.stderr).not.toContain("cannot read schedule");
+  });
+
+  it("does not let a corrupt schedule spec break run before the real command executes", async () => {
+    const proj = tmpProject();
+    writeCorruptScheduleSpec(proj);
+    fs.writeFileSync(path.join(proj, "bad.js"), "return 1;\n", "utf8");
+
+    const res = await runCliInProc(["run", "bad.js"], proj);
+
+    expect(res.code).toBe(1);
+    expect(res.stderr).toContain("validation failed");
+    expect(res.stderr).not.toContain("cannot read schedule");
   });
 });
 

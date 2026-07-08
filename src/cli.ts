@@ -20,6 +20,7 @@ import {
 import { loadConfig, resolveCodexEffort, resolveCodexModel } from "./config.js";
 import { parse as parseToml } from "smol-toml";
 import os from "node:os";
+import pc from "picocolors";
 import { appendControl } from "./control.js";
 import { newRunId } from "./ids.js";
 import { readJournal, tailJournal } from "./journal.js";
@@ -41,6 +42,36 @@ import { fmtDuration, fmtTokens } from "./tui/format.js";
 import { initialState, reduce, type TuiState } from "./tui/reducer.js";
 import { renderRunStatic } from "./tui/static.js";
 import { runTui } from "./tui/index.js";
+import {
+  CRONTAB_FILE_ENV,
+  countScheduleCrontabLines,
+  installScheduleCrontabLine,
+  projectHash8,
+  readCrontab,
+  removeScheduleCrontabLine,
+  taggedCrontabLines,
+  validateCrontabPaths,
+} from "./schedule/crontab.js";
+import { execSchedule } from "./schedule/exec.js";
+import {
+  appendScheduleLog,
+  checkMissedSchedules,
+  humanSchedule,
+  listScheduleSpecs,
+  maybeReadScheduleSpec,
+  newScheduleSpec,
+  parseCron,
+  parseDaily,
+  parseEvery,
+  readScheduleSpec,
+  removeScheduleSpec,
+  scheduleSpecPath,
+  schedulesDir,
+  validateScheduleName,
+  writeScheduleSpec,
+  type ParsedSchedule,
+  type ScheduleSpec,
+} from "./schedule/spec.js";
 import type {
   JournalEvent,
   RunEndEvent,
@@ -117,6 +148,16 @@ function hasRunEnd(runDir: string): boolean {
 
 function runnerJsPath(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "runner.js");
+}
+
+function cliEntryPath(): string {
+  return fileURLToPath(import.meta.url);
+}
+
+function emitMissedScheduleWarnings(projectDir: string): void {
+  for (const line of checkMissedSchedules(projectDir)) {
+    process.stderr.write(pc.dim(line) + "\n");
+  }
 }
 
 export function spawnRunner(runDir: string): number | null {
@@ -256,6 +297,7 @@ interface RunCliOpts {
 
 async function runAction(scriptOrName: string, opts: RunCliOpts): Promise<void> {
   const projectDir = process.cwd();
+  if (!opts.json) emitMissedScheduleWarnings(projectDir);
   const scriptPath = resolveScript(projectDir, scriptOrName);
   const source = fs.readFileSync(scriptPath, "utf8");
 
@@ -355,6 +397,171 @@ function table(rows: string[][]): string {
     .join("\n");
 }
 
+interface ScheduleAddOpts {
+  every?: string;
+  daily?: string;
+  cron?: string;
+  untilDone?: boolean;
+  maxRuns?: string;
+}
+
+interface ScheduleLsOpts {
+  json?: boolean;
+}
+
+function selectedSchedule(opts: ScheduleAddOpts): ParsedSchedule {
+  const selected = [opts.every, opts.daily, opts.cron].filter((v) => v !== undefined).length;
+  if (selected !== 1) {
+    throw new CliError("choose exactly one of --every, --daily, or --cron");
+  }
+  if (opts.every !== undefined) return parseEvery(opts.every);
+  if (opts.daily !== undefined) return parseDaily(opts.daily);
+  return parseCron(opts.cron!);
+}
+
+function parseMaxRuns(value: string | undefined): number | null {
+  if (value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new CliError(`--max-runs must be a positive integer (got "${value}")`);
+  }
+  return n;
+}
+
+function scheduleDoneCell(spec: ScheduleSpec): string {
+  if (!spec.untilDone) return "-";
+  return spec.lastRun?.done === true || spec.retiredReason === "done" ? "done" : "pending";
+}
+
+function relativeIso(iso: string): string {
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return iso;
+  const delta = Date.now() - ts;
+  if (Math.abs(delta) < 1000) return "now";
+  if (delta < 0) return `in ${fmtDuration(-delta)}`;
+  return `${fmtDuration(delta)} ago`;
+}
+
+function scheduleLastRunCell(spec: ScheduleSpec): string {
+  if (spec.lastRun === null) return "-";
+  return `${relativeIso(spec.lastRun.ts)} ${spec.lastRun.ok ? "✔" : "✖"}`;
+}
+
+function normalizeScheduleCommand(
+  projectDir: string,
+  argv: string[],
+  untilDone: boolean,
+): string[] {
+  if (argv.length === 0) throw new CliError("schedule command is required after --");
+  if (untilDone && argv[0] !== "run") {
+    throw new CliError("--until-done requires a scheduled `run` command");
+  }
+  if (argv[0] !== "run") return argv;
+  const ref = argv[1];
+  if (!ref) throw new CliError("scheduled `run` command requires a script or workflow name");
+  return ["run", resolveScript(projectDir, ref), ...argv.slice(2)];
+}
+
+function scheduleAddAction(name: string, command: string[], opts: ScheduleAddOpts): void {
+  const projectDir = process.cwd();
+  validateScheduleName(name);
+  if (maybeReadScheduleSpec(projectDir, name) !== null || fs.existsSync(scheduleSpecPath(projectDir, name))) {
+    throw new CliError(`schedule "${name}" already exists`);
+  }
+  const parsed = selectedSchedule(opts);
+  const untilDone = !!opts.untilDone;
+  const normalizedCommand = normalizeScheduleCommand(projectDir, command ?? [], untilDone);
+  const spec = newScheduleSpec({
+    name,
+    schedule: parsed.schedule,
+    cronExpr: parsed.cronExpr,
+    command: normalizedCommand,
+    projectDir,
+    untilDone,
+    maxRuns: parseMaxRuns(opts.maxRuns),
+    nodeBin: process.execPath,
+    cliPath: cliEntryPath(),
+    pathEnv: process.env.PATH ?? "",
+  });
+  validateCrontabPaths(spec);
+  writeScheduleSpec(spec);
+  try {
+    installScheduleCrontabLine(spec);
+  } catch (err) {
+    removeScheduleSpec(projectDir, name);
+    throw err;
+  }
+  process.stdout.write(`scheduled ${name} (${spec.cronExpr})\n`);
+}
+
+function scheduleLsAction(opts: ScheduleLsOpts): void {
+  const projectDir = process.cwd();
+  const specs = listScheduleSpecs(projectDir);
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(specs, null, 2) + "\n");
+    return;
+  }
+  emitMissedScheduleWarnings(projectDir);
+  if (specs.length === 0) {
+    process.stdout.write("no schedules\n");
+    return;
+  }
+  const rows: string[][] = [["NAME", "SCHEDULE", "STATUS", "RUNS", "LAST RUN", "DONE"]];
+  for (const spec of specs) {
+    rows.push([
+      spec.name,
+      humanSchedule(spec),
+      spec.status,
+      String(spec.runs),
+      scheduleLastRunCell(spec),
+      scheduleDoneCell(spec),
+    ]);
+  }
+  process.stdout.write(table(rows) + "\n");
+}
+
+function scheduleRmAction(name: string): void {
+  const projectDir = process.cwd();
+  validateScheduleName(name);
+  const spec = readScheduleSpec(projectDir, name);
+  removeScheduleCrontabLine(spec.projectDir, spec.name);
+  removeScheduleSpec(spec.projectDir, spec.name);
+  appendScheduleLog(spec.projectDir, spec.name, `${new Date().toISOString()} · removed`);
+  process.stdout.write(`removed schedule ${name}\n`);
+}
+
+function schedulePauseAction(name: string): void {
+  const projectDir = process.cwd();
+  validateScheduleName(name);
+  const spec = readScheduleSpec(projectDir, name);
+  if (spec.status === "retired") throw new CliError(`schedule "${name}" is retired`);
+  removeScheduleCrontabLine(spec.projectDir, spec.name);
+  spec.status = "paused";
+  writeScheduleSpec(spec);
+  process.stdout.write(`paused schedule ${name}\n`);
+}
+
+function scheduleResumeAction(name: string): void {
+  const projectDir = process.cwd();
+  validateScheduleName(name);
+  const spec = readScheduleSpec(projectDir, name);
+  if (spec.status === "retired") throw new CliError(`schedule "${name}" is retired`);
+  spec.status = "active";
+  spec.retiredReason = null;
+  installScheduleCrontabLine(spec);
+  writeScheduleSpec(spec);
+  process.stdout.write(`resumed schedule ${name}\n`);
+}
+
+function scheduleExecAction(name: string): void {
+  try {
+    validateScheduleName(name);
+    execSchedule(name);
+  } catch {
+    process.exitCode = 1;
+  }
+}
+
 /**
  * ELAPSED cell for `ls`. Dead runs (crashed, no run_end) freeze at the last
  * journal event instead of ticking from Date.now() forever.
@@ -371,6 +578,7 @@ export function lsElapsed(r: Pick<RunSummary, "runDir" | "status" | "startedAt" 
 }
 
 function lsAction(): void {
+  emitMissedScheduleWarnings(process.cwd());
   const runs = listRuns(process.cwd());
   if (runs.length === 0) {
     process.stdout.write("no runs\n");
@@ -889,6 +1097,65 @@ async function doctorAction(): Promise<void> {
     report(false, "state dir", errMsg(err), "check permissions on .ultracodex/");
   }
 
+  info("schedules", "manager mode: cron wakes ultracodex; no ultracodex daemon is installed");
+  let crontabText: string | null = null;
+  if (process.env[CRONTAB_FILE_ENV]) {
+    info(
+      "schedule crontab",
+      `${CRONTAB_FILE_ENV} override active (${process.env[CRONTAB_FILE_ENV]})`,
+    );
+    try {
+      crontabText = readCrontab();
+    } catch (err) {
+      report(false, "schedule crontab", errMsg(err));
+    }
+  } else {
+    try {
+      crontabText = readCrontab();
+      report(true, "crontab binary", "reachable");
+    } catch (err) {
+      report(false, "crontab binary", errMsg(err), "install cron/crontab or test with ULTRACODEX_CRONTAB_FILE");
+    }
+  }
+
+  let scheduleSpecs: ScheduleSpec[] = [];
+  try {
+    scheduleSpecs = listScheduleSpecs(projectDir);
+  } catch (err) {
+    report(false, "schedules", errMsg(err), "inspect .ultracodex/schedules/*.json");
+  }
+  const schedDir = schedulesDir(projectDir);
+  if (scheduleSpecs.length === 0 && !fs.existsSync(schedDir)) {
+    info("schedules", "no schedules");
+  } else {
+    try {
+      fs.mkdirSync(schedDir, { recursive: true });
+      const probe = path.join(schedDir, `.doctor-${process.pid}`);
+      fs.writeFileSync(probe, "ok");
+      fs.rmSync(probe);
+      report(true, "schedules dir", `${schedDir} writable`);
+    } catch (err) {
+      report(false, "schedules dir", errMsg(err), "check permissions on .ultracodex/schedules/");
+    }
+  }
+  if (crontabText !== null) {
+    for (const spec of scheduleSpecs.filter((s) => s.status === "active")) {
+      const count = countScheduleCrontabLines(crontabText, spec.projectDir, spec.name);
+      report(
+        count === 1,
+        `schedule ${spec.name}`,
+        count === 1 ? "one tagged crontab line present" : `expected one tagged crontab line, found ${count}`,
+      );
+    }
+    const projectHash = projectHash8(projectDir);
+    const specNames = new Set(scheduleSpecs.map((s) => s.name));
+    for (const line of taggedCrontabLines(crontabText)) {
+      if (line.hash8 === projectHash && !specNames.has(line.name)) {
+        info("schedule orphan", `warn: tagged crontab line without spec (${line.name})`);
+      }
+    }
+  }
+
   if (hardFail) process.exitCode = 1;
 }
 
@@ -1000,6 +1267,44 @@ export function buildProgram(): Command {
     .command("sync-skills")
     .description("install the ultracodex + agent-script-authoring skills, plus one skill per saved workflow, into .claude/skills/")
     .action(act(syncSkillsAction));
+
+  const schedule = program.command("schedule").description("manage cron schedules");
+
+  schedule
+    .command("add <name> [command...]")
+    .option("--every <dur>", "run every Nm (1-59) or Nh (1-23)")
+    .option("--daily <HH:MM>", "run daily at local time HH:MM")
+    .option("--cron <expr>", "raw 5-field cron expression")
+    .option("--until-done", "retire when a scheduled run returns an object with done:true")
+    .option("--max-runs <n>", "retire after n executions")
+    .description("add a cron-backed schedule")
+    .action(act(scheduleAddAction));
+
+  schedule
+    .command("ls")
+    .option("--json", "emit schedule specs as JSON")
+    .description("list schedules")
+    .action(act(scheduleLsAction));
+
+  schedule
+    .command("rm <name>")
+    .description("remove a schedule and its crontab line")
+    .action(act(scheduleRmAction));
+
+  schedule
+    .command("pause <name>")
+    .description("pause a schedule and remove its crontab line")
+    .action(act(schedulePauseAction));
+
+  schedule
+    .command("resume <name>")
+    .description("resume a paused schedule")
+    .action(act(scheduleResumeAction));
+
+  schedule
+    .command("exec <name>", { hidden: true })
+    .description("execute a schedule once")
+    .action(scheduleExecAction);
 
   program
     .command("doctor")
