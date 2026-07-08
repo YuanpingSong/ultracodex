@@ -38,6 +38,8 @@ export interface ParsedSchedule {
   cronExpr: string;
 }
 
+export { nextFireMs } from "./time.js";
+
 export function schedulesDir(projectDir: string): string {
   return path.join(stateDir(projectDir), SCHEDULES_DIR_NAME);
 }

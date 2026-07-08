@@ -36,6 +36,17 @@ ultracodex schedule rm digest
 Logs stay in `.ultracodex/schedules/<name>.log`. Removing a schedule deletes
 the spec and crontab line, but keeps the log for post-mortems.
 
+## In the TUI
+
+Run `ultracodex` and press `tab` to cycle Runs → Loops → Schedules. The
+Schedules tab lists status, cadence, recent exec outcomes, countdown, and run
+count. On a schedule row, `enter` opens detail, `e` starts `schedule exec`
+detached, `p` pauses or resumes, and `x` asks for `y/n` before removal.
+
+On the Runs tab, select a workflow and press `S` to create a schedule. The form
+captures name, every/daily cadence, value, until-done, max-runs, and optional
+args JSON.
+
 ## Command reference
 
 ```

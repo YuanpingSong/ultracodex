@@ -14,7 +14,6 @@ import {
   SIGTERM_GRACE_MS,
   TESTED_CODEX_VERSION,
   TESTED_OPENCODE_VERSION,
-  WORKFLOWS_DIR_NAME,
   defaultConcurrency,
 } from "./constants.js";
 import { loadConfig, resolveCodexEffort, resolveCodexModel } from "./config.js";
@@ -35,8 +34,9 @@ import {
   runsDir,
   stateDir,
 } from "./rundir.js";
-import { packageRootDir, syncSkills } from "./skills.js";
+import { syncSkills } from "./skills.js";
 import { validateWorkflowScript, type ValidationIssue } from "./validate.js";
+import { resolveScript } from "./workflows.js";
 import { AppServerClient } from "./appserver/client.js";
 import { fmtDuration, fmtTokens } from "./tui/format.js";
 import { makeAgentOutputReader } from "./tui/loopFiles.js";
@@ -51,26 +51,19 @@ import {
   readCrontab,
   removeScheduleCrontabLine,
   taggedCrontabLines,
-  validateCrontabPaths,
 } from "./schedule/crontab.js";
+import { addSchedule, type ScheduleAddOpts } from "./schedule/add.js";
 import { execSchedule } from "./schedule/exec.js";
 import {
   appendScheduleLog,
   checkMissedSchedules,
   humanSchedule,
   listScheduleSpecs,
-  maybeReadScheduleSpec,
-  newScheduleSpec,
-  parseCron,
-  parseDaily,
-  parseEvery,
   readScheduleSpec,
   removeScheduleSpec,
-  scheduleSpecPath,
   schedulesDir,
   validateScheduleName,
   writeScheduleSpec,
-  type ParsedSchedule,
   type ScheduleSpec,
 } from "./schedule/spec.js";
 import type {
@@ -82,6 +75,8 @@ import type {
 } from "./types.js";
 
 class CliError extends Error {}
+
+export { resolveScript };
 
 // ---------------------------------------------------------------------------
 // Small exported helpers (unit-tested)
@@ -97,31 +92,6 @@ export function parseBudget(input: string): number {
   const n = Math.round(parseFloat(m[1]!) * mult);
   if (!Number.isFinite(n) || n <= 0) throw bad();
   return n;
-}
-
-/** Resolve a script path or a saved workflow name to an absolute script path. */
-export function resolveScript(projectDir: string, ref: string): string {
-  const asPath = path.resolve(projectDir, ref);
-  try {
-    if (fs.statSync(asPath).isFile()) return asPath;
-  } catch {
-    // not a file path
-  }
-  const saved = path.join(stateDir(projectDir), WORKFLOWS_DIR_NAME, `${ref}.js`);
-  try {
-    if (fs.statSync(saved).isFile()) return saved;
-  } catch {
-    // not a saved workflow either
-  }
-  const builtin = path.join(packageRootDir(), WORKFLOWS_DIR_NAME, `${ref}.js`);
-  try {
-    if (fs.statSync(builtin).isFile()) return builtin;
-  } catch {
-    // not a packaged workflow either
-  }
-  throw new CliError(
-    `cannot resolve script "${ref}": tried path ${asPath}, saved workflow ${saved}, and packaged workflow ${builtin}`,
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -406,35 +376,8 @@ function table(rows: string[][]): string {
     .join("\n");
 }
 
-interface ScheduleAddOpts {
-  every?: string;
-  daily?: string;
-  cron?: string;
-  untilDone?: boolean;
-  maxRuns?: string;
-}
-
 interface ScheduleLsOpts {
   json?: boolean;
-}
-
-function selectedSchedule(opts: ScheduleAddOpts): ParsedSchedule {
-  const selected = [opts.every, opts.daily, opts.cron].filter((v) => v !== undefined).length;
-  if (selected !== 1) {
-    throw new CliError("choose exactly one of --every, --daily, or --cron");
-  }
-  if (opts.every !== undefined) return parseEvery(opts.every);
-  if (opts.daily !== undefined) return parseDaily(opts.daily);
-  return parseCron(opts.cron!);
-}
-
-function parseMaxRuns(value: string | undefined): number | null {
-  if (value === undefined) return null;
-  const n = Number(value);
-  if (!Number.isInteger(n) || n < 1) {
-    throw new CliError(`--max-runs must be a positive integer (got "${value}")`);
-  }
-  return n;
 }
 
 function scheduleDoneCell(spec: ScheduleSpec): string {
@@ -456,50 +399,16 @@ function scheduleLastRunCell(spec: ScheduleSpec): string {
   return `${relativeIso(spec.lastRun.ts)} ${spec.lastRun.ok ? "✔" : "✖"}`;
 }
 
-function normalizeScheduleCommand(
-  projectDir: string,
-  argv: string[],
-  untilDone: boolean,
-): string[] {
-  if (argv.length === 0) throw new CliError("schedule command is required after --");
-  if (untilDone && argv[0] !== "run") {
-    throw new CliError("--until-done requires a scheduled `run` command");
-  }
-  if (argv[0] !== "run") return argv;
-  const ref = argv[1];
-  if (!ref) throw new CliError("scheduled `run` command requires a script or workflow name");
-  return ["run", resolveScript(projectDir, ref), ...argv.slice(2)];
-}
-
 function scheduleAddAction(name: string, command: string[], opts: ScheduleAddOpts): void {
-  const projectDir = process.cwd();
-  validateScheduleName(name);
-  if (maybeReadScheduleSpec(projectDir, name) !== null || fs.existsSync(scheduleSpecPath(projectDir, name))) {
-    throw new CliError(`schedule "${name}" already exists`);
-  }
-  const parsed = selectedSchedule(opts);
-  const untilDone = !!opts.untilDone;
-  const normalizedCommand = normalizeScheduleCommand(projectDir, command ?? [], untilDone);
-  const spec = newScheduleSpec({
+  const spec = addSchedule({
     name,
-    schedule: parsed.schedule,
-    cronExpr: parsed.cronExpr,
-    command: normalizedCommand,
-    projectDir,
-    untilDone,
-    maxRuns: parseMaxRuns(opts.maxRuns),
+    command: command ?? [],
+    projectDir: process.cwd(),
+    ...opts,
     nodeBin: process.execPath,
     cliPath: cliEntryPath(),
     pathEnv: process.env.PATH ?? "",
-  });
-  validateCrontabPaths(spec);
-  writeScheduleSpec(spec);
-  try {
-    installScheduleCrontabLine(spec);
-  } catch (err) {
-    removeScheduleSpec(projectDir, name);
-    throw err;
-  }
+  }).spec;
   process.stdout.write(`scheduled ${name} (${spec.cronExpr})\n`);
 }
 

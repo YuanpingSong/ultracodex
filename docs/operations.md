@@ -44,6 +44,11 @@ runs are owned by their own detached runner process (pidfile in the run dir).
 Schedules are manager-owned crontab lines, not resident ultracodex daemons; see
 [Scheduling runs](schedule.md).
 
+TUI home keys: `tab` cycles Runs → Loops → Schedules. Runs keeps `n` for a new
+workflow run, `r` for re-run, and `S` on a workflow to schedule it. Schedules
+uses `enter` for detail, `e` for exec-now, `p` for pause/resume, and `x` for
+remove with confirmation.
+
 ## State layout
 
 ```

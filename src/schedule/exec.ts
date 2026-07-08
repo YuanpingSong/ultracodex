@@ -59,6 +59,11 @@ function readSettledLockPid(lockPath: string): number | null {
   return readLockPid(lockPath);
 }
 
+export function isExecRunning(projectDir: string, name: string): boolean {
+  const pid = readSettledLockPid(scheduleLockPath(projectDir, name));
+  return pid !== null && pidAlive(pid);
+}
+
 function staleLockClaimPath(lockPath: string): string {
   return `${lockPath}.steal`;
 }

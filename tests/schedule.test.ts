@@ -5,19 +5,34 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildProgram } from "../src/cli.js";
+import { addSchedule } from "../src/schedule/add.js";
 import {
   renderCrontabLine,
   scheduleTag,
 } from "../src/schedule/crontab.js";
+import { isExecRunning } from "../src/schedule/exec.js";
+import { parseScheduleLogTail } from "../src/schedule/log.js";
 import {
   checkMissedSchedules,
+  nextFireMs,
   newScheduleSpec,
   readScheduleSpec,
   scheduleLockPath,
   scheduleLogPath,
   scheduleSpecPath,
   writeScheduleSpec,
+  type ScheduleSpec,
 } from "../src/schedule/spec.js";
+import {
+  buildScheduleHistoryStrip,
+  execOutcomeGlyph,
+  formatScheduleCountdown,
+  formatScheduleLastRunCell,
+  formatScheduleRow,
+  scheduleStatusGlyph,
+  sortScheduleSpecsForDisplay,
+  validateScheduleFormDraft,
+} from "../src/tui/schedules.js";
 
 const dirs: string[] = [];
 const children: ChildProcess[] = [];
@@ -65,6 +80,18 @@ function readCrontabFile(): string {
   } catch {
     return "";
   }
+}
+
+function localMs(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second = 0,
+  ms = 0,
+): number {
+  return new Date(year, month - 1, day, hour, minute, second, ms).getTime();
 }
 
 async function runCliInProc(
@@ -145,6 +172,294 @@ function waitForReady(child: ChildProcess): Promise<void> {
     child.once("error", onError);
   });
 }
+
+describe("schedule time helpers", () => {
+  it("computes next every-minute fires using cron minute multiples", () => {
+    expect(
+      nextFireMs({ kind: "every", value: "15m" }, localMs(2026, 1, 1, 12, 31, 5)),
+    ).toBe(localMs(2026, 1, 1, 12, 45));
+    expect(
+      nextFireMs({ kind: "every", value: "17m" }, localMs(2026, 1, 1, 12, 59, 30)),
+    ).toBe(localMs(2026, 1, 1, 13, 0));
+    expect(
+      nextFireMs({ kind: "every", value: "30m" }, localMs(2026, 1, 1, 12, 30)),
+    ).toBe(localMs(2026, 1, 1, 12, 30));
+  });
+
+  it("computes next every-hour fires across day rollover", () => {
+    expect(
+      nextFireMs({ kind: "every", value: "6h" }, localMs(2026, 1, 1, 22, 10)),
+    ).toBe(localMs(2026, 1, 2, 0, 0));
+    expect(
+      nextFireMs({ kind: "every", value: "6h" }, localMs(2026, 1, 1, 18, 0)),
+    ).toBe(localMs(2026, 1, 1, 18, 0));
+  });
+
+  it("computes daily fires today or tomorrow and leaves raw cron unknown", () => {
+    expect(
+      nextFireMs({ kind: "daily", value: "18:30" }, localMs(2026, 1, 1, 18, 29, 59)),
+    ).toBe(localMs(2026, 1, 1, 18, 30));
+    expect(
+      nextFireMs({ kind: "daily", value: "18:30" }, localMs(2026, 1, 1, 18, 30, 1)),
+    ).toBe(localMs(2026, 1, 2, 18, 30));
+    expect(nextFireMs({ kind: "cron", value: "7 8 * * 1" }, localMs(2026, 1, 1, 18, 30))).toBeNull();
+  });
+});
+
+describe("schedule log tail parser", () => {
+  it("returns the last exec outcomes and ignores annotations or truncated first lines", () => {
+    const outcomes = parseScheduleLogTail(
+      [
+        "26-01-01T00:00:00.000Z · exit 0 · status ok",
+        "2026-01-01T00:01:00.000Z · skipped: paused",
+        "2026-01-01T00:02:00.000Z · exit 0 · status ok",
+        "2026-01-01T00:02:00.000Z · stdout:",
+        "hello",
+        "2026-01-01T00:03:00.000Z · exit 7 · runId uc_bad · status failed",
+        "2026-01-01T00:04:00.000Z · retired: done",
+        "2026-01-01T00:05:00.000Z · exit 0 · status ok",
+      ].join("\n"),
+      2,
+    );
+
+    expect(outcomes).toEqual([
+      { ts: "2026-01-01T00:03:00.000Z", ok: false },
+      { ts: "2026-01-01T00:05:00.000Z", ok: true },
+    ]);
+  });
+});
+
+describe("addSchedule", () => {
+  it("writes the same spec and crontab line as the CLI add action", async () => {
+    const projectDir = tmpProject();
+    const wf = path.join(projectDir, "wf.js");
+    fs.writeFileSync(wf, "return { done: true };\n", "utf8");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T12:00:00.000Z"));
+
+    const direct = addSchedule({
+      projectDir,
+      name: "shared",
+      every: "15m",
+      untilDone: true,
+      maxRuns: "3",
+      command: ["run", "wf.js", "--args", "{\"x\":1}"],
+    }).spec;
+    const directCrontab = readCrontabFile();
+    fs.rmSync(scheduleSpecPath(projectDir, "shared"), { force: true });
+    fs.writeFileSync(crontabFile(), "", "utf8");
+
+    const cli = await runCliInProc(
+      [
+        "schedule",
+        "add",
+        "shared",
+        "--every",
+        "15m",
+        "--until-done",
+        "--max-runs",
+        "3",
+        "--",
+        "run",
+        "wf.js",
+        "--args",
+        "{\"x\":1}",
+      ],
+      projectDir,
+    );
+
+    expect(cli).toMatchObject({ code: 0, stderr: "" });
+    const cliSpec = readScheduleSpec(projectDir, "shared");
+    expect(cliSpec).toEqual(direct);
+    expect(readCrontabFile()).toBe(directCrontab);
+    expect(readCrontabFile()).toBe(renderCrontabLine(cliSpec) + "\n");
+  });
+});
+
+describe("isExecRunning", () => {
+  it("distinguishes absent, stale, and live lock pids", () => {
+    const projectDir = tmpProject();
+    expect(isExecRunning(projectDir, "probe")).toBe(false);
+
+    fs.mkdirSync(path.dirname(scheduleLockPath(projectDir, "probe")), { recursive: true });
+    fs.writeFileSync(scheduleLockPath(projectDir, "probe"), "999999999\n", "utf8");
+    expect(isExecRunning(projectDir, "probe")).toBe(false);
+
+    fs.writeFileSync(scheduleLockPath(projectDir, "probe"), `${process.pid}\n`, "utf8");
+    expect(isExecRunning(projectDir, "probe")).toBe(true);
+  });
+});
+
+function scheduleFixture(overrides: Partial<ScheduleSpec> = {}): ScheduleSpec {
+  return {
+    ...newScheduleSpec({
+      name: "report-tick",
+      schedule: { kind: "daily", value: "18:30" },
+      cronExpr: "30 18 * * *",
+      command: ["run", "/tmp/wf.js"],
+      projectDir: "/tmp/project",
+      untilDone: false,
+      maxRuns: null,
+      nodeBin: process.execPath,
+      cliPath: "/tmp/cli.js",
+      pathEnv: "",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    }),
+    ...overrides,
+  };
+}
+
+describe("schedule TUI pure helpers", () => {
+  it("maps status and outcome glyphs", () => {
+    expect(scheduleStatusGlyph("active")).toEqual({ glyph: "●", color: "cyan", dim: false });
+    expect(scheduleStatusGlyph("paused")).toEqual({ glyph: "⊘", color: "yellow", dim: false });
+    expect(scheduleStatusGlyph("retired")).toEqual({ glyph: "○", color: "dim", dim: true });
+    expect(execOutcomeGlyph(true)).toEqual({ glyph: "✔", color: "green", dim: false });
+    expect(execOutcomeGlyph(false)).toEqual({ glyph: "✖", color: "red", dim: false });
+  });
+
+  it("builds history strips with a trailing running spinner", () => {
+    expect(
+      buildScheduleHistoryStrip(
+        [
+          { ts: "1", ok: false },
+          { ts: "2", ok: true },
+          { ts: "3", ok: true },
+          { ts: "4", ok: false },
+          { ts: "5", ok: true },
+        ],
+        true,
+        "⠋",
+      ),
+    ).toBe("✔ ✔ ✖ ✔ ⠋");
+  });
+
+  it("formats countdowns including raw cron and overdue states", () => {
+    const nowMs = localMs(2026, 1, 1, 16, 16);
+    expect(
+      formatScheduleCountdown({
+        spec: { schedule: { kind: "daily", value: "18:30" } },
+        nowMs,
+      }),
+    ).toBe("in 2h 14m");
+    expect(
+      formatScheduleCountdown({
+        spec: { schedule: { kind: "every", value: "1m" } },
+        nowMs,
+        nextMs: nowMs + 45_000,
+      }),
+    ).toBe("in 45s");
+    expect(
+      formatScheduleCountdown({
+        spec: { schedule: { kind: "cron", value: "7 8 * * 1" } },
+        nowMs,
+      }),
+    ).toBe("—");
+    expect(
+      formatScheduleCountdown({
+        spec: { schedule: { kind: "every", value: "5m" } },
+        nowMs,
+        overdue: true,
+      }),
+    ).toBe("OVERDUE");
+  });
+
+  it("formats list rows with status, schedule, history, countdown, and run count", () => {
+    const spec = scheduleFixture({ runs: 12 });
+    expect(
+      formatScheduleRow({
+        spec,
+        selected: true,
+        nowMs: localMs(2026, 1, 1, 16, 16),
+        history: [
+          { ts: "1", ok: true },
+          { ts: "2", ok: false },
+          { ts: "3", ok: true },
+        ],
+      }),
+    ).toBe("❯ ● report-tick   daily 18:30   ✔ ✖ ✔   in 2h 14m   12 runs");
+  });
+
+  it("sorts active schedules by next fire before paused and retired rows", () => {
+    const nowMs = localMs(2026, 1, 1, 16, 16);
+    const activeSoon = scheduleFixture({
+      name: "soon",
+      schedule: { kind: "every", value: "15m" },
+      cronExpr: "*/15 * * * *",
+      status: "active",
+    });
+    const activeLater = scheduleFixture({
+      name: "later",
+      schedule: { kind: "daily", value: "18:30" },
+      cronExpr: "30 18 * * *",
+      status: "active",
+    });
+    const rawCron = scheduleFixture({
+      name: "raw",
+      schedule: { kind: "cron", value: "7 8 * * 1" },
+      cronExpr: "7 8 * * 1",
+      status: "active",
+    });
+    const paused = scheduleFixture({ name: "paused", status: "paused" });
+    const retired = scheduleFixture({ name: "retired", status: "retired" });
+
+    expect(
+      sortScheduleSpecsForDisplay([retired, rawCron, paused, activeLater, activeSoon], nowMs).map((s) => s.name),
+    ).toEqual(["soon", "later", "raw", "paused", "retired"]);
+  });
+
+  it("formats last-run cells with the short local timestamp, exit code, and run id", () => {
+    expect(
+      formatScheduleLastRunCell({
+        ts: "2026-07-07T18:30:02.000Z",
+        ok: true,
+        exitCode: 0,
+        runId: "uc_abc123",
+      }),
+    ).toMatch(/^last run ✔ \d{2}-\d{2} \d{2}:\d{2} · exit 0 · uc_abc123$/);
+    expect(formatScheduleLastRunCell(null)).toBe("last run —");
+  });
+
+  it("validates schedule form drafts without filesystem access", () => {
+    expect(
+      validateScheduleFormDraft({
+        name: "digest",
+        cadence: "every",
+        value: "30m",
+        untilDone: true,
+        maxRuns: "5",
+        argsJson: "{\"team\":\"ops\"}",
+      }),
+    ).toEqual({
+      ok: true,
+      name: "digest",
+      every: "30m",
+      untilDone: true,
+      maxRuns: "5",
+      argsJson: "{\"team\":\"ops\"}",
+    });
+    expect(
+      validateScheduleFormDraft({
+        name: "bad",
+        cadence: "daily",
+        value: "24:00",
+        untilDone: false,
+        maxRuns: "",
+        argsJson: "",
+      }),
+    ).toMatchObject({ ok: false, field: "value" });
+    expect(
+      validateScheduleFormDraft({
+        name: "digest",
+        cadence: "every",
+        value: "30m",
+        untilDone: false,
+        maxRuns: "",
+        argsJson: "{",
+      }),
+    ).toEqual({ ok: false, field: "argsJson", error: "args must be valid JSON (or empty)" });
+  });
+});
 
 describe("schedule lifecycle", () => {
   it("adds, lists, pauses, resumes, and removes a schedule", async () => {
