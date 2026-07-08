@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { runnerMain } from "../src/runner.js";
 import { readJournal } from "../src/journal.js";
 import { createRunDir } from "../src/rundir.js";
@@ -17,6 +18,7 @@ import type {
 } from "../src/types.js";
 
 const dirs: string[] = [];
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 afterEach(() => {
   for (const d of dirs.splice(0)) {
@@ -69,6 +71,27 @@ function setupRun(
     );
   }
   return { projectDir, runDir, runId };
+}
+
+function builtinScript(name: string): string {
+  return fs.readFileSync(path.join(repoRoot, "workflows", `${name}.js`), "utf8");
+}
+
+async function withScriptedReplies<T>(replies: unknown[], fn: () => Promise<T>): Promise<T> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ultracodex-replies-"));
+  dirs.push(dir);
+  const file = path.join(dir, "replies.json");
+  fs.writeFileSync(file, JSON.stringify({ index: 0, replies }), "utf8");
+  const prev = process.env.FAKE_CODEX_REPLY_FILE;
+  process.env.FAKE_CODEX_REPLY_FILE = file;
+  try {
+    const result = await fn();
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).index).toBe(replies.length);
+    return result;
+  } finally {
+    if (prev === undefined) delete process.env.FAKE_CODEX_REPLY_FILE;
+    else process.env.FAKE_CODEX_REPLY_FILE = prev;
+  }
 }
 
 function lastEvent(runDir: string): RunEndEvent {
@@ -289,6 +312,118 @@ return await agent('quick [[reply:done]]', { label: 'quick' })
     expect(strayEnd.status).toBe("skipped");
     expect(end.totals.agents).toBe(2);
   }, 15000);
+});
+
+describe("packaged loop workflows", () => {
+  it("goal rejects once, approves on round 2, and journals round labels", async () => {
+    const replies = [
+      "builder round 1",
+      {
+        verdict: "rejected",
+        issues: ["criterion B is not demonstrably satisfied"],
+        criteria: [
+          { criterion: "criterion A", pass: true, note: "verified" },
+          { criterion: "criterion B", pass: false, note: "missing evidence" },
+        ],
+      },
+      "builder round 2",
+      {
+        verdict: "approved",
+        issues: [],
+        criteria: [
+          { criterion: "criterion A", pass: true, note: "verified" },
+          { criterion: "criterion B", pass: true, note: "verified" },
+        ],
+      },
+    ];
+    const { runDir } = setupRun(builtinScript("goal"), {
+      argsJson: {
+        task: "Build the sample feature.",
+        criteria: "criterion A\ncriterion B",
+        budgetFloor: 0,
+      },
+      strict: true,
+    });
+
+    await withScriptedReplies(replies, () => runnerMain(runDir));
+
+    const end = lastEvent(runDir);
+    expect(end.status).toBe("ok");
+    const result = JSON.parse(fs.readFileSync(path.join(runDir, "result.json"), "utf8"));
+    expect(result).toMatchObject({
+      done: true,
+      rounds: 2,
+      verdict: "approved",
+      issues: [],
+    });
+    expect(result.history).toEqual([
+      { round: 1, verdict: "rejected", issues: ["criterion B is not demonstrably satisfied"] },
+      { round: 2, verdict: "approved", issues: [] },
+    ]);
+
+    const labels = (readJournal(runDir).filter((e) => e.t === "agent_start") as AgentStartEvent[]).map(
+      (e) => e.label,
+    );
+    expect(labels).toEqual([
+      "goal:build-r1",
+      "goal:verify-r1",
+      "goal:build-r2",
+      "goal:verify-r2",
+    ]);
+  });
+
+  it("loop dedups seen findings and converges after dry rounds", async () => {
+    const replies = [
+      {
+        findings: [
+          { title: "Alpha", detail: "first sighting" },
+          { title: "Alpha", detail: "duplicate sighting" },
+          { title: "Beta", detail: "second sighting", location: "src/beta.ts" },
+        ],
+      },
+      { findings: [] },
+      { findings: [] },
+    ];
+    const { runDir } = setupRun(builtinScript("loop"), {
+      argsJson: {
+        find: "Find fresh issues.",
+        dryRounds: 2,
+        maxRounds: 5,
+        budgetFloor: 0,
+      },
+      strict: true,
+    });
+
+    await withScriptedReplies(replies, () => runnerMain(runDir));
+
+    const end = lastEvent(runDir);
+    expect(end.status).toBe("ok");
+    const result = JSON.parse(fs.readFileSync(path.join(runDir, "result.json"), "utf8"));
+    expect(result.done).toBe(true);
+    expect(result.dry).toBe(true);
+    expect(result.rounds).toBe(3);
+    expect(result.seenCount).toBe(2);
+    expect(result.findings).toEqual([
+      { title: "Alpha", detail: "first sighting" },
+      { title: "Beta", detail: "second sighting", location: "src/beta.ts" },
+    ]);
+
+    const labels = (readJournal(runDir).filter((e) => e.t === "agent_start") as AgentStartEvent[]).map(
+      (e) => e.label,
+    );
+    expect(labels).toEqual(["loop:find-r1", "loop:find-r2", "loop:find-r3"]);
+  });
+
+  it("goal missing required args fails the run with a usage error", async () => {
+    const { runDir } = setupRun(builtinScript("goal"), { strict: true });
+    await runnerMain(runDir);
+
+    const end = lastEvent(runDir);
+    expect(end.status).toBe("failed");
+    expect(end.error).toMatch(/usage: run goal/);
+    expect(end.error).toMatch(/task, criteria/);
+    expect(readJournal(runDir).filter((e) => e.t === "agent_start")).toHaveLength(0);
+  });
 });
 
 describe("runnerMain workflow() child loading", () => {

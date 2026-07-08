@@ -38,10 +38,10 @@ flowchart TD
   S(["start (rounds 1..N, N=3)"]) --> FB
   CAP{"round < N?"}
   subgraph RND["Round N (per iteration)"]
-    FB(["build feedback (prev draft + issues)"]) --> A["actor:round-N (draft haiku)"]
+    FB(["build feedback (prev draft + issues)"]) --> A["draft-rN (draft haiku)"]
     A --> AN{"actor null?"}
     AN -->|"yes: log + continue"| CAP
-    AN -->|"no"| C["critic:round-N (judge, schema)"]
+    AN -->|"no"| C["critique-rN (judge, schema)"]
     C --> CN{"critic null?"}
     CN -->|"yes"| DEG(["synthetic fail verdict"])
     CN -->|"no"| AUD
@@ -83,10 +83,10 @@ Walkthrough of the topology:
 2. **Feedback threading.** Before dispatching the actor, the loop builds a feedback block
    from the previous round's state: the rejected draft plus the critic's issues, joined
    into the new prompt with an explicit "Fix every issue." First round, the block is empty.
-3. **Actor call** (`actor:round-N`) drafts against rubric + feedback. A `null` result
+3. **Actor call** (`draft-rN`) drafts against rubric + feedback. A `null` result
    (failed/skipped agent) is logged and forfeits the round via `continue` — the cap still
    counts it, so a flaky actor cannot extend the run.
-4. **Critic call** (`critic:round-N`) judges with the `CRITIQUE` schema —
+4. **Critic call** (`critique-rN`) judges with the `CRITIQUE` schema —
    `{ pass: boolean, issues: string[] }`, both required — and is explicitly told not to
    invent requirements beyond the rubric. A `null` critic degrades to a synthetic failing
    verdict (`{ pass: false, issues: ['critic unavailable'] }`) so control flow never
@@ -118,9 +118,9 @@ Walkthrough of the topology:
 - **Explicit round cap (rail 2)** and **budget governor (rail 3)** — the `for` bound is the
   real ceiling (the lifetime agent cap is a backstop), and a budget-aware `break` keeps an
   unbounded round count from spinning past its token ceiling.
-- **Role-labeled agent calls** — `actor:round-N` / `critic:round-N`, enabling label-based
+- **Role-labeled agent calls** — `draft-rN` / `critique-rN`, enabling label-based
   backend routing with no script change. For genuinely independent judgment, route the judge
-  to another backend: add `"critic:*" = "claude"` under `[route]` in
+  to another backend: add `"critique-r*" = "claude"` under `[route]` in
   `.ultracodex/config.toml` and the actor and critic come from different model families —
   the loop is byte-for-byte identical; only the routing table changes.
 - **Per-round `phase()`** matching `meta.phases` titles for progress grouping.
@@ -133,6 +133,6 @@ Walkthrough of the topology:
 ultracodex run examples/actor-critic-loop/workflow.js --watch --budget 200k
 ```
 
-It runs as-is — no user data required. The task (haiku on the meaning of life, judged 5-7-5 / vivid / no clichés) is baked into the script, so you can execute it verbatim; `--watch` streams each round's actor and critic events, and `--budget 200k` caps output tokens. To judge with an independent backend, add `"critic:*" = "claude"` under `[route]` in `.ultracodex/config.toml` before running — no code change.
+It runs as-is — no user data required. The task (haiku on the meaning of life, judged 5-7-5 / vivid / no clichés) is baked into the script, so you can execute it verbatim; `--watch` streams each round's actor and critic events, and `--budget 200k` caps output tokens. To judge with an independent backend, add `"critique-r*" = "claude"` under `[route]` in `.ultracodex/config.toml` before running — no code change.
 
 Cost: two agents per round (one actor, one critic) times at most three rounds, so six lightweight agents worst case, fewer with an early exit. Small prompts by design — a cheap run.

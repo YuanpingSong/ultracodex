@@ -7,6 +7,7 @@ User-facing documentation:
 | [skills.md](skills.md) | installing the run + authoring skills into Claude Code, codex, opencode, or a raw prompt |
 | [operations.md](operations.md) | CLI reference, configuration & routing, state layout, the sandbox/network escalation ladder |
 | [schedule.md](schedule.md) | cron-backed schedule management for unattended runs without an ultracodex daemon |
+| [loops.md](loops.md) | packaged goal and until-dry loops, args, round labels, and schedule-friendly convergence |
 | [architecture.md](architecture.md) | how the runtime works: loader, journal-as-spine, executors, TUI |
 | [agent-script-spec.md](agent-script-spec.md) | the Agent Script language & runtime specification — for engine implementers (script *writers* want the [authoring skill](../skills/agent-script-authoring/SKILL.md) instead) |
 | [executor-contract.md](executor-contract.md) | Executor Contract v1 — the complete contract for writing a backend adapter (interface, invariants, capability descriptor, conformance kit) |

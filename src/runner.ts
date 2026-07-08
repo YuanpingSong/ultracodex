@@ -17,6 +17,7 @@ import { tailControl } from "./control.js";
 import { createRuntime } from "./runtime.js";
 import { createExecutors } from "./executor/router.js";
 import { sha256Hex } from "./ids.js";
+import { packageRootDir } from "./skills.js";
 import type { RunOptions, RunStatus, WorkflowGlobals, WorkflowMeta } from "./types.js";
 
 type Outcome =
@@ -212,11 +213,18 @@ function loadChildWorkflow(
   let expectName: string | null = null;
   if (typeof ref === "string") {
     expectName = ref;
-    const p = path.join(stateDir(options.projectDir), WORKFLOWS_DIR_NAME, `${ref}.js`);
+    const saved = path.join(stateDir(options.projectDir), WORKFLOWS_DIR_NAME, `${ref}.js`);
     try {
-      source = fs.readFileSync(p, "utf8");
+      source = fs.readFileSync(saved, "utf8");
     } catch {
-      throw new Error(`unknown workflow "${ref}" (expected ${p})`);
+      const builtin = path.join(packageRootDir(), WORKFLOWS_DIR_NAME, `${ref}.js`);
+      try {
+        source = fs.readFileSync(builtin, "utf8");
+      } catch {
+        throw new Error(
+          `unknown workflow "${ref}" (expected saved workflow ${saved} or packaged workflow ${builtin})`,
+        );
+      }
     }
   } else {
     try {

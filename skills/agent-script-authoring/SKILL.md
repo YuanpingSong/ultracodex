@@ -130,6 +130,8 @@ for (let round = 1; round <= MAX_ROUNDS; round++) {
 }
 ```
 
+**Round labels.** Loop agents should be labeled `<loop>:<role>-r<N>`; single-loop scripts may use bare `<role>-r<N>`. Phase titles like `Round 3` fold into the same round view. Engines group these labels into round-based loop displays, and when a verifier returns a top-level `verdict`, `pass`, or `approved` field, that judgment is surfaced in trajectories. Return `{ done: true }` when the script has converged so scheduled `--until-done` runs compose cleanly. Packaged references: `ultracodex run goal` and `ultracodex run loop`.
+
 Cap rounds; guard unbounded loops with `while (budget.total && budget.remaining() > FLOOR)`; and when accumulating findings across rounds, dedup against everything **seen**, not just confirmed — otherwise judge-rejected findings reappear every round and the loop never converges.
 
 ### 7. Schemas

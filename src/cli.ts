@@ -35,7 +35,7 @@ import {
   runsDir,
   stateDir,
 } from "./rundir.js";
-import { syncSkills } from "./skills.js";
+import { packageRootDir, syncSkills } from "./skills.js";
 import { validateWorkflowScript, type ValidationIssue } from "./validate.js";
 import { AppServerClient } from "./appserver/client.js";
 import { fmtDuration, fmtTokens } from "./tui/format.js";
@@ -112,7 +112,15 @@ export function resolveScript(projectDir: string, ref: string): string {
   } catch {
     // not a saved workflow either
   }
-  throw new CliError(`cannot resolve script "${ref}": tried ${asPath} and saved workflow ${saved}`);
+  const builtin = path.join(packageRootDir(), WORKFLOWS_DIR_NAME, `${ref}.js`);
+  try {
+    if (fs.statSync(builtin).isFile()) return builtin;
+  } catch {
+    // not a packaged workflow either
+  }
+  throw new CliError(
+    `cannot resolve script "${ref}": tried path ${asPath}, saved workflow ${saved}, and packaged workflow ${builtin}`,
+  );
 }
 
 // ---------------------------------------------------------------------------

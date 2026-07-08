@@ -42,10 +42,14 @@ ultracodex run ${name} --args '<json>' --json
  */
 const STATIC_SKILLS = ["ultracodex", "agent-script-authoring"] as const;
 
-function packageSkillsDir(): string {
+export function packageRootDir(): string {
   // src/skills.ts and dist/skills.js both sit one level below the package
   // root, in the repo checkout and the installed npm layout alike.
-  return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "skills");
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+}
+
+function packageSkillsDir(): string {
+  return path.join(packageRootDir(), "skills");
 }
 
 export function syncSkills(projectDir: string): { written: string[] } {

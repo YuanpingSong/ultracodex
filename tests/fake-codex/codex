@@ -2,7 +2,7 @@
 "use strict";
 // Fake `codex app-server` for hermetic tests. JSONL over stdio.
 // Message shapes mirror fixtures/appserver/probe-capture.jsonl (codex 0.142.4).
-// Zero module imports so the extensionless entry runs under any module mode.
+// No static module imports so the extensionless entry runs under any module mode.
 //
 // Prompt directives:
 //   [[reply:TEXT]]   final answer TEXT (default "ok"); [[reply2:TEXT]]/[[reply3:TEXT]]
@@ -24,6 +24,8 @@
 // Env: FAKE_CODEX_LOGGED_OUT=1  -> account/read returns {account: null, ...}
 //      FAKE_CODEX_CRASH_MID_TURN=1 -> process.exit(1) after turn/started.
 //      FAKE_CODEX_STALL_THREAD_START=1 -> never respond to thread/start.
+//      FAKE_CODEX_REPLY_FILE=<json> -> consume one reply per process from
+//        { "index": 0, "replies": [...] } (non-strings are JSON.stringify'd).
 //      FAKE_CODEX_ORPHAN_CHILD=1 -> spawn a long-lived child process at startup
 //        (same process group); writes its pid to FAKE_CODEX_CHILD_PID_FILE.
 
@@ -37,6 +39,7 @@ if (argv[0] !== "app-server") process.exit(2);
 const LOGGED_OUT = process.env.FAKE_CODEX_LOGGED_OUT === "1";
 const CRASH_MID_TURN = process.env.FAKE_CODEX_CRASH_MID_TURN === "1";
 const STALL_THREAD_START = process.env.FAKE_CODEX_STALL_THREAD_START === "1";
+const REPLY_FS = process.env.FAKE_CODEX_REPLY_FILE ? await import("node:fs") : null;
 
 if (process.env.FAKE_CODEX_ORPHAN_CHILD === "1") {
   // A long-lived child in the SAME process group: survives the leader's death
@@ -75,6 +78,25 @@ function flag(prompt, name) {
 }
 function promptWithoutDirectives(prompt) {
   return prompt.replace(/\[\[[\s\S]*?\]\]/g, "");
+}
+function takeScriptedReply() {
+  const file = process.env.FAKE_CODEX_REPLY_FILE;
+  if (!file) return null;
+  const fs = REPLY_FS;
+  if (!fs) throw new Error("FAKE_CODEX_REPLY_FILE fs import unavailable");
+  const payload = JSON.parse(fs.readFileSync(file, "utf8"));
+  const replies = Array.isArray(payload) ? payload : payload.replies;
+  if (!Array.isArray(replies)) throw new Error("FAKE_CODEX_REPLY_FILE must contain replies[]");
+  const index = Array.isArray(payload) ? 0 : Number(payload.index) || 0;
+  if (index >= replies.length) throw new Error("FAKE_CODEX_REPLY_FILE has no scripted reply left");
+  const reply = replies[index];
+  if (Array.isArray(payload)) {
+    fs.writeFileSync(file, JSON.stringify(replies.slice(1)));
+  } else {
+    payload.index = index + 1;
+    fs.writeFileSync(file, JSON.stringify(payload));
+  }
+  return typeof reply === "string" ? reply : JSON.stringify(reply);
 }
 
 function createThread(cwd, ephemeral, nickname) {
@@ -316,7 +338,14 @@ function handleTurnStart(msg) {
   send({ method: "item/started", params: { item: userItem, threadId: t.id, turnId: turnId, startedAtMs: Date.now() } });
   send({ method: "item/completed", params: { item: userItem, threadId: t.id, turnId: turnId, completedAtMs: Date.now() } });
 
-  let reply = ordinal >= 2 ? directive(prompt, "reply" + ordinal) : null;
+  let reply;
+  try {
+    reply = takeScriptedReply();
+  } catch (e) {
+    failTurn(e && e.message ? e.message : String(e));
+    return;
+  }
+  if (reply === null) reply = ordinal >= 2 ? directive(prompt, "reply" + ordinal) : null;
   if (reply === null) reply = directive(prompt, "reply");
   const slowMs = Number(directive(prompt, "slow")) || 0;
   const failMsg = directive(prompt, "fail");

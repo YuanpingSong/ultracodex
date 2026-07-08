@@ -88,6 +88,22 @@ describe("resolveScript", () => {
     expect(resolveScript(projectDir, "digest")).toBe(file);
   });
 
+  it("resolves a packaged builtin workflow name when no local copy exists", () => {
+    const projectDir = tmpProject();
+    expect(resolveScript(projectDir, "goal")).toBe(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "workflows", "goal.js"),
+    );
+  });
+
+  it("prefers a saved workflow over a same-named packaged builtin", () => {
+    const projectDir = tmpProject();
+    const wfDir = path.join(projectDir, ".ultracodex", "workflows");
+    fs.mkdirSync(wfDir, { recursive: true });
+    const file = path.join(wfDir, "goal.js");
+    fs.writeFileSync(file, "// shadow");
+    expect(resolveScript(projectDir, "goal")).toBe(file);
+  });
+
   it("prefers a real file over a same-named saved workflow", () => {
     const projectDir = tmpProject();
     const wfDir = path.join(projectDir, ".ultracodex", "workflows");
@@ -98,10 +114,11 @@ describe("resolveScript", () => {
     expect(resolveScript(projectDir, "dup")).toBe(local);
   });
 
-  it("throws with both tried locations when nothing matches", () => {
+  it("throws with all tried locations when nothing matches", () => {
     const projectDir = tmpProject();
     expect(() => resolveScript(projectDir, "ghost")).toThrow(/cannot resolve script "ghost"/);
     expect(() => resolveScript(projectDir, "ghost")).toThrow(/workflows/);
+    expect(() => resolveScript(projectDir, "ghost")).toThrow(/packaged workflow/);
   });
 });
 
@@ -307,6 +324,17 @@ async function runCliInProc(
     process.chdir(prevCwd);
   }
 }
+
+describe("packaged builtin workflows", () => {
+  it("validate --strict passes for goal and loop by name", async () => {
+    for (const name of ["goal", "loop"]) {
+      const res = await runCliInProc(["validate", name, "--strict"], tmpProject());
+      expect(res.code).toBe(0);
+      expect(res.stderr).toBe("");
+      expect(res.stdout).toBe("ok: no issues\n");
+    }
+  });
+});
 
 describe("show on dead runs", () => {
   it("show --json reports status dead and exits non-zero for a crashed run", async () => {

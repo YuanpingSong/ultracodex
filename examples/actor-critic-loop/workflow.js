@@ -32,14 +32,14 @@ for (let round = 1; round <= 3; round++) {
     : ''
   const built = await agent(
     `Write a haiku (5-7-5) on the meaning of life. Vivid imagery, no clichés.${feedback}\nReturn ONLY the three lines.`,
-    { label: `actor:round-${round}`, phase: `Round ${round}` },
+    { label: `draft-r${round}`, phase: `Round ${round}` },
   )
   if (built === null) { log(`round ${round}: actor failed`); continue }
   haiku = built
 
   verdict = await agent(
     `Judge this haiku strictly against: 5-7-5 syllables, vivid imagery, no clichés. Do not invent requirements beyond these.\n\n${haiku}\n\nReturn via the schema.`,
-    { label: `critic:round-${round}`, phase: `Round ${round}`, schema: CRITIQUE },
+    { label: `critique-r${round}`, phase: `Round ${round}`, schema: CRITIQUE },
   )
   if (verdict === null) { log(`round ${round}: critic failed`); verdict = { pass: false, issues: ['critic unavailable'] } }
   rounds.push({ round, haiku, pass: verdict.pass, issues: verdict.issues })

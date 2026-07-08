@@ -29,6 +29,7 @@
   "files": [
     "dist",
     "examples",
+    "workflows",
     "docs/agent-script-spec.md",
     "README.md",
     "LICENSE",
