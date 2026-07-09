@@ -282,6 +282,46 @@ describe("org scheduler", () => {
     expect(calls).toEqual([]);
   });
 
+  it("tolerates a failed wake: tick completes, seat stays due, failure surfaced", async () => {
+    const repo = await twoGroupOrg();
+    await inboxItem(repo, "alpha/w1", "item-a.md");
+    await inboxItem(repo, "alpha/w2", "item-b.md");
+    const wake = async (agentPath: string) => {
+      if (agentPath === "alpha/w1") throw new Error("engine exploded");
+      const inbox = path.join(repo, ...agentPath.split("/"), "inbox");
+      if (fs.existsSync(inbox)) {
+        for (const name of fs.readdirSync(inbox)) {
+          if (!name.startsWith(".")) fs.rmSync(path.join(inbox, name), { force: true });
+        }
+      }
+      return { changed: false, severity: "routine", logLine: "stub", outbox: [] };
+    };
+
+    const first = await executeTick(repo, { date: TODAY, lint: false, tickets: false, wakeAgent: wake });
+    expect(first.noop).toBe(false);
+    expect(first.failedWakes).toEqual([{ agent: "alpha/w1", error: "engine exploded" }]);
+    expect(String(first.statusLine)).toContain("1 failed");
+    const state = await readLastWakeState(repo);
+    expect(state["alpha/w1"]).toBeUndefined(); // unstamped: stays due
+    expect(state["alpha/w2"]).toBeDefined();
+
+    // Next tick retries ONLY the failed seat (its inbox item is still there).
+    const retried: string[] = [];
+    await executeTick(repo, {
+      date: TODAY,
+      lint: false,
+      tickets: false,
+      wakeAgent: async (agentPath: string) => {
+        retried.push(agentPath);
+        const inbox = path.join(repo, ...agentPath.split("/"), "inbox");
+        for (const name of fs.readdirSync(inbox)) fs.rmSync(path.join(inbox, name), { force: true });
+        return { changed: false, severity: "routine", logLine: "stub", outbox: [] };
+      },
+    });
+    expect(retried).toContain("alpha/w1");
+    expect(retried).not.toContain("alpha/w2");
+  });
+
   it("lints a default tick after a valid request outbox creates a ticket", async () => {
     const repo = await twoGroupOrg();
     await writeFile(path.join(repo, "alpha", "BRIEF.md"), memory(TODAY));

@@ -160,6 +160,8 @@ export async function executeTick(rootDir = process.cwd(), options: TickOptions 
   let state = normalizeWakeState(options.lastWake ?? await readLastWakeState(root));
   const cycle = options.cycle ?? nextStateCycle(state);
   const invoked = new Set<string>();
+  const succeeded = new Set<string>();
+  const failedWakes: Array<{ agent: string; error: string }> = [];
   const results: Array<Record<string, unknown> & { agent: string; role: string; result: Partial<WakeResult> | null }> = [];
   const plans: TriggerPlan[] = [];
   let lastPlan: TriggerPlan | null = null;
@@ -179,12 +181,29 @@ export async function executeTick(rootDir = process.cwd(), options: TickOptions 
       defaultWakeAgent(target, context));
     const batchResults = await runBounded(batch, concurrency, async (item) => {
       const target = options.wakeAgent ? item.agent : agentDir(root, item.agent);
-      const result = await runner(target, { root, date, cycle, reasons: item.reasons });
-      return { agent: item.agent, role: item.role, result: result ?? null };
+      // Per-wake tolerance: one failed wake must not abort the tick. The seat
+      // keeps its state unstamped so it stays due and retries next tick.
+      try {
+        const result = await runner(target, { root, date, cycle, reasons: item.reasons });
+        return { agent: item.agent, role: item.role, result: result ?? null };
+      } catch (err) {
+        return {
+          agent: item.agent,
+          role: item.role,
+          result: null,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
     });
     const stampedAt = options.now ?? new Date().toISOString();
     for (const row of batchResults) {
       invoked.add(row.agent);
+      if ("error" in row && row.error !== undefined) {
+        failedWakes.push({ agent: row.agent, error: String(row.error) });
+        results.push({ agent: row.agent, role: row.role, result: null, error: String(row.error) });
+        continue;
+      }
+      succeeded.add(row.agent);
       const outboxResult = await deliverWakeOutbox(root, row.agent, row.result, { ...options, date, cycle });
       const enriched: Record<string, unknown> & { agent: string; role: string; result: Partial<WakeResult> | null } = {
         ...row,
@@ -226,14 +245,17 @@ export async function executeTick(rootDir = process.cwd(), options: TickOptions 
     ...options,
     date,
     cycle,
-    invoked: [...invoked].sort(),
+    // Lint liveness (missing LOG entries) applies only to wakes that ran;
+    // failed wakes are retried next tick, not lint-flagged for silence.
+    invoked: [...succeeded].sort(),
     results,
     runtimeWritePaths: [...runtimeWritePaths],
     execFile,
   });
   const highWater = maxSeverity(results.map((row) => row.result?.severity));
   const rejectionSummary = outboxRejections ? `, ${outboxRejections} outbox ${outboxRejections === 1 ? "rejection" : "rejections"}` : "";
-  const counts = `${invoked.size} wakes, max ${highWater}${rejectionSummary}`;
+  const failureSummary = failedWakes.length ? `, ${failedWakes.length} failed` : "";
+  const counts = `${succeeded.size} wakes${failureSummary}, max ${highWater}${rejectionSummary}`;
   return {
     date,
     cycle,
@@ -242,6 +264,7 @@ export async function executeTick(rootDir = process.cwd(), options: TickOptions 
     counts,
     outboxRejections,
     invoked: [...invoked].sort(),
+    failedWakes,
     results,
     plans,
     ticketExpiry,

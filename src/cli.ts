@@ -567,6 +567,9 @@ async function orgTickAction(opts: OrgTickOpts): Promise<void> {
   });
   if (opts.json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   else process.stdout.write(String(result.statusLine ?? JSON.stringify(result)) + "\n");
+  // Partial ticks complete (deliveries, lint, commit) but exit nonzero so
+  // unattended callers see that some seats failed and will retry next tick.
+  if (Array.isArray(result.failedWakes) && result.failedWakes.length > 0) process.exitCode = 1;
 }
 
 async function orgWakeAction(agentPath: string, opts: OrgWakeOpts): Promise<void> {
