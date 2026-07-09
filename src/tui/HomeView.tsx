@@ -16,6 +16,8 @@ import { useFlash, useTick } from "./hooks.js";
 import { LoopView } from "./LoopView.js";
 import { detectLoops, formatLoopListRow, type LoopInstance } from "./loops.js";
 import { makeAgentOutputReader } from "./loopFiles.js";
+import { OrgView } from "./OrgView.js";
+import { isOrgProject, refreshOrgSnapshot, type OrgSnapshotLoad } from "./orgFiles.js";
 import { initialState, reduce, type TuiState } from "./reducer.js";
 import {
   execScheduleDetached,
@@ -59,7 +61,7 @@ interface LoopRowItem {
   loopCount: number;
 }
 
-type HomeTab = "runs" | "loops" | "schedules";
+type HomeTab = "runs" | "loops" | "schedules" | "org";
 
 type Item =
   | { kind: "wf"; wf: WorkflowItem }
@@ -194,9 +196,12 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
   const [selIdx, setSelIdx] = useState(0);
   const [loopRows, setLoopRows] = useState<LoopRowItem[]>([]);
   const [scheduleRows, setScheduleRows] = useState<ScheduleRowItem[]>([]);
+  const [orgEnabled, setOrgEnabled] = useState(() => isOrgProject(projectDir));
+  const [orgLoad, setOrgLoad] = useState<OrgSnapshotLoad | null>(null);
   const [missedWarnings, setMissedWarnings] = useState<string[]>(() => loadMissedScheduleWarnings(projectDir));
   const loopCache = useRef(new Map<string, { mtimeMs: number; loops: LoopInstance[] }>());
   const scheduleSnapshot = useRef<ScheduleSnapshot | null>(null);
+  const orgSnapshot = useRef<OrgSnapshotLoad | null>(null);
   const [flash, showFlash] = useFlash(3000);
   const countdownTick = useTick(1000, tab === "schedules");
   void countdownTick;
@@ -220,6 +225,26 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
     setMissedWarnings(next.warnings);
   }, [projectDir, tab, tick]);
 
+  useEffect(() => {
+    const enabled = isOrgProject(projectDir);
+    setOrgEnabled(enabled);
+    if (!enabled) {
+      orgSnapshot.current = null;
+      setOrgLoad(null);
+      if (tab === "org") {
+        setTab("runs");
+        setSelIdx(0);
+      }
+    }
+  }, [projectDir, tab, tick]);
+
+  useEffect(() => {
+    if (tab !== "org" || !orgEnabled) return;
+    const next = refreshOrgSnapshot(projectDir, orgSnapshot.current, Date.now());
+    orgSnapshot.current = next;
+    setOrgLoad(next);
+  }, [projectDir, tab, tick, orgEnabled]);
+
   const items: Item[] =
     tab === "runs"
       ? [
@@ -228,7 +253,9 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         ]
       : tab === "loops"
         ? loopRows.map((row): Item => ({ kind: "loop", row }))
-        : shownSchedules.map((row): Item => ({ kind: "schedule", row }));
+        : tab === "schedules"
+          ? shownSchedules.map((row): Item => ({ kind: "schedule", row }))
+          : [];
   const sel = Math.min(selIdx, Math.max(0, items.length - 1));
   const selected = items[sel];
 
@@ -242,6 +269,13 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
       const idx = visible.findIndex((row) => row.spec.name === selectedName);
       setSelIdx(Math.max(0, idx));
     }
+  };
+
+  const reloadOrg = (): void => {
+    if (!orgEnabled) return;
+    const next = refreshOrgSnapshot(projectDir, null, Date.now());
+    orgSnapshot.current = next;
+    setOrgLoad(next);
   };
 
   const launch = (wf: WorkflowItem, args: unknown, budgetTotal: number | null): void => {
@@ -272,12 +306,25 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         }
         return;
       }
+      if (key.tab) {
+        setTab((t) => nextHomeTab(t, orgEnabled));
+        setSelIdx(0);
+        return;
+      }
+      if (tab === "org" && key.escape) {
+        setTab("runs");
+        setSelIdx(0);
+        return;
+      }
+      if (input === "q" || key.escape) {
+        onQuit();
+        return;
+      }
+      if (tab === "org") return;
+
       if (key.upArrow) setSelIdx(Math.max(0, sel - 1));
       else if (key.downArrow) setSelIdx(Math.min(Math.max(0, items.length - 1), sel + 1));
-      else if (key.tab) {
-        setTab((t) => (t === "runs" ? "loops" : t === "loops" ? "schedules" : "runs"));
-        setSelIdx(0);
-      } else if (key.return) {
+      else if (key.return) {
         if (!selected) return;
         if (selected.kind === "run") onAttach(selected.run.runDir);
         else if (selected.kind === "loop")
@@ -339,7 +386,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
           return;
         }
         setMode({ kind: "scheduleRemoveConfirm", name: selected.row.spec.name });
-      } else if (input === "q" || key.escape) onQuit();
+      }
     },
     { isActive: mode.kind === "list" || mode.kind === "scheduleRemoveConfirm" },
   );
@@ -424,7 +471,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         </Box>
       )}
 
-      <TabStrip selected={tab} />
+      <TabStrip selected={tab} orgEnabled={orgEnabled} />
 
       <Box flexDirection="column" marginTop={1}>
         {tab === "runs" ? (
@@ -463,7 +510,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
               );
             })}
           </>
-        ) : (
+        ) : tab === "schedules" ? (
           <>
             <Text bold>Schedules</Text>
             {shownSchedules.length === 0 && (
@@ -489,6 +536,8 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
               <ScheduleInlineDetail row={selected.row} />
             )}
           </>
+        ) : (
+          <OrgView projectDir={projectDir} load={orgLoad} active={mode.kind === "list" && tab === "org"} onChanged={reloadOrg} />
         )}
       </Box>
 
@@ -516,7 +565,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
       ) : (
         <Box marginTop={1} flexGrow={1} alignItems="flex-end">
           <Text dimColor wrap="truncate-end">
-            {footerText(tab)}
+            {footerText(tab, orgEnabled)}
           </Text>
           {flash && <Text color={col("cyan")}> {flash}</Text>}
         </Box>
@@ -525,7 +574,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
   );
 }
 
-function TabStrip({ selected }: { selected: HomeTab }): ReactElement {
+function TabStrip({ selected, orgEnabled }: { selected: HomeTab; orgEnabled: boolean }): ReactElement {
   return (
     <Box marginTop={1}>
       <Text inverse={selected === "runs"} dimColor={selected !== "runs"}>
@@ -539,18 +588,34 @@ function TabStrip({ selected }: { selected: HomeTab }): ReactElement {
       <Text inverse={selected === "schedules"} dimColor={selected !== "schedules"}>
         Schedules
       </Text>
+      {orgEnabled && (
+        <>
+          <Text dimColor> | </Text>
+          <Text inverse={selected === "org"} dimColor={selected !== "org"}>
+            Org
+          </Text>
+        </>
+      )}
     </Box>
   );
 }
 
-function footerText(tab: HomeTab): string {
+function nextHomeTab(tab: HomeTab, orgEnabled: boolean): HomeTab {
+  const tabs: HomeTab[] = orgEnabled ? ["runs", "loops", "schedules", "org"] : ["runs", "loops", "schedules"];
+  const index = tabs.indexOf(tab);
+  return tabs[(index + 1) % tabs.length] ?? "runs";
+}
+
+function footerText(tab: HomeTab, orgEnabled: boolean): string {
   switch (tab) {
     case "runs":
       return "↑↓ select · ↵ attach/launch · tab loops · n new run · S schedule · r re-run · q quit";
     case "loops":
       return "↑↓ select · ↵ open loop · tab schedules · q quit";
     case "schedules":
-      return "↑↓ select · ↵ detail · e exec now · p pause/resume · x remove · tab runs · q quit";
+      return `↑↓ select · ↵ detail · e exec now · p pause/resume · x remove · tab ${orgEnabled ? "org" : "runs"} · q quit`;
+    case "org":
+      return "j/k/↑↓ move · l/↵ expand · v view · tab runs · q quit";
   }
 }
 

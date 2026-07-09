@@ -280,19 +280,28 @@ export function trajectoryStrip(rounds: readonly Round[], spinner = "●", maxRo
   return prefix + visible.map((round) => verdictGlyph(round.verdict, roundIsRunning(round), spinner)).join(" ");
 }
 
-export function costSparkline(rounds: readonly Round[]): string {
-  if (rounds.length === 0) return "";
-  const values = rounds.map((round) => Math.max(0, round.outputTokens));
-  const max = Math.max(...values);
-  if (max <= 0) return values.map(() => SPARK_BLOCKS[0]).join("");
-
-  return rounds
-    .map((round) => {
-      const outputTokens = Math.max(0, round.outputTokens);
-      const index = Math.round((outputTokens / max) * (SPARK_BLOCKS.length - 1));
+export function valueSparkline(
+  values: readonly number[],
+  options: { zeroBase?: boolean; flatGlyph?: string } = {},
+): string {
+  const finite = values.filter((value) => Number.isFinite(value)).map((value) => Math.max(0, value));
+  if (finite.length === 0) return "";
+  const min = options.zeroBase === true ? 0 : Math.min(...finite);
+  const max = Math.max(...finite);
+  if (max <= min) return finite.map(() => options.flatGlyph ?? SPARK_BLOCKS[SPARK_BLOCKS.length - 1]).join("");
+  return finite
+    .map((value) => {
+      const index = Math.round(((value - min) / (max - min)) * (SPARK_BLOCKS.length - 1));
       return SPARK_BLOCKS[index]!;
     })
     .join("");
+}
+
+export function costSparkline(rounds: readonly Round[]): string {
+  return valueSparkline(
+    rounds.map((round) => round.outputTokens),
+    { zeroBase: true, flatGlyph: SPARK_BLOCKS[0] },
+  );
 }
 
 function pctChange(first: number, last: number): number | null {
