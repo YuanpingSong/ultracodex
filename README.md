@@ -4,7 +4,7 @@
 [![npm](https://img.shields.io/npm/v/ultracodex)](https://www.npmjs.com/package/ultracodex)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Run Claude Code workflow scripts, unmodified, on the OpenAI Codex CLI — and on OpenCode.**
+**Run Claude Code workflow scripts, unmodified, on the OpenAI Codex CLI — and on OpenCode.** Then go further than running them: loop them until a skeptical verifier approves, schedule them with cron doing the waking, or stand up a permanent organization of agents that remembers.
 
 Ultracode too expensive? **ultracodex** is ultracode — Claude Code's one-prompt-becomes-a-fleet-of-agents mode — on Codex: the same workflow scripts, running on your Codex subscription, on OpenCode (any provider it speaks, local models included), or on both at once: one `[route]` table sends implementation to one vendor and adversarial review to another, in the same run.
 
@@ -18,6 +18,22 @@ https://github.com/user-attachments/assets/4a7366cd-429c-4581-9703-7c28a9605c0e
 
 
 *One prompt: "Write an essay on the meaning of life — actor–critic loop, 3 rounds. Run it with ultracodex." Claude (left) authors the workflow, Codex executes it, the TUI (right) watches live, and the result lands back in Claude. ([HD video](https://github.com/YuanpingSong/ultracodex/releases/download/v0.1.1/ultracodex-demo-v0.1.mp4))*
+
+## Run once. Run until good. Run forever.
+
+Agent work has three temporal shapes. ultracodex ships all three as one product, one script format, one TUI:
+
+| shape | pillar | the move |
+|---|---|---|
+| Run once | **Workflows** | `ultracodex run wf.js` — a fleet of agents, watched live, verified result back in the session that asked |
+| Run until good | **Loops** | `ultracodex run goal` — builder rounds against explicit criteria, gated by a skeptical verifier, convergence visible round by round |
+| Run forever | **Orgs** | `ultracodex org tick` — a filesystem of agents with durable memory, triggers, tickets, and audits: judgment that compounds |
+
+**Loops** are plain JavaScript — no loop primitive, no new syntax. Two reference loops ship in the package (`goal` and `loop`), the TUI folds round-labeled agents into trajectory dashboards (`✖ ✖ ✔ · converged after 3 rounds`, cost per round trending down), and `ultracodex schedule` makes any workflow recurring with a tagged crontab line it fully owns — `--until-done` retires the schedule the day the script returns `{ done: true }`. No daemon, ever. → [docs/loops.md](docs/loops.md) · [docs/schedule.md](docs/schedule.md)
+
+**Orgs** are for domains a single run can't hold. Each agent is a directory — a role contract, memory files divided by update trigger, an inbox — woken by triggers (time, inbox depth, severity, dependency) and executed from inside its own directory, so the sandbox itself enforces who writes what. Superiors read one ≤80-line BRIEF per seat. Messages are routed contracts the runtime actually enforces; cross-model audits verify cited claims line by line; replay re-lives history with fault injection before you trust a threshold. Stand one up from a `coverage.toml` with `org init` — or let the shipped org-creation skill design it with you. → [docs/org.md](docs/org.md)
+
+The TUI ties it together: **Runs | Loops | Schedules | Org** — four tabs, all pure folds over plain files.
 
 ## Quickstart
 
@@ -135,8 +151,10 @@ ultracodex ls | show <ref> | attach <ref>       inspect runs (ref = unique runId
 ultracodex pause|resume|skip|kill <ref>         live controls
 ultracodex logs <ref> [n]         raw runner / per-agent event logs
 ultracodex validate <script>      dual-runnability lint (--strict = portable subset)
+ultracodex schedule add|ls|pause|resume|rm      recurring runs via owned crontab lines (--until-done)
+ultracodex org init|tick|status|send|ask|audit|replay|lint   the org runtime
 ultracodex sync-skills            static + per-workflow skills → .claude/skills/
-ultracodex doctor                 env, auth, execution profile, interactive-config divergences
+ultracodex doctor                 env, auth, execution profile, schedules, interactive-config divergences
 ```
 
 Every run directory (`.ultracodex/runs/<runId>/`) is plain files — journal, per-agent events, `result.json` — and any agent's Codex session can be resumed interactively (`codex resume <threadId>`, surfaced in the TUI).
@@ -155,13 +173,15 @@ script.js ──▶ loader (acorn meta parse + vm) ──▶ runtime (semantics,
 
 Every backend implements one documented seam — the [Executor Contract](docs/executor-contract.md): a capability descriptor (schema/resume/interrupt/usage/activity/sandbox) plus a 10-assertion conformance kit that all three adapters pass. Structured output is belt-and-suspenders: schemas ride the wire where the backend supports it (Codex strict mode, OpenCode `json_schema`), degrade to a prompt contract mid-call when a provider rejects them, and are always enforced on our side (ajv validation + repair turns on the same session). The entire test suite (460+ tests) runs hermetically against scripted fakes of all three harnesses — no API keys in CI.
 
-Deeper reading: [docs/architecture.md](docs/architecture.md) · [docs/operations.md](docs/operations.md) · [docs/skills.md](docs/skills.md) · [docs/agent-script-spec.md](docs/agent-script-spec.md) · [docs/executor-contract.md](docs/executor-contract.md) (write your own backend) · [docs/internal/agent-script-plan.md](docs/internal/agent-script-plan.md) (roadmap: approvals aggregator, packaged loop workflows).
+Deeper reading: [docs/loops.md](docs/loops.md) · [docs/schedule.md](docs/schedule.md) · [docs/org.md](docs/org.md) · [docs/architecture.md](docs/architecture.md) · [docs/operations.md](docs/operations.md) · [docs/skills.md](docs/skills.md) · [docs/agent-script-spec.md](docs/agent-script-spec.md) · [docs/executor-contract.md](docs/executor-contract.md) (write your own backend).
 
 ## Status
 
 M1–M3 shipped: runner core, app-server executor, TUI, CLI, claude backend, validate, sync-skills. Validated end-to-end on live Codex, including a clean-room rebuild of this project by Codex agents orchestrated through ultracodex itself.
 
 M4 shipped (v0.4.0): the executor seam is a versioned contract with a conformance kit, and OpenCode is the third backend to pass it. The acceptance test was recursive — one run on this repo where OpenCode implemented a feature, Codex gated it, and Claude adversarially reviewed it, green in a single journal. Every build wave of M4 was itself executed by ultracodex fleets.
+
+v0.5.0 is the trifecta: the loops pillar (packaged `goal`/`loop`, the schedule manager, trajectory-dashboard observability, Schedules tab) and the org pillar (`ultracodex org`, the org-creation skill, audits, replay, the Org tab) — every piece fleet-built by ultracodex running on itself, and the org runtime's acceptance test was an org of analyst agents watching this repo's own dependency tree.
 
 ## License
 
