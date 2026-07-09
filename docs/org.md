@@ -1,5 +1,12 @@
 # Org runtime
 
+Orgs scale what agents remember — the state axis of agent work. An org does
+not answer context limits with a bigger window; it **shards context into many
+windows** with a disciplined interface between them: each seat is an agent
+directory with its own memory, and the ≤80-line BRIEF is the interface
+contract a superior actually reads. The span rule is the scaling law — an
+aggregator's fan-out is context ÷ brief.
+
 An org is a filesystem-routed set of agents with durable memory, inboxes,
 tickets, and a tick scheduler. It is for domains where attention should
 compound over time: new inputs arrive, entity memory changes, aggregators read

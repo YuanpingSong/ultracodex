@@ -1,9 +1,17 @@
 # Loops
 
-Loops in Agent Script are plain JavaScript `while` and `for` loops. Ultracodex
-does not add a loop primitive because the script format is meant to stay
-dual-runnable: one JavaScript file, one set of globals, no engine-only syntax.
-Breadth is `parallel()`, flow is `pipeline()`, and depth is ordinary JavaScript.
+Loops scale how long agents keep at it — the time axis of agent work. The
+stopping condition moves out of your code and into judgment or the clock: keep
+going **until a skeptical verifier approves** (`goal`), **until discovery runs
+dry** (`loop`), **until a scheduled run reports done**
+(`ultracodex schedule … --until-done`). One axis, two granularities: rounds
+within a run, runs across time.
+
+Mechanically, loops in Agent Script are plain JavaScript `while` and `for`
+loops. Ultracodex does not add a loop primitive because the script format is
+meant to stay dual-runnable: one JavaScript file, one set of globals, no
+engine-only syntax. Breadth is `parallel()`, flow is `pipeline()`, and depth
+is ordinary JavaScript.
 
 The package ships two reference loops:
 

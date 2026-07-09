@@ -1,5 +1,9 @@
 # Scheduling runs
 
+`ultracodex schedule` is how a workflow's lifetime outgrows your session — the
+time axis of agent work extended across days and weeks, with zero resident
+processes. Cron does the waking; ultracodex owns the entries.
+
 ## Why a manager, not a daemon
 
 `ultracodex schedule` manages cron entries and per-project schedule specs. It

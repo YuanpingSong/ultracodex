@@ -4,9 +4,7 @@
 [![npm](https://img.shields.io/npm/v/ultracodex)](https://www.npmjs.com/package/ultracodex)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Run Claude Code workflow scripts, unmodified, on the OpenAI Codex CLI — and on OpenCode.** Then go further than running them: loop them until a skeptical verifier approves, schedule them with cron doing the waking, or stand up a permanent organization of agents that remembers.
-
-Ultracode too expensive? **ultracodex** is ultracode — Claude Code's one-prompt-becomes-a-fleet-of-agents mode — on Codex: the same workflow scripts, running on your Codex subscription, on OpenCode (any provider it speaks, local models included), or on both at once: one `[route]` table sends implementation to one vendor and adversarial review to another, in the same run.
+**Run Claude Code workflow scripts, unmodified, on the OpenAI Codex CLI and OpenCode.** Then go further than running them: **loop** them until a skeptical verifier approves, **schedule** them with cron doing the waking, or stand up a permanent **organization** of agents that remembers.
 
 > **Fable plans, Codex executes, Fable verifies**
 
@@ -21,13 +19,15 @@ https://github.com/user-attachments/assets/4a7366cd-429c-4581-9703-7c28a9605c0e
 
 ## Run once. Run until good. Run forever.
 
-Agent work has three temporal shapes. ultracodex ships all three as one product, one script format, one TUI:
+Software has always been programmed around someone else's units — functions, modules, services. ultracodex makes the **agent** the unit of programming: `await agent(prompt, { schema })` is a call with a typed, validated return; plain JavaScript is the composition language; the [Executor Contract](docs/executor-contract.md) is the ABI that keeps the unit portable across vendors. And once the agent is a unit, there are exactly three axes on which to scale it:
 
-| shape | pillar | the move |
+| shape | pillar | scales |
 |---|---|---|
-| Run once | **Workflows** | `ultracodex run wf.js` — a fleet of agents, watched live, verified result back in the session that asked |
-| Run until good | **Loops** | `ultracodex run goal` — builder rounds against explicit criteria, gated by a skeptical verifier, convergence visible round by round |
-| Run forever | **Orgs** | `ultracodex org tick` — a filesystem of agents with durable memory, triggers, tickets, and audits: judgment that compounds |
+| Run once | **Workflows** | **what agents can take on** — space: the structure one run spans (`parallel` breadth, `pipeline` flow, phased fleets) |
+| Run until good | **Loops** | **how long agents keep at it** — time: rounds within a run, schedules across runs; the stop condition moves from code to judgment |
+| Run forever | **Orgs** | **what agents remember** — state: memory that survives runs and compounds |
+
+These are axes, not buckets: an actor–critic script is one run scaling along time, and the Loops tab is a lens that finds that axis inside any run. Every axis gets its lens — **Runs** for space, **Loops** for time, **Org** for state, with **Schedules** managing the clock that drives them.
 
 **Loops** are plain JavaScript — no loop primitive, no new syntax. Two reference loops ship in the package (`goal` and `loop`), the TUI folds round-labeled agents into trajectory dashboards (`✖ ✖ ✔ · converged after 3 rounds`, cost per round trending down), and `ultracodex schedule` makes any workflow recurring with a tagged crontab line it fully owns — `--until-done` retires the schedule the day the script returns `{ done: true }`. No daemon, ever. → [docs/loops.md](docs/loops.md) · [docs/schedule.md](docs/schedule.md)
 
