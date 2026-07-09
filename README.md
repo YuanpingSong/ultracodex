@@ -194,7 +194,7 @@ The project builds itself, and the evidence lives in this repo:
 
 - Same workflow, both engines: ~58k Claude tokens natively, ~82k Codex tokens and zero Claude quota through ultracodex ([acceptance comparison](docs/internal/acceptance-comparison.md)).
 - The fleets that built v0.5.0: 22 runs, 118 agents, 1.7M output tokens — all on Codex, with the driving Claude session doing planning and review.
-- A clean-room rebuild of this project by Codex agents, orchestrated through ultracodex, passed an independent verifier at 125/125 tests.
+- This project was built twice. The original: Claude fleets on the Workflow tool — 13 build agents at 1.16M output tokens of Claude quota, plus a 78-agent review pass at 3.43M. The clean-room rebuild to the same acceptance bar, by Codex fleets through ultracodex: 9 runs, 42 agents, 0.33M output tokens, zero Claude quota, independently verified at 125/125 tests ([the numbers](docs/internal/acceptance-comparison.md)).
 - One three-vendor run shipped a real feature on this repo: OpenCode implemented it, Codex gated it, Claude adversarially reviewed it — one journal.
 - The org runtime's acceptance test ran here too: the dependency-watching org above completed its first full live cycle on the shipped runtime, briefs and audits included.
 
