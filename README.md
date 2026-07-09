@@ -13,7 +13,7 @@
 
 **Run Claude Code workflow scripts, unmodified, on your Codex subscription — and on OpenCode.** Your Claude session writes the script and reads the verified result; the heavy lifting lands on the subscription you aren't rationing.
 
-Measured, same build script, configs one `[route]` line apart, frontier vs frontier: Codex (gpt-5.6-sol) shipped a 12/12-test module in **107 s with zero Claude quota**; Claude (Opus 4.8) shipped the same module in 219 s on the Claude meter ([methodology + raw journals](docs/internal/research/cmp-build/README.md)). The fleets that built v0.5.0 ran 118 agents across 22 runs — 1.7M output tokens, all on Codex.
+Measured, same build script, configs one `[route]` line apart, frontier vs frontier: Codex (gpt-5.6-sol) shipped a 12/12-test module in **107 s with zero Claude quota**; Claude (Opus 4.8) shipped the same module in 219 s on the Claude meter ([methodology + raw journals](docs/internal/research/cmp-build/README.md)). The fleets that built v0.5.0 ran 72 agents across 14 runs — 1.26M output tokens, all on Codex ([per-run ledger](docs/internal/research/v050-fleet-usage.md)).
 
 ## Quickstart
 
