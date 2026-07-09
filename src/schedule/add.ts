@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveScript } from "../workflows.js";
+import { parseBudget } from "../budget.js";
+import { CliError } from "../cli-error.js";
 import { installScheduleCrontabLine, validateCrontabPaths } from "./crontab.js";
 import {
   maybeReadScheduleSpec,
@@ -23,6 +25,7 @@ export interface ScheduleAddOpts {
   cron?: string;
   untilDone?: boolean;
   maxRuns?: string;
+  budget?: string;
 }
 
 export interface AddScheduleInput extends ScheduleAddOpts {
@@ -38,6 +41,9 @@ export interface AddScheduleInput extends ScheduleAddOpts {
 export interface AddScheduleResult {
   spec: ScheduleSpec;
 }
+
+export const NO_SCHEDULE_BUDGET_WARNING = (name: string): string =>
+  `warning: no token budget on scheduled run '${name}' — an unattended loop without --budget can exhaust your quota; add --budget (e.g. --budget 200k)`;
 
 export function selectedSchedule(opts: Pick<ScheduleAddOpts, "every" | "daily" | "cron">): ParsedSchedule {
   const selected = [opts.every, opts.daily, opts.cron].filter((v) => v !== undefined).length;
@@ -92,6 +98,12 @@ export function addSchedule(input: AddScheduleInput): AddScheduleResult {
   const parsed = selectedSchedule(input);
   const untilDone = !!input.untilDone;
   const normalizedCommand = normalizeScheduleCommand(projectDir, input.command ?? [], untilDone);
+  if (input.budget !== undefined) {
+    if (normalizedCommand[0] !== "run") {
+      throw new CliError("--budget requires a scheduled `run` command");
+    }
+    parseBudget(input.budget);
+  }
   const spec = newScheduleSpec({
     name: input.name,
     schedule: parsed.schedule,
@@ -100,6 +112,7 @@ export function addSchedule(input: AddScheduleInput): AddScheduleResult {
     projectDir,
     untilDone,
     maxRuns: parseMaxRuns(input.maxRuns),
+    budget: input.budget ?? null,
     nodeBin: input.nodeBin ?? process.execPath,
     cliPath: input.cliPath ?? defaultCliPath(),
     pathEnv: input.pathEnv ?? process.env.PATH ?? "",
@@ -112,6 +125,13 @@ export function addSchedule(input: AddScheduleInput): AddScheduleResult {
   } catch (err) {
     removeScheduleSpec(projectDir, input.name);
     throw err;
+  }
+  if (
+    normalizedCommand[0] === "run" &&
+    input.budget === undefined &&
+    !normalizedCommand.includes("--budget")
+  ) {
+    process.stderr.write(NO_SCHEDULE_BUDGET_WARNING(input.name) + "\n");
   }
   return { spec };
 }

@@ -82,26 +82,14 @@ import type {
   RunSummary,
   UltracodexConfig,
 } from "./types.js";
+import { parseBudget } from "./budget.js";
+import { CliError } from "./cli-error.js";
 
-class CliError extends Error {}
-
-export { resolveScript };
+export { CliError, parseBudget, resolveScript };
 
 // ---------------------------------------------------------------------------
 // Small exported helpers (unit-tested)
 // ---------------------------------------------------------------------------
-
-/** "500k" → 500_000, "1.5m" → 1_500_000, "12345" → 12345. Garbage → throws. */
-export function parseBudget(input: string): number {
-  const m = /^(\d+(?:\.\d+)?)\s*([km])?$/i.exec(input.trim());
-  const bad = (): CliError =>
-    new CliError(`invalid budget "${input}" (use e.g. 500k, 1.5m, or a plain token count)`);
-  if (!m) throw bad();
-  const mult = m[2]?.toLowerCase() === "k" ? 1e3 : m[2]?.toLowerCase() === "m" ? 1e6 : 1;
-  const n = Math.round(parseFloat(m[1]!) * mult);
-  if (!Number.isFinite(n) || n <= 0) throw bad();
-  return n;
-}
 
 // ---------------------------------------------------------------------------
 // Shared plumbing
@@ -1408,6 +1396,7 @@ export function buildProgram(): Command {
     .option("--cron <expr>", "raw 5-field cron expression")
     .option("--until-done", "retire when a scheduled run returns an object with done:true")
     .option("--max-runs <n>", "retire after n executions")
+    .option("--budget <amount>", "output-token budget for a scheduled run")
     .description("add a cron-backed schedule")
     .action(act(scheduleAddAction));
 

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildProgram } from "../src/cli.js";
-import { addSchedule } from "../src/schedule/add.js";
+import { addSchedule, NO_SCHEDULE_BUDGET_WARNING } from "../src/schedule/add.js";
 import {
   renderCrontabLine,
   scheduleTag,
@@ -26,6 +26,7 @@ import {
 import {
   buildScheduleHistoryStrip,
   execOutcomeGlyph,
+  formatScheduleBudgetSuffix,
   formatScheduleCountdown,
   formatScheduleLastRunCell,
   formatScheduleRow,
@@ -243,6 +244,7 @@ describe("addSchedule", () => {
       every: "15m",
       untilDone: true,
       maxRuns: "3",
+      budget: "200k",
       command: ["run", "wf.js", "--args", "{\"x\":1}"],
     }).spec;
     const directCrontab = readCrontabFile();
@@ -259,6 +261,8 @@ describe("addSchedule", () => {
         "--until-done",
         "--max-runs",
         "3",
+        "--budget",
+        "200k",
         "--",
         "run",
         "wf.js",
@@ -273,6 +277,158 @@ describe("addSchedule", () => {
     expect(cliSpec).toEqual(direct);
     expect(readCrontabFile()).toBe(directCrontab);
     expect(readCrontabFile()).toBe(renderCrontabLine(cliSpec) + "\n");
+  });
+});
+
+describe("schedule budget guardrail", () => {
+  function writeWorkflow(projectDir: string): string {
+    const workflow = path.join(projectDir, "wf.js");
+    fs.writeFileSync(workflow, "export const meta = { name: 'wf' };\nreturn { done: false };\n", "utf8");
+    return workflow;
+  }
+
+  function captureRunArgv(projectDir: string, name: string): string {
+    const argvFile = path.join(projectDir, `${name}-argv.json`);
+    const stub = path.join(projectDir, `${name}-stub.cjs`);
+    fs.writeFileSync(
+      stub,
+      [
+        `require('node:fs').writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)))`,
+        "process.stdout.write('{}\\n')",
+      ].join(";\n"),
+      "utf8",
+    );
+    const spec = readScheduleSpec(projectDir, name);
+    spec.cliPath = stub;
+    writeScheduleSpec(spec);
+    return argvFile;
+  }
+
+  it("stores a schedule budget, exposes it in JSON, and injects it into run argv", async () => {
+    const projectDir = tmpProject();
+    const workflow = writeWorkflow(projectDir);
+    const add = await runCliInProc(
+      ["schedule", "add", "bounded", "--every", "5m", "--budget", "200k", "--", "run", "wf.js"],
+      projectDir,
+    );
+
+    expect(add).toMatchObject({ code: 0, stderr: "" });
+    expect(readScheduleSpec(projectDir, "bounded").budget).toBe("200k");
+    const json = await runCliInProc(["schedule", "ls", "--json"], projectDir);
+    expect(JSON.parse(json.stdout)[0]).toMatchObject({ name: "bounded", budget: "200k" });
+
+    const argvFile = captureRunArgv(projectDir, "bounded");
+    expect(await runCliInProc(["schedule", "exec", "bounded"], projectDir)).toEqual({
+      stdout: "",
+      stderr: "",
+      code: 0,
+    });
+    expect(JSON.parse(fs.readFileSync(argvFile, "utf8"))).toEqual([
+      "run",
+      workflow,
+      "--json",
+      "--budget",
+      "200k",
+    ]);
+  });
+
+  it("lets an explicit in-command budget win without warning or duplicate injection", async () => {
+    const projectDir = tmpProject();
+    const workflow = writeWorkflow(projectDir);
+    const add = await runCliInProc(
+      ["schedule", "add", "explicit", "--every", "5m", "--", "run", "wf.js", "--budget", "300k"],
+      projectDir,
+    );
+
+    expect(add).toMatchObject({ code: 0, stderr: "" });
+    expect(readScheduleSpec(projectDir, "explicit").budget).toBeNull();
+    const argvFile = captureRunArgv(projectDir, "explicit");
+    await runCliInProc(["schedule", "exec", "explicit"], projectDir);
+    const argv = JSON.parse(fs.readFileSync(argvFile, "utf8")) as string[];
+    expect(argv).toEqual(["run", workflow, "--budget", "300k", "--json"]);
+    expect(argv.filter((arg) => arg === "--budget")).toHaveLength(1);
+  });
+
+  it("rejects schedule budgets for non-run commands and rejects invalid specs with the run parser error", async () => {
+    const projectDir = tmpProject();
+    const nonRun = await runCliInProc(
+      ["schedule", "add", "not-run", "--every", "5m", "--budget", "200k", "--", "node"],
+      projectDir,
+    );
+    expect(nonRun).toEqual({
+      stdout: "",
+      stderr: "error: --budget requires a scheduled `run` command\n",
+      code: 1,
+    });
+
+    writeWorkflow(projectDir);
+    const invalid = await runCliInProc(
+      ["schedule", "add", "bad-budget", "--every", "5m", "--budget", "forever", "--", "run", "wf.js"],
+      projectDir,
+    );
+    expect(invalid).toEqual({
+      stdout: "",
+      stderr: 'error: invalid budget "forever" (use e.g. 500k, 1.5m, or a plain token count)\n',
+      code: 1,
+    });
+    expect(fs.existsSync(scheduleSpecPath(projectDir, "not-run"))).toBe(false);
+    expect(fs.existsSync(scheduleSpecPath(projectDir, "bad-budget"))).toBe(false);
+  });
+
+  it("warns exactly once for unbudgeted runs through CLI and shared addSchedule, but not non-run commands", async () => {
+    const projectDir = tmpProject();
+    writeWorkflow(projectDir);
+    const warning = NO_SCHEDULE_BUDGET_WARNING("unbounded") + "\n";
+    const cli = await runCliInProc(
+      ["schedule", "add", "unbounded", "--every", "5m", "--", "run", "wf.js"],
+      projectDir,
+    );
+    expect(cli).toMatchObject({ code: 0, stderr: warning });
+    expect(cli.stderr.split(warning)).toHaveLength(2);
+
+    const nonRun = await runCliInProc(
+      ["schedule", "add", "utility", "--every", "5m", "--", process.execPath, "-e", "process.exit(0)"],
+      projectDir,
+    );
+    expect(nonRun.stderr).toBe("");
+
+    const directProject = tmpProject();
+    writeWorkflow(directProject);
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      addSchedule({
+        projectDir: directProject,
+        name: "form-path",
+        every: "5m",
+        command: ["run", "wf.js"],
+      });
+      expect(stderr).toHaveBeenCalledTimes(1);
+      expect(stderr).toHaveBeenCalledWith(NO_SCHEDULE_BUDGET_WARNING("form-path") + "\n");
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it("reads a missing v1 budget field as null", () => {
+    const projectDir = tmpProject();
+    const spec = newScheduleSpec({
+      name: "legacy",
+      schedule: { kind: "every", value: "5m" },
+      cronExpr: "*/5 * * * *",
+      command: ["node"],
+      projectDir,
+      untilDone: false,
+      maxRuns: null,
+      nodeBin: process.execPath,
+      cliPath: "/tmp/cli.js",
+      pathEnv: "",
+    });
+    const legacy = { ...spec } as Partial<ScheduleSpec>;
+    delete legacy.budget;
+    fs.mkdirSync(path.dirname(scheduleSpecPath(projectDir, "legacy")), { recursive: true });
+    fs.writeFileSync(scheduleSpecPath(projectDir, "legacy"), JSON.stringify(legacy), "utf8");
+
+    expect(readScheduleSpec(projectDir, "legacy").budget).toBeNull();
   });
 });
 
@@ -420,6 +576,11 @@ describe("schedule TUI pure helpers", () => {
     expect(formatScheduleLastRunCell(null)).toBe("last run —");
   });
 
+  it("renders a budget suffix only when a schedule budget is set", () => {
+    expect(formatScheduleBudgetSuffix(scheduleFixture({ budget: "200k" }))).toBe(" · budget: 200k");
+    expect(formatScheduleBudgetSuffix(scheduleFixture({ budget: null }))).toBe("");
+  });
+
   it("validates schedule form drafts without filesystem access", () => {
     expect(
       validateScheduleFormDraft({
@@ -428,6 +589,7 @@ describe("schedule TUI pure helpers", () => {
         value: "30m",
         untilDone: true,
         maxRuns: "5",
+        budget: "200k",
         argsJson: "{\"team\":\"ops\"}",
       }),
     ).toEqual({
@@ -436,6 +598,7 @@ describe("schedule TUI pure helpers", () => {
       every: "30m",
       untilDone: true,
       maxRuns: "5",
+      budget: "200k",
       argsJson: "{\"team\":\"ops\"}",
     });
     expect(
@@ -445,6 +608,7 @@ describe("schedule TUI pure helpers", () => {
         value: "24:00",
         untilDone: false,
         maxRuns: "",
+        budget: "",
         argsJson: "",
       }),
     ).toMatchObject({ ok: false, field: "value" });
@@ -455,9 +619,25 @@ describe("schedule TUI pure helpers", () => {
         value: "30m",
         untilDone: false,
         maxRuns: "",
+        budget: "",
         argsJson: "{",
       }),
     ).toEqual({ ok: false, field: "argsJson", error: "args must be valid JSON (or empty)" });
+    expect(
+      validateScheduleFormDraft({
+        name: "digest",
+        cadence: "every",
+        value: "30m",
+        untilDone: false,
+        maxRuns: "",
+        budget: "forever",
+        argsJson: "",
+      }),
+    ).toEqual({
+      ok: false,
+      field: "budget",
+      error: 'invalid budget "forever" (use e.g. 500k, 1.5m, or a plain token count)',
+    });
   });
 });
 
@@ -481,6 +661,7 @@ describe("schedule lifecycle", () => {
       projectDir,
       untilDone: false,
       maxRuns: null,
+      budget: null,
       status: "active",
       retiredReason: null,
       runs: 0,
@@ -499,6 +680,7 @@ describe("schedule lifecycle", () => {
     const json = await runCliInProc(["schedule", "ls", "--json"], projectDir);
     expect(json.code).toBe(0);
     expect(JSON.parse(json.stdout)).toHaveLength(1);
+    expect(JSON.parse(json.stdout)[0]).toHaveProperty("budget", null);
 
     const pause = await runCliInProc(["schedule", "pause", "nightly"], projectDir);
     expect(pause.code).toBe(0);

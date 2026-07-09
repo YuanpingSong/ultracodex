@@ -23,7 +23,7 @@ The package ships two reference loops:
 | Claude Code loop taxonomy | Ultracodex expression | Notes |
 |---|---|---|
 | goal-based | `ultracodex run goal` | Builder rounds continue until a skeptical verifier approves, rounds cap, budget floor, or agent failure. |
-| time-based | `ultracodex schedule` | Cron wakes the run. Add `--until-done` when the workflow returns `{ done: true }`; see [schedule.md](schedule.md). |
+| time-based | `ultracodex schedule` | Cron wakes the run. Always budget scheduled runs, and add `--until-done` when the workflow returns `{ done: true }`; see [schedule.md](schedule.md#budgets-and-quota-safety). |
 | turn-based | interactive sessions | Out of scope for packaged workflows; use the interactive agent surface directly. |
 | proactive | an [org](org.md) | The next rung of the delegation gradient: hand off the memory and the organization, not just the trigger. |
 

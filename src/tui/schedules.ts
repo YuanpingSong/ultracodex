@@ -1,6 +1,7 @@
 import type { ScheduleExecOutcome } from "../schedule/log.js";
 import { nextFireMs } from "../schedule/time.js";
 import type { ScheduleSpec, ScheduleStatus } from "../schedule/spec.js";
+import { parseBudget } from "../budget.js";
 
 export type ScheduleGlyphColor = "cyan" | "yellow" | "green" | "red" | "dim";
 
@@ -16,6 +17,7 @@ export interface ScheduleFormDraft {
   value: string;
   untilDone: boolean;
   maxRuns: string;
+  budget: string;
   argsJson: string;
 }
 
@@ -27,6 +29,7 @@ export type ScheduleFormValidation =
       daily?: string;
       untilDone: boolean;
       maxRuns?: string;
+      budget?: string;
       argsJson?: string;
     }
   | { ok: false; error: string; field: keyof ScheduleFormDraft };
@@ -184,6 +187,10 @@ export function formatScheduleLastRunCell(lastRun: ScheduleSpec["lastRun"]): str
   return `last run ${glyph} ${formatScheduleTimestampShort(lastRun.ts)} · exit ${lastRun.exitCode}${runId}`;
 }
 
+export function formatScheduleBudgetSuffix(spec: Pick<ScheduleSpec, "budget">): string {
+  return spec.budget === null ? "" : ` · budget: ${spec.budget}`;
+}
+
 export function validateScheduleFormDraft(draft: ScheduleFormDraft): ScheduleFormValidation {
   const name = draft.name.trim();
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
@@ -227,6 +234,19 @@ export function validateScheduleFormDraft(draft: ScheduleFormDraft): ScheduleFor
     }
   }
 
+  const budget = draft.budget.trim();
+  if (budget !== "") {
+    try {
+      parseBudget(budget);
+    } catch (err) {
+      return {
+        ok: false,
+        field: "budget",
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
   const argsJson = draft.argsJson.trim();
   if (argsJson !== "") {
     try {
@@ -242,6 +262,7 @@ export function validateScheduleFormDraft(draft: ScheduleFormDraft): ScheduleFor
     ...(draft.cadence === "every" ? { every: value } : { daily: value }),
     untilDone: draft.untilDone,
     ...(maxRuns === "" ? {} : { maxRuns }),
+    ...(budget === "" ? {} : { budget }),
     ...(argsJson === "" ? {} : { argsJson }),
   };
 }

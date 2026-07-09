@@ -17,6 +17,7 @@ import {
 } from "./scheduleActions.js";
 import {
   execOutcomeGlyph,
+  formatScheduleBudgetSuffix,
   formatScheduleCountdown,
   formatScheduleTimestampShort,
   humanScheduleLabel,
@@ -238,7 +239,7 @@ export function ScheduleDetail({
         next {nextText} ({countdown}) · runs {spec.runs} · until-done {spec.untilDone ? "yes" : "no"} · max-runs{" "}
         {maxRunsLabel(spec)}
       </Text>
-      <Text wrap="truncate-end">command {truncate(command, 180)}</Text>
+      <Text wrap="truncate-end">command {truncate(command, 180)}{formatScheduleBudgetSuffix(spec)}</Text>
       <Text dimColor wrap="truncate-end">
         project {spec.projectDir}
       </Text>

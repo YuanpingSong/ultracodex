@@ -18,6 +18,7 @@ export interface ScheduleSpec {
   projectDir: string;
   untilDone: boolean;
   maxRuns: number | null;
+  budget: string | null;
   status: ScheduleStatus;
   retiredReason: string | null;
   runs: number;
@@ -129,7 +130,10 @@ export function humanSchedule(spec: ScheduleSpec): string {
 
 export function readScheduleSpec(projectDir: string, name: string): ScheduleSpec {
   try {
-    return JSON.parse(fs.readFileSync(scheduleSpecPath(projectDir, name), "utf8")) as ScheduleSpec;
+    const parsed = JSON.parse(fs.readFileSync(scheduleSpecPath(projectDir, name), "utf8")) as Omit<ScheduleSpec, "budget"> & {
+      budget?: string | null;
+    };
+    return { ...parsed, budget: parsed.budget ?? null };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`cannot read schedule "${name}": ${msg}`);
@@ -186,6 +190,7 @@ export function newScheduleSpec(args: {
   projectDir: string;
   untilDone: boolean;
   maxRuns: number | null;
+  budget?: string | null;
   nodeBin: string;
   cliPath: string;
   pathEnv: string;
@@ -202,6 +207,7 @@ export function newScheduleSpec(args: {
     projectDir: args.projectDir,
     untilDone: args.untilDone,
     maxRuns: args.maxRuns,
+    budget: args.budget ?? null,
     status: "active",
     retiredReason: null,
     runs: 0,

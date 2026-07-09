@@ -281,6 +281,9 @@ function runScheduledCommand(spec: ScheduleSpec): CommandResult {
     return { exitCode: 127, ok: false, status: "failed", stdout: "", stderr: "", error: "missing run script" };
   }
   const args = [spec.cliPath, "run", scriptRef, ...spec.command.slice(2), "--json"];
+  if (spec.budget !== null && !spec.command.includes("--budget")) {
+    args.push("--budget", spec.budget);
+  }
   const res = spawnSync(spec.nodeBin, args, {
     cwd: spec.projectDir,
     env: { ...process.env, PATH: spec.env.PATH },

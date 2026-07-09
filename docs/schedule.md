@@ -23,8 +23,8 @@ active schedule.
 Create a schedule from the project directory:
 
 ```
-ultracodex schedule add digest --every 30m -- run digest.js
-ultracodex schedule add nightly --daily 18:30 -- run nightly-review
+ultracodex schedule add digest --every 30m --budget 200k -- run digest.js
+ultracodex schedule add nightly --daily 18:30 --budget 500k -- run nightly-review
 ultracodex schedule add cleanup --cron "15 9 * * 1" -- node scripts/cleanup.mjs
 ```
 
@@ -48,13 +48,13 @@ count. On a schedule row, `enter` opens detail, `e` starts `schedule exec`
 detached, `p` pauses or resumes, and `x` asks for `y/n` before removal.
 
 On the Runs tab, select a workflow and press `S` to create a schedule. The form
-captures name, every/daily cadence, value, until-done, max-runs, and optional
-args JSON.
+captures name, every/daily cadence, value, until-done, max-runs, budget, and
+optional args JSON.
 
 ## Command reference
 
 ```
-ultracodex schedule add <name> (--every <dur> | --daily <HH:MM> | --cron "<expr>") [--until-done] [--max-runs <n>] -- <command...>
+ultracodex schedule add <name> (--every <dur> | --daily <HH:MM> | --cron "<expr>") [--until-done] [--max-runs <n>] [--budget <spec>] -- <command...>
 ultracodex schedule ls [--json]
 ultracodex schedule pause <name>
 ultracodex schedule resume <name>
@@ -73,6 +73,35 @@ If the scheduled command starts with `run`, ultracodex resolves the script or
 saved workflow at add time and later invokes its own CLI with `--json`.
 Other commands are executed directly with `shell:false` and PATH lookup at
 execution time.
+
+## Budgets and quota safety
+
+Always give scheduled `run` commands a token budget. A schedule is unattended,
+so an unbounded loop can continue consuming quota long after an interactive
+operator would have stopped it. Put the guardrail on the schedule:
+
+```sh
+ultracodex schedule add digest --every 30m --budget 200k -- run digest.js
+```
+
+Or put the same `run --budget` option inside the stored command. An explicit
+in-command value wins and is never duplicated at execution time:
+
+```sh
+ultracodex schedule add digest --every 30m -- run digest.js --budget 200k
+```
+
+Adding a scheduled run with neither form still succeeds, but prints this
+warning to stderr:
+
+```
+warning: no token budget on scheduled run 'digest' — an unattended loop without --budget can exhaust your quota; add --budget (e.g. --budget 200k)
+```
+
+The schedule exec lock already prevents a slow execution from stacking up with
+the next cron wake. That overlap protection does not cap the quota used by one
+run, so combine `--budget` with `--until-done` for convergence-based retirement
+and/or `--max-runs` for a hard lifetime ceiling.
 
 ## The --until-done contract — a run result object with done:true retires the schedule
 

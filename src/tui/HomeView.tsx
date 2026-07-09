@@ -32,6 +32,7 @@ import {
 import { ScheduleDetail } from "./ScheduleDetail.js";
 import {
   execOutcomeGlyph,
+  formatScheduleBudgetSuffix,
   formatScheduleLastRunCell,
   formatScheduleStateCell,
   humanScheduleLabel,
@@ -682,6 +683,7 @@ function ScheduleInlineDetail({ row }: { row: ScheduleRowItem }): ReactElement {
       <Text>  selected: {row.spec.name}</Text>
       <Text wrap="truncate-end">
         {"  "}command {truncate(row.spec.command.join(" "), 140)} · until-done: {row.spec.untilDone ? "yes" : "no"}
+        {formatScheduleBudgetSuffix(row.spec)}
       </Text>
       <Text wrap="truncate-end">  {formatScheduleLastRunCell(row.spec.lastRun)}</Text>
       {lastLog !== undefined && (
@@ -789,13 +791,15 @@ function scheduleFieldIndex(field: keyof ScheduleFormDraft): number {
       return 3;
     case "maxRuns":
       return 4;
-    case "argsJson":
+    case "budget":
       return 5;
+    case "argsJson":
+      return 6;
   }
 }
 
 function fieldName(field: number): keyof ScheduleFormDraft {
-  return ["name", "cadence", "value", "untilDone", "maxRuns", "argsJson"][field] as keyof ScheduleFormDraft;
+  return ["name", "cadence", "value", "untilDone", "maxRuns", "budget", "argsJson"][field] as keyof ScheduleFormDraft;
 }
 
 function ScheduleForm({
@@ -816,6 +820,7 @@ function ScheduleForm({
     value: "30m",
     untilDone: false,
     maxRuns: "",
+    budget: "",
     argsJson: "",
   }));
   const [error, setError] = useState<string | null>(null);
@@ -838,6 +843,7 @@ function ScheduleForm({
         daily: validated.daily,
         untilDone: validated.untilDone,
         maxRuns: validated.maxRuns,
+        budget: validated.budget,
         pathEnv: process.env.PATH ?? "",
       });
       onCreated(spec.name, spec.cronExpr);
@@ -846,7 +852,7 @@ function ScheduleForm({
     }
   };
 
-  const setTextField = (key: "name" | "value" | "maxRuns" | "argsJson", value: string): void => {
+  const setTextField = (key: "name" | "value" | "maxRuns" | "budget" | "argsJson", value: string): void => {
     setDraft((d) => ({ ...d, [key]: value }));
   };
 
@@ -856,12 +862,12 @@ function ScheduleForm({
       return;
     }
     if (key.return) {
-      if (field < 5) setField((f) => f + 1);
+      if (field < 6) setField((f) => f + 1);
       else submit();
       return;
     }
     if (key.tab) {
-      setField((f) => (f + 1) % 6);
+      setField((f) => (f + 1) % 7);
       return;
     }
     if (key.upArrow) {
@@ -869,7 +875,7 @@ function ScheduleForm({
       return;
     }
     if (key.downArrow) {
-      setField((f) => Math.min(5, f + 1));
+      setField((f) => Math.min(6, f + 1));
       return;
     }
 
@@ -927,7 +933,8 @@ function ScheduleForm({
         {draft.untilDone ? "yes" : "no"}
       </Text>
       <ScheduleFormTextLine label="max-runs" active={field === 4} value={draft.maxRuns} placeholder="(none)" />
-      <ScheduleFormTextLine label="args" active={field === 5} value={draft.argsJson} placeholder="(none)" />
+      <ScheduleFormTextLine label="budget" active={field === 5} value={draft.budget} placeholder="(none)" />
+      <ScheduleFormTextLine label="args" active={field === 6} value={draft.argsJson} placeholder="(none)" />
       {error && <Text color={col("red")}>{error}</Text>}
       <Text dimColor>↵ next/create · tab switch field · esc cancel</Text>
     </Box>

@@ -1,3 +1,4 @@
+import { parseBudget as parseBudgetSpec } from "../budget.js";
 import type { Usage } from "../types.js";
 import type { AgentView, PhaseView, TuiState } from "./reducer.js";
 
@@ -140,13 +141,12 @@ export function filterAgentsByPhase(
 
 /** "500k" → 500000, "1.5m" → 1500000, "" → null, garbage → null. */
 export function parseBudget(text: string): number | null {
-  const t = text.trim().toLowerCase();
-  if (!t) return null;
-  const m = /^(\d+(?:\.\d+)?)\s*([km])?$/.exec(t);
-  if (!m) return null;
-  const n = parseFloat(m[1]!);
-  const mult = m[2] === "k" ? 1e3 : m[2] === "m" ? 1e6 : 1;
-  return Math.round(n * mult);
+  if (text.trim() === "") return null;
+  try {
+    return parseBudgetSpec(text);
+  } catch {
+    return null;
+  }
 }
 
 export interface ContentBudgetOpts {
