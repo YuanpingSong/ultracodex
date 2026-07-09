@@ -65,7 +65,12 @@ Same acceptance bar (the M1 exit criterion), two fleets:
 | Verification | 27 dual-verified findings fixed in-pass | independent verifier: ACCEPT, 125/125 tests |
 | Records | session workflow archive (wf_efbbed06, wf_abd86d99) | the-second-ultracodex/.ultracodex/runs |
 
-Caveats, honestly: the rebuild implemented a frozen written spec
-(docs/internal/product_context.md), and re-implementing a spec is cheaper
-than designing from scratch — some of the gap is process, some is fleet
-economics. Token figures are each harness's own output-token accounting.
+These two columns are NOT comparable, and the README cites them only
+qualitatively. Three confounds stack in the same direction: the rebuild
+implemented a frozen written spec (re-implementing is cheaper than
+designing); the original's 78-agent review pass has no rebuild
+equivalent (its verifier ran outside the counted fleet); and the models'
+output styles differ (thinking-heavy frontier output vs terse
+implementation output), so output-token counts measure verbosity as much
+as work. For comparable numbers, see the controlled comparison below —
+same script, same runtime, same accounting, one [route] line changed.
