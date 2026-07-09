@@ -139,6 +139,7 @@ describe("buildProgram", () => {
         "validate",
         "sync-skills",
         "schedule",
+        "org",
         "doctor",
       ]),
     );
@@ -157,6 +158,23 @@ describe("buildProgram", () => {
         "--strict",
         "--concurrency",
       ]),
+    );
+  });
+
+  it("org command exposes the documented subcommands and options", () => {
+    const org = buildProgram().commands.find((c) => c.name() === "org")!;
+    expect(org.commands.map((c) => c.name())).toEqual(
+      expect.arrayContaining(["init", "tick", "wake", "send", "ask", "tickets", "lint", "status"]),
+    );
+
+    const tick = org.commands.find((c) => c.name() === "tick")!;
+    expect(tick.options.map((o) => o.long)).toEqual(
+      expect.arrayContaining(["--root", "--date", "--json", "--repair", "--commit", "--concurrency"]),
+    );
+
+    const send = org.commands.find((c) => c.name() === "send")!;
+    expect(send.options.map((o) => o.long)).toEqual(
+      expect.arrayContaining(["--root", "--body-file", "--refs", "--deadline"]),
     );
   });
 });
@@ -333,6 +351,66 @@ describe("packaged builtin workflows", () => {
       expect(res.stderr).toBe("");
       expect(res.stdout).toBe("ok: no issues\n");
     }
+  });
+});
+
+describe("org CLI", () => {
+  it("initializes, lints JSON, wakes through a stub engine, and lists tickets", async () => {
+    const projectDir = tmpProject();
+    fs.writeFileSync(
+      path.join(projectDir, "coverage.toml"),
+      [
+        "[groups.alpha]",
+        "title = \"Alpha\"",
+        "entities = [\"widgets\", \"wproc\"]",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const init = await runCliInProc(["org", "init", "--root", projectDir], projectDir);
+    expect(init.code).toBe(0);
+    expect(fs.existsSync(path.join(projectDir, "alpha", "widgets", "BRIEF.md"))).toBe(true);
+
+    const lint = await runCliInProc(["org", "lint", "--root", projectDir, "--json"], projectDir);
+    expect(lint.code).toBe(0);
+    expect(JSON.parse(lint.stdout)).toEqual([]);
+
+    const stub = path.join(projectDir, "stub-engine.cjs");
+    fs.writeFileSync(
+      stub,
+      `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ result: { changed: false, severity: "routine", logLine: "stub", outbox: [] }, threadId: "stub-thread" }) + "\\n");
+`,
+      "utf8",
+    );
+    fs.chmodSync(stub, 0o755);
+    const prevBin = process.env.ULTRACODEX_BIN;
+    process.env.ULTRACODEX_BIN = stub;
+    try {
+      const wake = await runCliInProc(["org", "wake", "alpha/widgets", "--root", projectDir, "--json"], projectDir);
+      expect(wake.code).toBe(0);
+      expect(JSON.parse(wake.stdout)).toMatchObject({ severity: "routine", logLine: "stub" });
+    } finally {
+      if (prevBin === undefined) delete process.env.ULTRACODEX_BIN;
+      else process.env.ULTRACODEX_BIN = prevBin;
+    }
+
+    const sent = await runCliInProc(["org", "send", ".", "REQUEST", "alpha/widgets", "Check item", "--root", projectDir], projectDir);
+    expect(sent.code).toBe(0);
+    const sentJson = JSON.parse(sent.stdout);
+    expect(sentJson).toMatchObject({ action: "ticket" });
+    expect(sentJson.relPath).toMatch(/^alpha\/widgets\/tickets\/ticket-\d{4}-\d{2}-\d{2}-check-item\.md$/u);
+
+    const reply = await runCliInProc(["org", "send", "alpha/widgets", "REPLY", sentJson.ticket.id, "Answer from subject", "--root", projectDir], projectDir);
+    expect(reply.code).toBe(0);
+    expect(JSON.parse(reply.stdout)).toMatchObject({ action: "reply", relPath: sentJson.relPath });
+
+    const tickets = await runCliInProc(["org", "tickets", "--root", projectDir, "--agent", "alpha/widgets", "--json"], projectDir);
+    expect(tickets.code).toBe(0);
+    expect(JSON.parse(tickets.stdout)).toEqual([
+      expect.objectContaining({ to: "alpha/widgets", state: "done", subject: "Check item", replies: expect.stringContaining("Answer from subject") }),
+    ]);
   });
 });
 

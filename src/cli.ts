@@ -66,6 +66,13 @@ import {
   writeScheduleSpec,
   type ScheduleSpec,
 } from "./schedule/spec.js";
+import { askAgent } from "./org/ask.js";
+import { formatFinding as formatOrgFinding, jsonFindings, lintTree } from "./org/lint.js";
+import { deliver as deliverOrgMessage } from "./org/router.js";
+import { executeTick, statusOverview } from "./org/scheduler.js";
+import { formatScaffoldReport, initOrg } from "./org/scaffold.js";
+import { listTickets } from "./org/tickets.js";
+import { wakeAgent } from "./org/wake.js";
 import type {
   JournalEvent,
   RunEndEvent,
@@ -478,6 +485,165 @@ function scheduleExecAction(name: string): void {
   } catch {
     process.exitCode = 1;
   }
+}
+
+// ---------------------------------------------------------------------------
+// org
+// ---------------------------------------------------------------------------
+
+interface OrgRootOpts {
+  root?: string;
+}
+
+interface OrgJsonOpts extends OrgRootOpts {
+  json?: boolean;
+}
+
+interface OrgTickOpts extends OrgJsonOpts {
+  date?: string;
+  repair?: boolean;
+  commit?: boolean;
+  concurrency?: string;
+}
+
+interface OrgWakeOpts extends OrgJsonOpts {
+  reason?: string;
+}
+
+interface OrgSendOpts extends OrgRootOpts {
+  bodyFile?: string;
+  refs?: string;
+  deadline?: string;
+}
+
+interface OrgTicketsOpts extends OrgJsonOpts {
+  agent?: string;
+  state?: string;
+}
+
+interface OrgLintOpts extends OrgJsonOpts {
+  strict?: boolean;
+}
+
+function orgRoot(opts: OrgRootOpts): string {
+  return path.resolve(opts.root ?? process.cwd());
+}
+
+async function orgInitAction(opts: OrgRootOpts): Promise<void> {
+  const root = orgRoot(opts);
+  const report = await initOrg(root);
+  const findings = await lintTree(root);
+  const errors = findings.filter((finding) => finding.level === "ERROR");
+  if (errors.length > 0) {
+    for (const finding of findings) process.stderr.write(formatOrgFinding(finding) + "\n");
+    throw new CliError(`org init lint failed with ${errors.length} error(s)`);
+  }
+  process.stdout.write(formatScaffoldReport(report) + "\n");
+}
+
+async function orgTickAction(opts: OrgTickOpts): Promise<void> {
+  const concurrency = opts.concurrency !== undefined ? Number(opts.concurrency) : undefined;
+  if (opts.concurrency !== undefined && (!Number.isInteger(concurrency) || (concurrency ?? 0) < 1)) {
+    throw new CliError(`--concurrency must be a positive integer (got "${opts.concurrency}")`);
+  }
+  const result = await executeTick(orgRoot(opts), {
+    date: opts.date,
+    repair: Boolean(opts.repair),
+    commit: Boolean(opts.commit),
+    concurrency,
+  });
+  if (opts.json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  else process.stdout.write(String(result.statusLine ?? JSON.stringify(result)) + "\n");
+}
+
+async function orgWakeAction(agentPath: string, opts: OrgWakeOpts): Promise<void> {
+  const root = orgRoot(opts);
+  const target = path.isAbsolute(agentPath) ? agentPath : path.join(root, agentPath === "." ? "" : agentPath);
+  const result = await wakeAgent(target, { root, reason: opts.reason });
+  if (opts.json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  else process.stdout.write(`${result.severity}: ${result.logLine}\n`);
+}
+
+async function orgSendAction(
+  from: string,
+  type: string,
+  to: string,
+  subject: string,
+  opts: OrgSendOpts,
+): Promise<void> {
+  const root = orgRoot(opts);
+  const normalizedType = type.trim().toUpperCase();
+  const body = opts.bodyFile ? fs.readFileSync(path.resolve(root, opts.bodyFile), "utf8") : normalizedType === "REPLY" ? subject : "";
+  const refs = splitRefs(opts.refs);
+  const message = normalizedType === "REPLY"
+    ? { from, type, ...replyTarget(to), body, refs }
+    : { from, type, to, subject, body, refs, deadline: opts.deadline };
+  const result = await deliverOrgMessage(message, { rootDir: root });
+  process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+}
+
+async function orgAskAction(agentPath: string, question: string[], opts: OrgRootOpts): Promise<void> {
+  const root = orgRoot(opts);
+  const target = path.isAbsolute(agentPath) ? agentPath : path.join(root, agentPath === "." ? "" : agentPath);
+  const result = await askAgent(target, question.join(" "), { root });
+  process.stdout.write(result.answer.trim() + "\n");
+}
+
+async function orgTicketsAction(opts: OrgTicketsOpts): Promise<void> {
+  const tickets = await listTickets(orgRoot(opts), { agent: opts.agent, state: opts.state });
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(tickets, null, 2) + "\n");
+    return;
+  }
+  if (tickets.length === 0) {
+    process.stdout.write("no tickets\n");
+    return;
+  }
+  process.stdout.write(table([["ID", "TO", "STATE", "DEADLINE", "SUBJECT"], ...tickets.map((ticket) => [
+    ticket.id,
+    ticket.to,
+    ticket.state,
+    ticket.deadline,
+    ticket.subject,
+  ])]) + "\n");
+}
+
+async function orgLintAction(opts: OrgLintOpts): Promise<void> {
+  const findings = await lintTree(orgRoot(opts), { strictReview: Boolean(opts.strict) });
+  if (opts.json) process.stdout.write(JSON.stringify(jsonFindings(findings), null, 2) + "\n");
+  else for (const finding of findings) process.stdout.write(formatOrgFinding(finding) + "\n");
+  if (findings.some((finding) => finding.level === "ERROR")) process.exitCode = 1;
+}
+
+async function orgStatusAction(opts: OrgJsonOpts): Promise<void> {
+  const status = await statusOverview(orgRoot(opts));
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(status, null, 2) + "\n");
+    return;
+  }
+  const totals = status.totals as { agents: number; inboxDepth: number; openTickets: number; overdueReviews: number; severityHighWater: string };
+  const agents = status.agents as Array<{ path: string; lastWake: string | null; inboxDepth: number; openTickets: number; lastSeverity: string | null }>;
+  const rows = [["AGENT", "LAST WAKE", "INBOX", "TICKETS", "SEVERITY"]];
+  for (const agent of agents) {
+    rows.push([
+      agent.path,
+      agent.lastWake ?? "-",
+      String(agent.inboxDepth),
+      String(agent.openTickets),
+      agent.lastSeverity ?? "-",
+    ]);
+  }
+  process.stdout.write(`agents ${totals.agents}, inbox ${totals.inboxDepth}, tickets ${totals.openTickets}, overdue ${totals.overdueReviews}, max ${totals.severityHighWater}\n`);
+  process.stdout.write(table(rows) + "\n");
+}
+
+function splitRefs(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function replyTarget(target: string): { ticketId: string } | { ticketRelPath: string } {
+  return target.includes("/") || target.endsWith(".md") ? { ticketRelPath: target } : { ticketId: target };
 }
 
 /**
@@ -1223,6 +1389,72 @@ export function buildProgram(): Command {
     .command("exec <name>", { hidden: true })
     .description("execute a schedule once")
     .action(scheduleExecAction);
+
+  const org = program.command("org").description("manage an org runtime");
+
+  org
+    .command("init")
+    .option("--root <dir>", "org root")
+    .description("scaffold from coverage.toml")
+    .action(act(orgInitAction));
+
+  org
+    .command("tick")
+    .option("--root <dir>", "org root")
+    .option("--date <date>", "cycle date YYYY-MM-DD")
+    .option("--json", "emit tick result as JSON")
+    .option("--repair", "run the packaged lint repair workflow for lint errors")
+    .option("--commit", "commit tick changes")
+    .option("--concurrency <n>", "max concurrent wakes")
+    .description("run due wakes, delivery, and lint")
+    .action(act(orgTickAction));
+
+  org
+    .command("wake <path>")
+    .option("--root <dir>", "org root")
+    .option("--reason <reason>", "wake reason")
+    .option("--json", "emit wake result as JSON")
+    .description("wake one agent")
+    .action(act(orgWakeAction));
+
+  org
+    .command("send <from> <type> <to> <subject>")
+    .option("--root <dir>", "org root")
+    .option("--body-file <file>", "message body file")
+    .option("--refs <refs>", "comma-separated refs")
+    .option("--deadline <date>", "request deadline YYYY-MM-DD")
+    .description("route one message")
+    .action(act(orgSendAction));
+
+  org
+    .command("ask <path> <question...>")
+    .option("--root <dir>", "org root")
+    .description("ask an agent a read-only question")
+    .action(act(orgAskAction));
+
+  org
+    .command("tickets")
+    .option("--root <dir>", "org root")
+    .option("--agent <path>", "filter by agent")
+    .option("--state <state>", "filter by state")
+    .option("--json", "emit tickets as JSON")
+    .description("list tickets")
+    .action(act(orgTicketsAction));
+
+  org
+    .command("lint")
+    .option("--root <dir>", "org root")
+    .option("--strict", "upgrade past review warnings to errors")
+    .option("--json", "emit findings as JSON")
+    .description("lint org files")
+    .action(act(orgLintAction));
+
+  org
+    .command("status")
+    .option("--root <dir>", "org root")
+    .option("--json", "emit status as JSON")
+    .description("show org status")
+    .action(act(orgStatusAction));
 
   program
     .command("doctor")
