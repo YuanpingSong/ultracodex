@@ -194,7 +194,7 @@ The project builds itself, and the evidence lives in this repo:
 
 - The fleets that built v0.5.0: 22 runs, 118 agents, 1.7M output tokens — all on Codex, with the driving Claude session doing planning and review.
 - This project was built twice — once by Claude fleets on the Workflow tool, once as a clean-room rebuild by Codex fleets through ultracodex, independently verified at 125/125 tests ([the record](docs/internal/acceptance-comparison.md)).
-- A controlled comparison, one `[route]` line apart: the same build script shipped the same module at 12/12 tests on every backend tried — Codex (gpt-5.6-sol) in 107 s with zero Claude quota; Claude (Opus 4.8) in 219 s and (sonnet-5) in 237 s on the Claude meter ([methodology and raw journals](docs/internal/research/cmp-build/README.md)).
+- A controlled comparison, one `[route]` line apart: the same build script shipped the same module at 12/12 tests on every model tried — Codex (gpt-5.6-sol) in 107 s with zero Claude quota; Claude Opus 4.8 in 219 s, sonnet-5 in 237 s, and a deliberately-overkill Fable 5 in 246 s, all on the Claude meter. Capability beyond the task simply runs a pricier meter — which is why routing is a config line ([methodology and raw journals](docs/internal/research/cmp-build/README.md)).
 - One three-vendor run shipped a real feature on this repo: OpenCode implemented it, Codex gated it, Claude adversarially reviewed it — one journal.
 - The org runtime's acceptance test ran here too: the dependency-watching org above completed its first full live cycle on the shipped runtime, briefs and audits included.
 

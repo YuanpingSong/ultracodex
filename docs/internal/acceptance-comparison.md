@@ -81,5 +81,6 @@ Promoted to its own folder — methodology, results table, honest reading,
 and both raw journals: [research/cmp-build/](research/cmp-build/README.md).
 Headline, frontier vs frontier: the same build script shipped the same
 12/12-test module on both backends — gpt-5.6-sol in 107 s with zero
-Claude quota, claude-opus-4-8 in 219 s on the Claude meter (sonnet-5 ran
-as a third, balanced-tier data point).
+Claude quota, claude-opus-4-8 in 219 s on the Claude meter (sonnet-5 and
+a deliberately-overkill fable-5 ran as additional data points; all four
+converged to 12/12).
