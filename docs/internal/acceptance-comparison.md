@@ -79,6 +79,7 @@ same script, same runtime, same accounting, one [route] line changed.
 
 Promoted to its own folder — methodology, results table, honest reading,
 and both raw journals: [research/cmp-build/](research/cmp-build/README.md).
-Headline: the same build script shipped the same 12/12-test module on both
-backends — gpt-5.6-sol in 107 s with zero Claude quota, claude-sonnet-5 in
-237 s on the Claude meter.
+Headline, frontier vs frontier: the same build script shipped the same
+12/12-test module on both backends — gpt-5.6-sol in 107 s with zero
+Claude quota, claude-opus-4-8 in 219 s on the Claude meter (sonnet-5 ran
+as a third, balanced-tier data point).
