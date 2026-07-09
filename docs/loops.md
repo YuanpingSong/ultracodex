@@ -17,6 +17,7 @@ The package ships two reference loops:
 | goal-based | `ultracodex run goal` | Builder rounds continue until a skeptical verifier approves, rounds cap, budget floor, or agent failure. |
 | time-based | `ultracodex schedule` | Cron wakes the run. Add `--until-done` when the workflow returns `{ done: true }`; see [schedule.md](schedule.md). |
 | turn-based | interactive sessions | Out of scope for packaged workflows; use the interactive agent surface directly. |
+| proactive | an [org](org.md) | The next rung of the delegation gradient: hand off the memory and the organization, not just the trigger. |
 
 ## Goal
 

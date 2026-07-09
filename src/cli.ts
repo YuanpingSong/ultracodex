@@ -67,8 +67,10 @@ import {
   type ScheduleSpec,
 } from "./schedule/spec.js";
 import { askAgent } from "./org/ask.js";
+import { runOrgAudit } from "./org/audit.js";
 import { formatFinding as formatOrgFinding, jsonFindings, lintTree } from "./org/lint.js";
 import { deliver as deliverOrgMessage } from "./org/router.js";
+import { runOrgReplay } from "./org/replay.js";
 import { executeTick, statusOverview } from "./org/scheduler.js";
 import { formatScaffoldReport, initOrg } from "./org/scaffold.js";
 import { listTickets } from "./org/tickets.js";
@@ -525,6 +527,17 @@ interface OrgLintOpts extends OrgJsonOpts {
   strict?: boolean;
 }
 
+interface OrgReplayOpts extends OrgJsonOpts {
+  from?: string;
+  to?: string;
+  faults?: string;
+  pristine?: boolean;
+}
+
+interface OrgAuditOpts extends OrgJsonOpts {
+  sample?: string;
+}
+
 function orgRoot(opts: OrgRootOpts): string {
   return path.resolve(opts.root ?? process.cwd());
 }
@@ -635,6 +648,37 @@ async function orgStatusAction(opts: OrgJsonOpts): Promise<void> {
   }
   process.stdout.write(`agents ${totals.agents}, inbox ${totals.inboxDepth}, tickets ${totals.openTickets}, overdue ${totals.overdueReviews}, max ${totals.severityHighWater}\n`);
   process.stdout.write(table(rows) + "\n");
+}
+
+async function orgReplayAction(opts: OrgReplayOpts): Promise<void> {
+  const result = await runOrgReplay({
+    root: orgRoot(opts),
+    from: opts.from,
+    to: opts.to,
+    faults: opts.faults,
+    pristine: Boolean(opts.pristine),
+  });
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    return;
+  }
+  process.stdout.write(
+    `replay ${result.from ?? "-"}..${result.to ?? "-"}: ${result.daysSimulated} days, ${result.itemsDelivered} items, ${result.cyclesRun} ticks\n`,
+  );
+}
+
+async function orgAuditAction(opts: OrgAuditOpts): Promise<void> {
+  const result = await runOrgAudit({
+    root: orgRoot(opts),
+    sample: opts.sample ?? 25,
+  });
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    return;
+  }
+  process.stdout.write(
+    `audit ${result.date}: accuracy ${result.accuracy}, ${result.sampled} sampled, ${result.findings.length} findings\n`,
+  );
 }
 
 function splitRefs(raw: string | undefined): string[] {
@@ -1349,7 +1393,7 @@ export function buildProgram(): Command {
 
   program
     .command("sync-skills")
-    .description("install the ultracodex + agent-script-authoring skills, plus one skill per saved workflow, into .claude/skills/")
+    .description("install static ultracodex skills, plus one skill per saved workflow, into .claude/skills/")
     .action(act(syncSkillsAction));
 
   const schedule = program.command("schedule").description("manage cron schedules");
@@ -1455,6 +1499,25 @@ export function buildProgram(): Command {
     .option("--json", "emit status as JSON")
     .description("show org status")
     .action(act(orgStatusAction));
+
+  org
+    .command("replay")
+    .option("--root <dir>", "org root")
+    .option("--from <date>", "first replay date YYYY-MM-DD")
+    .option("--to <date>", "last replay date YYYY-MM-DD")
+    .option("--faults <spec>", "fault injection spec: drop:ID;dup:ID;late:ID:DAYS")
+    .option("--pristine", "reset memory files to scaffold state; requires a replay/* branch")
+    .option("--json", "emit replay summary as JSON")
+    .description("replay ingest ledger rows through org tick")
+    .action(act(orgReplayAction));
+
+  org
+    .command("audit")
+    .option("--root <dir>", "org root")
+    .option("--sample <n>", "number of claims to sample")
+    .option("--json", "emit audit summary as JSON")
+    .description("run the packaged org audit workflow")
+    .action(act(orgAuditAction));
 
   program
     .command("doctor")

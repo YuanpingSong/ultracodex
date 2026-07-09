@@ -47,6 +47,10 @@ export interface ScaffoldReport {
   orphans: string[];
 }
 
+export interface ScaffoldOptions {
+  resetMemory?: boolean;
+}
+
 export async function initOrg(rootDir = process.cwd(), options: { date?: string } = {}): Promise<ScaffoldReport> {
   const root = path.resolve(rootDir);
   await ensurePackageTemplates(root);
@@ -54,7 +58,7 @@ export async function initOrg(rootDir = process.cwd(), options: { date?: string 
   return scaffold(root, options.date ?? todayIso());
 }
 
-export async function scaffold(rootDir: string, date: string): Promise<ScaffoldReport> {
+export async function scaffold(rootDir: string, date: string, options: ScaffoldOptions = {}): Promise<ScaffoldReport> {
   assertIsoDate(date, "date");
   const root = path.resolve(rootDir);
   const coverage = parseCoverage(await readFile(path.join(root, "coverage.toml"), "utf8"));
@@ -62,7 +66,7 @@ export async function scaffold(rootDir: string, date: string): Promise<ScaffoldR
   const reviewDate = addDays(date, 90);
   const report: ScaffoldReport = { created: 0, skipped: 0, resetMemory: 0, orphaned: 0, agentsRegenerated: 0, orphans: [] };
 
-  await ensureAgentDir(root, "root", {}, templates.root, date, reviewDate, report);
+  await ensureAgentDir(root, "root", {}, templates.root, date, reviewDate, report, options);
   for (const group of coverage.groups) {
     const groupDir = path.join(root, group.name);
     await ensureAgentDir(
@@ -73,6 +77,7 @@ export async function scaffold(rootDir: string, date: string): Promise<ScaffoldR
       date,
       reviewDate,
       report,
+      options,
     );
     for (const entity of group.entities) {
       const entityDir = path.join(groupDir, entity);
@@ -84,6 +89,7 @@ export async function scaffold(rootDir: string, date: string): Promise<ScaffoldR
         date,
         reviewDate,
         report,
+        options,
       );
       await ensureDir(path.join(entityDir, "FACTS"), report);
     }
@@ -129,11 +135,12 @@ async function ensureAgentDir(
   date: string,
   reviewDate: string,
   report: ScaffoldReport,
+  options: ScaffoldOptions,
 ): Promise<void> {
   await ensureDir(dir, report);
   await ensureAgentsFile(dir, render(template, values), report);
   for (const memoryFile of MEMORY_BY_ROLE[role]) {
-    await ensureFile(path.join(dir, memoryFile), memoryContent(memoryFile, date, reviewDate), report);
+    await ensureMemoryFile(path.join(dir, memoryFile), memoryContent(memoryFile, date, reviewDate), report, Boolean(options.resetMemory));
   }
   await ensureDir(path.join(dir, "inbox"), report);
 }
@@ -160,6 +167,22 @@ async function ensureFile(file: string, content: string, report: ScaffoldReport)
     if (!found.isFile()) throw new Error(`${file} exists but is not a file`);
     report.skipped += 1;
   }
+}
+
+async function ensureMemoryFile(file: string, content: string, report: ScaffoldReport, resetMemory: boolean): Promise<void> {
+  if (!resetMemory) {
+    await ensureFile(file, content, report);
+    return;
+  }
+  const kind = await pathKind(file);
+  if (kind === "missing") {
+    await writeFile(file, content, { encoding: "utf8", flag: "wx" });
+    report.created += 1;
+    return;
+  }
+  if (kind !== "file") throw new Error(`${file} exists but is not a file`);
+  await writeFile(file, content, "utf8");
+  report.resetMemory += 1;
 }
 
 async function ensureAgentsFile(dir: string, content: string, report: ScaffoldReport): Promise<void> {

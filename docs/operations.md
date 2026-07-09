@@ -37,12 +37,17 @@ ultracodex sync-skills                      # static skills + workflows/ → .cl
 ultracodex schedule add digest --every 30m -- run digest.js
 ultracodex schedule ls                      # schedules for this project
 ultracodex schedule pause digest            # pause | resume | rm <name>
+ultracodex org init                         # scaffold an org from coverage.toml
+ultracodex org tick                         # run due org wakes
+ultracodex org audit --sample 25 --json     # audit sampled BRIEF/THESIS claims
+ultracodex org replay --from 2026-07-01 --to 2026-07-07
 ```
 
 Any `<runId>` accepts a unique prefix. Quitting the TUI never kills a run;
 runs are owned by their own detached runner process (pidfile in the run dir).
 Schedules are manager-owned crontab lines, not resident ultracodex daemons; see
 [Scheduling runs](schedule.md).
+Org commands manage filesystem-routed agent trees; see [Org runtime](org.md).
 
 TUI home keys: `tab` cycles Runs → Loops → Schedules. Runs keeps `n` for a new
 workflow run, `r` for re-run, and `S` on a workflow to schedule it. Schedules
@@ -57,6 +62,7 @@ remove with confirmation.
   workflows/<name>.js  # saved workflows (meta.name must match filename)
   runs/<runId>/        # journal.jsonl (spine), control.jsonl, pid, agents/<n>/,
                        # script.js + args.json snapshots, result.json
+  org/state/           # last-wake.json, audit-history.jsonl
 ```
 
 Everything is inspectable text; `journal.jsonl` is append-only and replayable.

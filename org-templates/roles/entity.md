@@ -41,3 +41,29 @@ waiting for the next cycle would lose an important option.
 
 Style is terse, specific, and dated. The last BRIEF.md section is falsifiers:
 state what would change your mind.
+
+## File format
+
+Every memory file (BRIEF, THESIS, IDENTITY, LOG, WATCHLIST) begins with YAML
+frontmatter and keeps it current on every edit — including full rewrites:
+
+```
+---
+updated: YYYY-MM-DD
+sources: [files this content rests on]
+confidence: speculative | possible | likely | high-confidence
+next_review: YYYY-MM-DD
+---
+```
+
+A memory file without this block fails lint. Every WATCHLIST item carries a
+YYYY-MM-DD expiry or trigger date.
+
+## Inbox and watchlist discipline
+
+Inbox items are a queue, not a record: after you process an item and LOG it,
+DELETE the file from inbox/. Your LOG entry is the permanent trace.
+
+On every wake — regardless of the wake reason — scan your WATCHLIST for items
+whose date has passed: close each one (remove it, LOG why) or renew it with a
+new date and justification. Expired items you ignore show up in lint.

@@ -60,7 +60,7 @@ Process ONLY the listed inbox filenames. Do not read or process any other files 
 
 Work ONLY inside this group directory.
 Append a LOG entry for every wake. If nothing changed, append a null LOG entry for this cycle with severity:routine.
-Return changed, severity, logLine, and outbox. Use outbox: [] when no outbound message is needed. OUTBOX RULES (violations are rejected and cost you a cycle): NOTIFY goes to peers or other subtrees, never up your own chain; REQUEST commands work and is allowed ONLY toward your own descendants; REPLY only answers a ticket that names you. Infrastructure (ingest/ops/audit) is not an addressee - if you are missing source material or need something fixed, record the gap in your LOG and WATCHLIST instead; honest recorded ignorance beats an unauthorized message.`
+Return changed, severity, logLine, and outbox. Use outbox: [] when no outbound message is needed. OUTBOX RULES (violations are rejected and cost you a cycle): NOTIFY goes to peers or other subtrees, never up your own chain; REQUEST commands work and is allowed ONLY toward your own descendants; REPLY only answers a ticket that names you. Infrastructure (ingest/ops/audit) is not an addressee - if you are missing source material or need something fixed, record the gap in your LOG and WATCHLIST instead; honest recorded ignorance beats an unauthorized message. FILE RULES: every memory file keeps its YAML frontmatter (updated, sources, confidence, next_review) current even on full rewrites; delete inbox items you have processed and LOGged; close or renew any WATCHLIST item whose date has passed.`
 }
 
 function backlogLine() {

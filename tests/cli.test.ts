@@ -164,7 +164,7 @@ describe("buildProgram", () => {
   it("org command exposes the documented subcommands and options", () => {
     const org = buildProgram().commands.find((c) => c.name() === "org")!;
     expect(org.commands.map((c) => c.name())).toEqual(
-      expect.arrayContaining(["init", "tick", "wake", "send", "ask", "tickets", "lint", "status"]),
+      expect.arrayContaining(["init", "tick", "wake", "send", "ask", "tickets", "lint", "status", "replay", "audit"]),
     );
 
     const tick = org.commands.find((c) => c.name() === "tick")!;
@@ -175,6 +175,16 @@ describe("buildProgram", () => {
     const send = org.commands.find((c) => c.name() === "send")!;
     expect(send.options.map((o) => o.long)).toEqual(
       expect.arrayContaining(["--root", "--body-file", "--refs", "--deadline"]),
+    );
+
+    const replay = org.commands.find((c) => c.name() === "replay")!;
+    expect(replay.options.map((o) => o.long)).toEqual(
+      expect.arrayContaining(["--root", "--from", "--to", "--faults", "--pristine", "--json"]),
+    );
+
+    const audit = org.commands.find((c) => c.name() === "audit")!;
+    expect(audit.options.map((o) => o.long)).toEqual(
+      expect.arrayContaining(["--root", "--sample", "--json"]),
     );
   });
 });
@@ -344,8 +354,8 @@ async function runCliInProc(
 }
 
 describe("packaged builtin workflows", () => {
-  it("validate --strict passes for goal and loop by name", async () => {
-    for (const name of ["goal", "loop"]) {
+  it("validate --strict passes for packaged builtins by name", async () => {
+    for (const name of ["goal", "loop", "org-lint-repair", "org-audit"]) {
       const res = await runCliInProc(["validate", name, "--strict"], tmpProject());
       expect(res.code).toBe(0);
       expect(res.stderr).toBe("");

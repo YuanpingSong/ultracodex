@@ -1,19 +1,20 @@
 # Installing the skills
 
-ultracodex ships two static skills in the package's `skills/` directory — one source of truth serving every surface below:
+ultracodex ships three static skills in the package's `skills/` directory — one source of truth serving every surface below:
 
 - **`ultracodex`** — the run contract: author the script exactly as for Claude Code's Workflow tool, execute with `ultracodex run <file> --json`, relay the result verbatim.
 - **`agent-script-authoring`** — the writer-oriented format skill: one self-contained document (~4.7k tokens) that teaches any capable model to author Agent Scripts. Battle-tested via the ADR-0003 parity program (GPT-5.5 at parity 7/7 first try; a 31B open model at parity after one strengthening round).
+- **`org-creation`** — the org design skill: gate a domain, choose groups/entities, write templates, define generic fetcher discipline, and calibrate lint/audit/replay loops.
 
 ## Claude Code
 
-Per project — one command installs both static skills plus one relay skill per saved workflow:
+Per project — one command installs all static skills plus one relay skill per saved workflow:
 
 ```bash
 ultracodex sync-skills
 ```
 
-Or install the repo as a **plugin** — same two skills plus the examples gallery, no CLI required, with progressive disclosure (~250 always-on tokens; full skill text loads only on invoke):
+Or install the repo as a **plugin** — same static skills plus the examples gallery, no CLI required, with progressive disclosure (~250 always-on tokens; full skill text loads only on invoke):
 
 ```bash
 claude plugin marketplace add YuanpingSong/ultracodex

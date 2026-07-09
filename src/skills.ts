@@ -39,8 +39,9 @@ ultracodex run ${name} --args '<json>' --json
  * the npm tarball, and a plugin install all carry identical content:
  *  - ultracodex: how to RUN workflows through this CLI (verbatim-relay contract).
  *  - agent-script-authoring: how to WRITE workflow scripts (model-agnostic).
+ *  - org-creation: how to DESIGN and scaffold a generic filesystem org.
  */
-const STATIC_SKILLS = ["ultracodex", "agent-script-authoring"] as const;
+const STATIC_SKILLS = ["ultracodex", "agent-script-authoring", "org-creation"] as const;
 
 export function packageRootDir(): string {
   // src/skills.ts and dist/skills.js both sit one level below the package

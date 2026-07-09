@@ -5,7 +5,17 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { askAgent, renderAskScript } from "../src/org/ask.js";
+import { runOrgAudit } from "../src/org/audit.js";
 import { lintTree } from "../src/org/lint.js";
+import {
+  applyReplayFaults,
+  deriveReplayCorpus,
+  parseReplayFaults,
+  runOrgReplay,
+  windowReplayDays,
+  writeReplayDayInboxItems,
+  type ReplayDelivery,
+} from "../src/org/replay.js";
 import { deliver, RoutingViolationError } from "../src/org/router.js";
 import { executeTick, evaluateTriggers, statusOverview } from "../src/org/scheduler.js";
 import { initOrg, parseCoverage, scaffold } from "../src/org/scaffold.js";
@@ -423,6 +433,203 @@ describe("org scheduler", () => {
   });
 });
 
+describe("org replay", () => {
+  it("derives R1 ingest rows, dedupes by id/to/date, and ignores replay rows", async () => {
+    const repo = await tmpRepo();
+    await mkdir(path.join(repo, "ingest"), { recursive: true });
+    await writeFile(path.join(repo, "ingest", "ledger.jsonl"), [
+      JSON.stringify({ type: "ingest", at: "2026-07-01T00:00:00.000Z", id: "item-a", date: "2026-07-01", to: "alpha/w1", item: "notice.md", ref: "cache/item-a.txt" }),
+      JSON.stringify({ type: "ingest", at: "2026-07-01T00:00:01.000Z", id: "item-a", date: "2026-07-01", to: "alpha/w1", item: "notice.md" }),
+      JSON.stringify({ type: "routing-delivery", at: "2026-07-01T00:00:02.000Z", routedTo: "alpha/w1/inbox/notice.md" }),
+      JSON.stringify({ type: "ingest", at: "2026-07-01T00:00:03.000Z", id: "replayed", date: "2026-07-01", to: "alpha/w1", item: "old.md", replay: true }),
+      JSON.stringify({ type: "ingest", at: "2026-07-01T00:00:04.000Z", id: "already", date: "2026-07-01", to: "alpha/w1", item: "again.md" }),
+      JSON.stringify({ type: "ingest", at: "2026-07-01T00:00:05.000Z", id: "already", date: "2026-07-01", to: "alpha/w1", item: "again.md", replay: true }),
+      JSON.stringify({ type: "ingest", at: "2026-07-01T00:00:06.000Z", id: "late-original", date: "2026-07-01", to: "alpha/w1", item: "late.md" }),
+      JSON.stringify({ type: "ingest", at: "2026-07-03T00:00:00.000Z", id: "late-original", date: "2026-07-03", originalDate: "2026-07-01", to: "alpha/w1", item: "late.md", replay: true }),
+      JSON.stringify({ type: "ingest", at: "2026-07-02T00:00:00.000Z", id: "root-item", date: "2026-07-02", to: ".", item: "inbox/root-item.md" }),
+      "",
+    ].join("\n"));
+
+    const corpus = await deriveReplayCorpus(repo);
+
+    expect(corpus.map((row) => [row.id, row.to, row.inboxRelPath, row.ref ?? null])).toEqual([
+      ["item-a", "alpha/w1", "alpha/w1/inbox/notice.md", "cache/item-a.txt"],
+      ["root-item", ".", "inbox/root-item.md", null],
+    ]);
+    expect(windowReplayDays(corpus, { from: "2026-07-01", to: "2026-07-02" }).map((day) => [day.date, day.deliveries.length])).toEqual([
+      ["2026-07-01", 1],
+      ["2026-07-02", 1],
+    ]);
+  });
+
+  it("accepts generic ingest and fault ids while escaping fallback filenames", async () => {
+    const repo = await tmpRepo();
+    await mkdir(path.join(repo, "ingest"), { recursive: true });
+    await writeFile(path.join(repo, "ingest", "ledger.jsonl"), `${JSON.stringify({
+      type: "ingest",
+      at: "2026-07-01T00:00:00.000Z",
+      id: "@scope/pkg@1.2.3",
+      date: "2026-07-01",
+      to: "alpha/w1",
+      item: "cache-only",
+    })}\n`);
+
+    const corpus = await deriveReplayCorpus(repo);
+
+    expect(corpus).toHaveLength(1);
+    expect(corpus[0]?.id).toBe("@scope/pkg@1.2.3");
+    expect(corpus[0]?.inboxRelPath).toBe("alpha/w1/inbox/%40scope%2Fpkg%401.2.3.md");
+    expect(parseReplayFaults("drop:\"@scope/pkg:1.2.3\";late:\"url:feed/item,one;two\":2")).toEqual([
+      { type: "drop", id: "@scope/pkg:1.2.3", spec: "drop:\"@scope/pkg:1.2.3\"" },
+      { type: "late", id: "url:feed/item,one;two", days: 2, spec: "late:\"url:feed/item,one;two\":2" },
+    ]);
+  });
+
+  it("applies drop, duplicate, and late replay faults", () => {
+    const result = applyReplayFaults([
+      replayDelivery("drop-me", "2026-07-01"),
+      replayDelivery("dup-me", "2026-07-01"),
+      replayDelivery("late-me", "2026-07-01"),
+    ], parseReplayFaults("drop:drop-me;dup:dup-me;late:late-me:2"));
+
+    expect(result.deliveries.map((row) => `${row.id}:${row.deliverDate}:${row.duplicateOf ?? "-"}`)).toEqual([
+      "dup-me:2026-07-01:-",
+      "dup-me:2026-07-02:dup-me",
+      "late-me:2026-07-03:-",
+    ]);
+    expect(result.faults.map((fault) => [fault.spec, fault.matched, fault.deliveriesAffected])).toEqual([
+      ["drop:drop-me", 1, 1],
+      ["dup:dup-me", 1, 1],
+      ["late:late-me:2", 1, 1],
+    ]);
+  });
+
+  it("refuses pristine replay unless the current branch is replay-prefixed", async () => {
+    const repo = await tmpRepo();
+    const execFile = vi.fn(async () => ({ stdout: "main\n" }));
+
+    await expect(runOrgReplay({ root: repo, pristine: true }, { execFile }))
+      .rejects.toThrow(/current git branch to start with "replay\/"/u);
+    expect(execFile).toHaveBeenCalledWith("git", ["rev-parse", "--abbrev-ref", "HEAD"], expect.objectContaining({ cwd: repo }));
+  });
+
+  it("resets pristine memory through scaffold stubs on replay branches", async () => {
+    const repo = await tmpRepo();
+    await writeFile(path.join(repo, "coverage.toml"), [
+      "[groups.alpha]",
+      "title = \"Alpha\"",
+      "entities = [\"w1\"]",
+      "",
+    ].join("\n"));
+    await initOrg(repo, { date: TODAY });
+    await writeFile(path.join(repo, "alpha", "w1", "BRIEF.md"), memory(FUTURE, "Changed memory\n"));
+    const execFile = vi.fn(async () => ({ stdout: "replay/test\n" }));
+
+    const summary = await runOrgReplay({ root: repo, from: TODAY, to: TODAY, pristine: true }, { execFile, tickOptions: { lint: false, tickets: false } });
+
+    expect(summary.pristineReset?.resetMemory).toBeGreaterThan(0);
+    await expect(readFile(path.join(repo, "alpha", "w1", "BRIEF.md"), "utf8")).resolves.toContain("PLACEHOLDER: This file awaits its first cycle.");
+  });
+
+  it("replays rows through tick and stamps replay ledger rows", async () => {
+    const repo = await twoGroupOrg();
+    await mkdir(path.join(repo, "ingest"), { recursive: true });
+    await writeFile(path.join(repo, "ingest", "ledger.jsonl"), `${JSON.stringify({
+      type: "ingest",
+      at: "2026-07-01T00:00:00.000Z",
+      id: "item-a",
+      date: TODAY,
+      to: "alpha/w1",
+      item: "notice.md",
+      ref: "cache/item-a.txt",
+    })}\n`);
+    const calls: string[] = [];
+
+    const summary = await runOrgReplay({ root: repo, from: TODAY, to: TODAY }, {
+      tickOptions: {
+        lint: false,
+        tickets: false,
+        wakeAgent: async (agentPath) => {
+          calls.push(agentPath);
+          const inbox = path.join(repo, ...agentPath.split("/"), "inbox");
+          for (const entry of fs.existsSync(inbox) ? fs.readdirSync(inbox) : []) {
+            if (!entry.startsWith(".")) fs.rmSync(path.join(inbox, entry), { force: true });
+          }
+          return { changed: true, severity: "routine", logLine: "stub", outbox: [] };
+        },
+      },
+    });
+
+    expect(summary).toMatchObject({ daysSimulated: 1, cyclesRun: 1, itemsDelivered: 1, inboxItemsDelivered: 1 });
+    expect(calls).toContain("alpha/w1");
+    const rows = await ledgerRows(repo);
+    expect(rows).toContainEqual(expect.objectContaining({
+      type: "ingest",
+      id: "item-a",
+      date: TODAY,
+      to: "alpha/w1",
+      item: "notice.md",
+      ref: "cache/item-a.txt",
+      replay: true,
+      cycle: 1,
+    }));
+  });
+
+  it("does not redeliver rows already marked by replay output", async () => {
+    const repo = await twoGroupOrg();
+    await mkdir(path.join(repo, "ingest"), { recursive: true });
+    await writeFile(path.join(repo, "ingest", "ledger.jsonl"), `${JSON.stringify({
+      type: "ingest",
+      at: "2026-07-01T00:00:00.000Z",
+      id: "item-a",
+      date: TODAY,
+      to: "alpha/w1",
+      item: "notice.md",
+    })}\n`);
+
+    const tickOptions = {
+      lint: false,
+      tickets: false,
+      wakeAgent: async (agentPath: string) => {
+        const inbox = path.join(repo, ...agentPath.split("/"), "inbox");
+        for (const entry of fs.existsSync(inbox) ? fs.readdirSync(inbox) : []) {
+          if (!entry.startsWith(".")) fs.rmSync(path.join(inbox, entry), { force: true });
+        }
+        return { changed: true, severity: "routine" as const, logLine: "stub", outbox: [] };
+      },
+    };
+
+    const first = await runOrgReplay({ root: repo, from: TODAY, to: TODAY }, { tickOptions });
+    const second = await runOrgReplay({ root: repo, from: TODAY, to: TODAY }, { tickOptions });
+
+    expect(first.itemsDelivered).toBe(1);
+    expect(second.itemsDelivered).toBe(0);
+    const replayRows = (await ledgerRows(repo)).filter((row) => row.type === "ingest" && row.id === "item-a" && row.replay === true);
+    expect(replayRows).toHaveLength(1);
+  });
+
+  it("writes generic replay inbox items", async () => {
+    const repo = await tmpRepo();
+    const written = await writeReplayDayInboxItems(repo, TODAY, [replayDelivery("item-a", TODAY)]);
+
+    expect(written).toEqual(["alpha/w1/inbox/item-a.md"]);
+    await expect(readFile(path.join(repo, "alpha", "w1", "inbox", "item-a.md"), "utf8")).resolves.toContain("type: ingest");
+  });
+});
+
+function replayDelivery(id: string, date: string): ReplayDelivery {
+  return {
+    id,
+    trueDate: date,
+    deliverDate: date,
+    to: "alpha/w1",
+    item: `${id}.md`,
+    ref: `cache/${id}.txt`,
+    inboxRelPath: `alpha/w1/inbox/${id}.md`,
+    faultNotes: [],
+  };
+}
+
 describe("org wake and ask", () => {
   it("renders wake args, caps inbox, flags historical items, parses envelopes, and records thread id", async () => {
     const repo = await twoGroupOrg();
@@ -581,6 +788,150 @@ describe("org lint repair workflow", () => {
     ]);
     expect(calls[2]?.prompt).toContain("- alpha follow-up");
     expect(calls[2]?.prompt).not.toContain("beta/widgets/LOG.md");
+  });
+});
+
+describe("org audit", () => {
+  const AUDIT_RESULT = {
+    accuracy: 0.5,
+    tally: { verified: 1, unsupported: 1, contradicted: 0, uncheckable: 0 },
+    sampled: 2,
+    done: false,
+    findings: [
+      {
+        agent: "alpha/w1",
+        file: "alpha/w1/THESIS.md",
+        line: 8,
+        claim: "- supported claim [source:alpha/w1/FACTS/source.txt]",
+        verdict: "verified",
+        note: "matched source",
+      },
+      {
+        agent: "beta/b1",
+        file: "beta/b1/BRIEF.md",
+        line: 12,
+        claim: "- unsupported claim [source:beta/b1/FACTS/source.txt]",
+        verdict: "unsupported",
+        note: "source did not contain claim",
+      },
+    ],
+  };
+
+  it("appends audit history idempotently by date, sampled count, and accuracy", async () => {
+    const repo = await twoGroupOrg();
+    const execFile = vi.fn(async () => ({ stdout: JSON.stringify({ ...AUDIT_RESULT, findings: [] }) }));
+
+    await runOrgAudit({ root: repo, sample: 2, date: TODAY }, { execFile });
+    await runOrgAudit({ root: repo, sample: 2, date: TODAY }, { execFile });
+
+    const history = await readFile(path.join(repo, ".ultracodex", "org", "state", "audit-history.jsonl"), "utf8");
+    const rows = history.trim().split(/\r?\n/u).map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(rows).toEqual([
+      {
+        date: TODAY,
+        accuracy: 0.5,
+        tally: { verified: 1, unsupported: 1, contradicted: 0, uncheckable: 0 },
+        sampled: 2,
+      },
+    ]);
+    expect(execFile).toHaveBeenCalledTimes(2);
+  });
+
+  it("delivers every audit finding as an audit notify to the owning agent", async () => {
+    const repo = await twoGroupOrg();
+    const execFile = vi.fn(async () => ({ stdout: JSON.stringify(AUDIT_RESULT) }));
+
+    const summary = await runOrgAudit({ root: repo, sample: 2, date: TODAY }, { execFile });
+
+    expect(summary.notifications).toBe(2);
+    const first = await readFile(path.join(repo, "alpha", "w1", "inbox", `audit-${TODAY}-1.md`), "utf8");
+    expect(first).toContain("from: \"audit\"");
+    expect(first).toContain("Verdict: verified");
+    const second = await readFile(path.join(repo, "beta", "b1", "inbox", `audit-${TODAY}-2.md`), "utf8");
+    expect(second).toContain("Verdict: unsupported");
+    expect((await ledgerRows(repo)).filter((row) => row.type === "routing-delivery" && row.from === "audit")).toHaveLength(2);
+  });
+
+  it("passes sample args to the packaged builtin path through the CLI runner", async () => {
+    const repo = await twoGroupOrg();
+    const shadowDir = path.join(repo, ".ultracodex", "workflows");
+    await mkdir(shadowDir, { recursive: true });
+    await writeFile(
+      path.join(shadowDir, "org-audit.js"),
+      "export const meta = { name: 'org-audit', description: 'shadow' }\nreturn { accuracy: 1, tally: {}, findings: [], sampled: 0, done: true }\n",
+      "utf8",
+    );
+    const calls: Array<{ command: string; args: string[]; cwd: string }> = [];
+    const execFile = vi.fn(async (command: string, args: string[], options: { cwd: string }) => {
+      calls.push({ command, args, cwd: options.cwd });
+      return { stdout: JSON.stringify({ accuracy: 1, tally: { verified: 0, unsupported: 0, contradicted: 0, uncheckable: 0 }, sampled: 0, findings: [], done: true }) };
+    });
+
+    await runOrgAudit({ root: repo, sample: 7, date: TODAY }, { execFile });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.command).toBe(process.execPath);
+    expect(calls[0]?.args[0]).toMatch(/cli\.js$/u);
+    expect(calls[0]?.args.slice(1)).toEqual([
+      "run",
+      path.join(PROJECT_ROOT, "workflows", "org-audit.js"),
+      "--args",
+      JSON.stringify({ sample: 7 }),
+      "--json",
+    ]);
+    expect(calls[0]?.cwd).toBe(repo);
+  });
+
+  it("derives accuracy and done from the normalized tally", async () => {
+    const repo = await twoGroupOrg();
+    const execFile = vi.fn(async () => ({
+      stdout: JSON.stringify({
+        accuracy: 1,
+        tally: { verified: 1, unsupported: 1, contradicted: 0, uncheckable: 0 },
+        sampled: 2,
+        findings: [],
+        done: true,
+      }),
+    }));
+
+    const summary = await runOrgAudit({ root: repo, sample: 2, date: TODAY }, { execFile });
+
+    expect(summary.accuracy).toBe(0.5);
+    expect(summary.done).toBe(false);
+    const history = await readFile(path.join(repo, ".ultracodex", "org", "state", "audit-history.jsonl"), "utf8");
+    expect(JSON.parse(history.trim()) as Record<string, unknown>).toMatchObject({ accuracy: 0.5, sampled: 2 });
+  });
+
+  it("audits only sources cited in the claim text", async () => {
+    const source = await readFile(path.join(PROJECT_ROOT, "workflows", "org-audit.js"), "utf8");
+    expect(validateWorkflowScript(source, { strict: true })).toEqual([]);
+    const prompts: string[] = [];
+    const loaded = loadScript(source, { strict: true });
+
+    const result = await loaded.body(workflowGlobals({
+      args: { sample: 1 },
+      agent: async (prompt, opts) => {
+        const label = String(opts?.label ?? "");
+        prompts.push(prompt);
+        if (label === "audit:collect") {
+          return {
+            claims: [{
+              agent: "alpha/w1",
+              file: "alpha/w1/THESIS.md",
+              line: 4,
+              claim: "- Throughput rose 12%",
+              sources: ["alpha/w1/FACTS/source.txt"],
+            }],
+          };
+        }
+        return { verdict: "uncheckable", note: "no cited source" };
+      },
+    }));
+
+    const auditPrompt = prompts.find((prompt) => prompt.includes("Cited source payloads:")) ?? "";
+    expect(auditPrompt).toContain("Cited source payloads:\n(none)");
+    expect(auditPrompt).not.toContain("alpha/w1/FACTS/source.txt");
+    expect((result as { tally: { uncheckable: number } }).tally.uncheckable).toBe(1);
   });
 });
 

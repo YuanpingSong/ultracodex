@@ -530,7 +530,7 @@ function handle(msg) {
         id: msg.id,
         result: LOGGED_OUT
           ? { account: null, requiresOpenaiAuth: true }
-          : { account: { type: "chatgpt", email: "fake@example.com", planType: "pro" }, requiresOpenaiAuth: true },
+          : { account: { type: "chatgpt", email: "fake-account", planType: "pro" }, requiresOpenaiAuth: true },
       });
       break;
     case "model/list":
