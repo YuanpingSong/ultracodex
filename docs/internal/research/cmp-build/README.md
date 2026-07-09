@@ -62,6 +62,30 @@ claude adapter reports them separately — so compare per category and never
 a single "total" number. The durable claim is the last row: identical
 work, and only one column draws down Claude quota.
 
+## Follow-up: crossing builder and gate (2026-07-09, same day)
+
+The main table left a confound: builder and gate shared a route in every
+run, so "Claude builders write rougher first drafts" and "Claude gates
+judge more strictly" were indistinguishable. Two more runs crossed them —
+`"impl:*"` routed one way, everything else the other
+([cross-a-journal.jsonl](cross-a-journal.jsonl),
+[cross-b-journal.jsonl](cross-b-journal.jsonl)):
+
+| | cross-A: opus-4-8 builds, sol gates | cross-B: sol builds, opus-4-8 gates |
+|---|---|---|
+| Outcome | 12/12 tests | 12/12 tests |
+| Gate | passed first try | passed first try |
+| Wall time | 120 s | 146 s |
+
+Both crossed configurations passed the gate first try. That weakens both
+single-factor explanations at once: an opus build survived a sol gate, and
+a sol build survived an opus gate. The fix rounds appeared only in the
+three same-route Claude runs — which, at one run per configuration, is as
+consistent with chance as with anything structural. What the follow-up
+does establish: the cross-vendor configurations work, the outcome is
+insensitive to who builds and who gates on this task, and mixed routing
+turned the experiment itself into two config lines.
+
 ## Reproducing
 
 ```bash
