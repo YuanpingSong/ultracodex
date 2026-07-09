@@ -77,28 +77,8 @@ same script, same runtime, same accounting, one [route] line changed.
 
 ## Controlled comparison (2026-07-09): same script, one [route] line apart
 
-Methodology: one build script (implement a rate-limiter module against a
-frozen 12-test spec → adversarial gate → conditional fix → mechanical
-verify), two throwaway projects whose configs differ by exactly one line
-(`"*" = "codex"` vs `"*" = "claude"`), both runs through the same
-ultracodex runtime with identical journal accounting, wall-clock timed
-externally. Script and both journals preserved at
-docs/internal/research/cmp-build/.
-
-| | route → codex (gpt-5.6-sol, xhigh) | route → claude (claude-sonnet-5) |
-|---|---|---|
-| Outcome | 12/12 tests | 12/12 tests |
-| Agents run | 3 — gate passed first try | 4 — gate ordered one fix round |
-| Wall time | 107 s | 237 s |
-| Output tokens | 4.7k (2.2k of it reasoning) | 21.6k |
-| Input tokens | 181.7k, of which 124.2k cache reads | 20.1k, plus 747.8k cache reads |
-| Quota meter | zero Claude | all Claude |
-
-Reading the table honestly: both sides converged to the same acceptance;
-the extra Claude-side agent is the gate doing its job on round one, and
-with one run per side the gate-round difference is an observation rather
-than a finding. The adapters report cache accounting differently — codex
-folds cache reads into input/total, the claude adapter reports them
-separately — so compare per category and never the single "total" number.
-The durable claim is the last row: identical work, and only one of the
-two columns draws down Claude quota.
+Promoted to its own folder — methodology, results table, honest reading,
+and both raw journals: [research/cmp-build/](research/cmp-build/README.md).
+Headline: the same build script shipped the same 12/12-test module on both
+backends — gpt-5.6-sol in 107 s with zero Claude quota, claude-sonnet-5 in
+237 s on the Claude meter.
