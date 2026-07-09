@@ -31,7 +31,7 @@ export const SIGTERM_GRACE_MS = 5_000;
 export const RUN_ID_PREFIX = "uc_";
 
 /** Codex CLI version this release was developed and tested against. */
-export const TESTED_CODEX_VERSION = "0.142.4";
+export const TESTED_CODEX_VERSION = "0.144.0";
 
 /** OpenCode CLI version this release was developed and tested against. */
 export const TESTED_OPENCODE_VERSION = "1.16.2";
@@ -51,29 +51,31 @@ export const AGENTS_DIR = "agents";
 export const RUNNER_LOG_FILE = "runner.log";
 
 /**
- * Model map decided against the live lineup (probe 2026-07-02):
- * gpt-5.5 (default, strongest), gpt-5.4, gpt-5.4-mini, gpt-5.3-codex-spark.
- * All support efforts low|medium|high|xhigh.
+ * Model map decided against the live lineup (probe 2026-07-09, codex 0.144):
+ * gpt-5.6-sol (default, frontier), gpt-5.6-terra (balanced),
+ * gpt-5.6-luna (fast). Efforts low|medium|high|xhigh|max|ultra are all
+ * native on 0.144 — live-probed end to end, including ultra.
  */
 export const DEFAULT_CODEX_CONFIG: CodexBackendConfig = {
   binary: "codex",
   sandbox: "workspace-write",
   // codex's own default (model/list isDefault) — matches upstream "inherit
   // the main-loop model" semantics for agents that don't pin a tier.
-  defaultModel: "gpt-5.5",
+  defaultModel: "gpt-5.6-sol",
   modelMap: {
-    fable: "gpt-5.5",
-    opus: "gpt-5.5",
-    sonnet: "gpt-5.4",
-    haiku: "gpt-5.4-mini",
-    spark: "gpt-5.3-codex-spark",
+    fable: "gpt-5.6-sol",
+    opus: "gpt-5.6-sol",
+    sonnet: "gpt-5.6-terra",
+    haiku: "gpt-5.6-luna",
+    spark: "gpt-5.6-luna",
   },
   effortMap: {
     low: "low",
     medium: "medium",
     high: "high",
     xhigh: "xhigh",
-    max: "xhigh",
+    max: "max",
+    ultra: "ultra",
   },
   defaultEffort: "xhigh",
   serviceTier: "standard",

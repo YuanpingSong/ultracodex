@@ -15,7 +15,7 @@ export interface ExecutorRequest {
   schema?: Record<string, unknown>;
   /** Workflow-level tier name (opus/sonnet/haiku/fable/...) — executor maps via config. */
   model?: string;
-  /** Workflow-level effort — executor maps via config (max → xhigh for codex). */
+  /** Workflow-level effort — executor maps via config (identity on codex ≥0.144). */
   effort?: Effort;
   cwd: string;
   label: string;

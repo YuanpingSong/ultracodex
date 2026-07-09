@@ -248,8 +248,8 @@ describe("agent()", () => {
     const s = starts(runDir);
     expect(s[0]!.backend).toBe("claude");
     expect(s[1]!.backend).toBe("codex");
-    expect(s[1]!.model).toBe("gpt-5.5"); // opus mapped via codex modelMap
-    expect(s[1]!.effort).toBe("xhigh"); // max mapped via effortMap
+    expect(s[1]!.model).toBe("gpt-5.6-sol"); // opus mapped via codex modelMap
+    expect(s[1]!.effort).toBe("max"); // max is native on codex ≥0.144 (identity map)
     expect(s[2]!.model).toBe("my-model"); // unknown tier passes through
     // no opts.model → journal records the backend default that will actually run
     expect(s[0]!.model).toBe(DEFAULT_CONFIG.claude.defaultModel);
@@ -845,6 +845,6 @@ describe("agent_start model/effort resolution (journal = what actually runs)", (
     journal.close();
     const start = starts(runDir)[0]!;
     expect(start.model).toBe(DEFAULT_CONFIG.codex.modelMap["haiku"]);
-    expect(start.effort).toBe("xhigh");
+    expect(start.effort).toBe("max");
   });
 });

@@ -21,7 +21,7 @@ export interface WorkflowMeta {
   phases?: WorkflowMetaPhase[];
 }
 
-export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 export interface AgentOpts {
   label?: string;
@@ -272,7 +272,7 @@ export interface CodexBackendConfig {
   defaultModel: string;
   /** tier name → codex model id. */
   modelMap: Record<string, string>;
-  /** workflow effort → codex effort (max → xhigh). */
+  /** workflow effort → codex effort (identity on codex ≥0.144; older pins may downmap). */
   effortMap: Record<string, string>;
   /** Effort used when the script omits opts.effort (null → model default). */
   defaultEffort: string | null;
