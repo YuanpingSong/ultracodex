@@ -13,7 +13,9 @@
 
 **Run Claude Code workflow scripts, unmodified, on your Codex subscription — and on OpenCode.** Then go further than running them: **loop** them until a skeptical verifier approves, **schedule** them with cron doing the waking, or stand up a permanent **organization** of agents that remembers. Your Claude session writes the script and reads the verified result; the heavy lifting lands on the subscription you aren't rationing.
 
-Measured, same build script, configs one `[route]` line apart, frontier vs frontier: Codex (gpt-5.6-sol) shipped a 12/12-test module in **107 s with zero Claude quota**; Claude (Opus 4.8) shipped the same module in 219 s on the Claude meter ([methodology + raw journals](docs/internal/research/cmp-build/README.md)). The fleets that built v0.5.0 ran 72 agents across 14 runs — 1.26M output tokens, all on Codex ([per-run ledger](docs/internal/research/v050-fleet-usage.md)).
+The idea underneath: the **agent is a unit of programming**. `await agent(prompt, { schema })` returns a typed, validated value, plain JavaScript composes those calls, and a portable [Executor Contract](docs/executor-contract.md) keeps the unit running on whichever backend you route to. Workflows, loops, schedules, and orgs are what you build once the agent is something you can program with.
+
+The claims check out, and every figure in this README traces to a committed artifact. Same build script, one `[route]` line apart: Codex (gpt-5.6) shipped a 12-test module in **107 s with zero Claude quota**; Claude Opus shipped it in 219 s on the meter. And any vendor drives it — a stranger's agent, given nothing but the installed skill, ran all four pillars across Codex, Claude, and OpenCode ([the receipts](#status)).
 
 ## Quickstart
 
