@@ -65,4 +65,24 @@ XDG_DATA_HOME=/tmp/oc-data ultracodex run <repo>/fleet/skill-validation.js \
   L4 folders now seed a completed run. Redundancy thesis (packaged
   until-dry removed; goal covers completeness) passed empirically on the
   working backend.
-- **Round 2 (2026-07-10)** — results committed alongside when complete.
+- **Round 2 (2026-07-10)** — round-2-main-results.json. cx 6/15, cl
+  13/15 — the dip EXPOSED the next infra layer: pidAlive read the sandbox
+  boundary's EPERM as death, so `ls` reported healthy runs dead and
+  drivers faithfully relayed the tool's lie (fixed: EPERM=alive). Also
+  yielded: goal returns its deliverable; the skill documents `show`;
+  folders gitignore .codex-home after a driver committed a copied token.
+- **Round 3 (2026-07-10)** — round-3-main-results.json. cx 10/15, cl
+  14/15. Residue attributes to nested-sandbox runtime (inner exec tools
+  blocked — since fixed by the CODEX_SANDBOX auto-downgrade) and model
+  tier, not skill authorship. Dispatch and budget discipline near-
+  universal. VERDICT: the skill is validated at frontier and balanced
+  tiers.
+- **The opencode lane** — never produced skill data; five attempts each
+  converted an invisible failure into a visible one, yielding four
+  committed adapter fixes (state isolation guidance, the undici-300s
+  replacement, the finite turn cap, the idle watchdog with direct request
+  destruction). Short turns work (probes pass in seconds); long driver
+  sessions stall between opencode 1.17.x and deepseek's quiet reasoning
+  stretches. Recorded as blocked-by-integration; hardening continues in
+  v0.6 (live conformance kit on 1.17.x, /abort semantics, per-backend
+  concurrency caps).
