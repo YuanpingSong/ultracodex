@@ -345,7 +345,27 @@ class OpencodeServe {
       const child = spawn(
         args.binary,
         ["serve", "--port", "0", "--hostname", "127.0.0.1", ...args.extraArgs],
-        { cwd: args.cwd, stdio: ["pipe", "pipe", "pipe"] },
+        {
+          cwd: args.cwd,
+          stdio: ["pipe", "pipe", "pipe"],
+          // Headless serve has no one to answer permission prompts — an
+          // ungated tool (e.g. reading a skill file outside the agent's cwd,
+          // which opencode classes as external_directory) otherwise blocks
+          // the turn forever. Auto-approve, matching opencode's documented
+          // tier-2 posture (no OS sandbox; runs as the user). The user can
+          // override by setting OPENCODE_PERMISSION themselves.
+          env: {
+            ...process.env,
+            OPENCODE_PERMISSION:
+              process.env.OPENCODE_PERMISSION ??
+              JSON.stringify({
+                edit: "allow",
+                bash: "allow",
+                webfetch: "allow",
+                external_directory: "allow",
+              }),
+          },
+        },
       );
       const fail = (error: unknown) => {
         if (settled) return;
