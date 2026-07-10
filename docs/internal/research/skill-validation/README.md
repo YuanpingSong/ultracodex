@@ -77,12 +77,17 @@ XDG_DATA_HOME=/tmp/oc-data ultracodex run <repo>/fleet/skill-validation.js \
   tier, not skill authorship. Dispatch and budget discipline near-
   universal. VERDICT: the skill is validated at frontier and balanced
   tiers.
-- **The opencode lane** — never produced skill data; five attempts each
-  converted an invisible failure into a visible one, yielding four
-  committed adapter fixes (state isolation guidance, the undici-300s
-  replacement, the finite turn cap, the idle watchdog with direct request
-  destruction). Short turns work (probes pass in seconds); long driver
-  sessions stall between opencode 1.17.x and deepseek's quiet reasoning
-  stretches. Recorded as blocked-by-integration; hardening continues in
-  v0.6 (live conformance kit on 1.17.x, /abort semantics, per-backend
-  concurrency caps).
+- **The opencode lane** — never produced skill data; SIX attempts across
+  TWO providers, each converting an invisible failure into a visible one,
+  yielding five committed adapter fixes: state-isolation guidance, the
+  undici-300s replacement, the finite 30min turn cap, the idle watchdog
+  with direct request destruction, and finally the progress-only idle
+  reset. THE CONCRETE FINDING: deepseek-v4-pro AND glm-5.2 (Zhipu
+  coding-plan) both pass short probes in seconds but stall identically on
+  long driver sessions — the provider is ruled out; the fault is
+  opencode 1.17.x (or our long-session interaction with it), which keeps
+  the SSE connection warm with non-progress events during a stall. Our
+  fixes make the FAILURE fast and clean (idle abort at the window); the
+  underlying stall is opencode-side. Recorded as blocked-by-integration;
+  v0.6 owns the root-cause work (live conformance kit on 1.17.x, capture
+  a stalled session's raw SSE, /abort semantics, per-backend caps).
