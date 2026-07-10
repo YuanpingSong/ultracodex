@@ -76,6 +76,7 @@ for test in TESTS:
         d.mkdir(parents=True)
         # a user project has the skills installed
         sh(f"'{UCX}' sync-skills", d)
+        (d / ".gitignore").write_text(".codex-home/\n.test-crontab\n.ultracodex/\n")
         if test == "W1":
             for name, text in CONTRADICTIONS.items():
                 (d / name).write_text(text)

@@ -55,6 +55,20 @@ afterEach(() => {
   }
 });
 
+import { pidAlive as _pidAliveCheck } from "../src/rundir.js";
+
+describe("pidAlive across permission boundaries", () => {
+  it("treats EPERM as alive (sandbox/other-user processes exist)", () => {
+    // pid 1 (launchd/init) exists but cannot be signaled by a normal user:
+    // kill(1, 0) yields EPERM on macOS/Linux — the process is alive.
+    expect(_pidAliveCheck(1)).toBe(true);
+  });
+  it("treats ESRCH as dead", () => {
+    // find a free pid: spawn+reap leaves its pid unassigned briefly
+    expect(_pidAliveCheck(2 ** 22 - 7)).toBe(false);
+  });
+});
+
 describe("stateDir / runsDir", () => {
   it("returns correct paths", () => {
     const proj = "/some/project";

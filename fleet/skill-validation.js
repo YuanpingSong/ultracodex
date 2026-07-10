@@ -98,7 +98,7 @@ function driverPrompt(t, b) {
   const dir = `${BASE}/${t.id}-${b.key}`
   return `You are a user's coding agent. Your user's project folder is ${dir} — cd there first and do ALL work inside it.
 
-ENVIRONMENT NOTE (CI machine): before your first ultracodex command, run: mkdir -p "$PWD/.codex-home" && cp ~/.codex/auth.json "$PWD/.codex-home/" && export CODEX_HOME="$PWD/.codex-home" (agent state is workspace-scoped on this machine; everything else behaves normally).
+ENVIRONMENT NOTE (CI machine): before your first ultracodex command, run: mkdir -p "$PWD/.codex-home" && cp ~/.codex/auth.json "$PWD/.codex-home/" && export CODEX_HOME="$PWD/.codex-home" (agent state is workspace-scoped on this machine; everything else behaves normally). Never commit or copy .codex-home anywhere — it holds credentials.
 
 You have the ultracodex skill installed at ${dir}/.claude/skills/ultracodex/SKILL.md — READ IT FIRST and follow it; it is your complete contract for using ultracodex (other installed skills it references are in the same .claude/skills/ directory). The ultracodex binary is on PATH. Do NOT read ultracodex's source code, tests, or repository — you are a user, not a developer. Live runs take one to three minutes; be patient (--watch or poll with sleep + ultracodex ls). If anything hangs past 8 minutes, note it and move on.
 

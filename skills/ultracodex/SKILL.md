@@ -34,7 +34,7 @@ ultracodex run <file-or-name> --json [--budget 500k] [--args '<json>']
 - `--budget` is an output-token ceiling (integer, k/m suffixes).
 - Model/backend routing lives in `.ultracodex/config.toml`, never in the script.
 - Optional pre-check: `ultracodex validate <file> --strict`. Fix ERRORS; WARNINGS are non-blocking — do not rewrite a working script just to silence a warning.
-- The human can watch live with `ultracodex ls` / `attach <runId>` — you do not need to poll.
+- Inspect a finished run with `ultracodex show <runId>` — result, per-agent lines, and a round-by-round LOOPS trajectory for iterating runs. The human can watch live with `ultracodex ls` / `attach <runId>` — you do not need to poll.
 
 ## The packaged loop
 

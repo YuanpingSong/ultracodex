@@ -105,6 +105,7 @@ const verifierModel = optionalString('verifierModel')
 const budgetFloor = nonNegativeInteger('budgetFloor', 20000)
 
 const history = []
+let lastBuilt = null
 let lastIssues = []
 let roundsRun = 0
 let finalVerdict = 'exhausted'
@@ -128,6 +129,7 @@ for (let round = 1; round <= maxRounds; round++) {
     log(`round ${round}: exhausted`)
     break
   }
+  lastBuilt = built
 
   phase('Verify')
   const verification = await agent(verifyPrompt(round, task, criteria, context, built), {
@@ -164,5 +166,6 @@ return {
   rounds: roundsRun,
   verdict: finalVerdict,
   issues: finalVerdict === 'approved' ? [] : lastIssues,
+  output: lastBuilt,
   history,
 }

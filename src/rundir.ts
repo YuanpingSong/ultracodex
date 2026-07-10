@@ -46,8 +46,11 @@ export function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    // EPERM = the process exists but signaling is denied — a different user
+    // or a sandbox boundary (e.g. `ls` run from inside a sandboxed agent
+    // probing an out-of-sandbox runner). Only ESRCH-class errors mean dead.
+    return (err as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
