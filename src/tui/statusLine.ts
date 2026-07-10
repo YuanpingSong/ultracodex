@@ -21,7 +21,9 @@ export interface StatusSummary {
 function defaultModelFor(config: UltracodexConfig, backend: string): string {
   if (backend === "claude") return config.claude.defaultModel;
   if (backend === "opencode") return config.opencode.model;
-  return config.codex.defaultModel;
+  if (backend === "codex") return config.codex.defaultModel;
+  // A mistyped/unknown catch-all backend has no model — don't fabricate codex's.
+  return "(unknown backend)";
 }
 
 export function summarizeConfig(config: UltracodexConfig): StatusSummary {

@@ -360,12 +360,16 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         setSelIdx(0);
         return;
       }
-      if (tab === "org" && key.escape) {
-        setTab("runs");
-        setSelIdx(0);
+      // esc backs out to the root (Runs) tab and never quits — so reaching for
+      // "back" on any tab can't accidentally kill the TUI. q is the sole quit key.
+      if (key.escape) {
+        if (tab !== "runs") {
+          setTab("runs");
+          setSelIdx(0);
+        }
         return;
       }
-      if (input === "q" || key.escape) {
+      if (input === "q") {
         onQuit();
         return;
       }
@@ -487,11 +491,15 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         <Text wrap="truncate-end">
           <Text dimColor>backend </Text>
           <Text color={col("cyan")}>{status.backend}</Text>
-          <Text dimColor> · {status.model}</Text>
+          {status.model && <Text dimColor> · {status.model}</Text>}
           {status.extraBackends.length > 0 && (
-            <Text dimColor> · also {status.extraBackends.join(", ")}</Text>
+            <Text dimColor>
+              {" · also "}
+              {status.extraBackends.slice(0, 2).join(", ") +
+                (status.extraBackends.length > 2 ? ` +${status.extraBackends.length - 2}` : "")}
+            </Text>
           )}
-          <Text dimColor> · ultracodex doctor for auth/version</Text>
+          <Text dimColor> · ultracodex doctor for live checks</Text>
         </Text>
       ) : (
         <Text color={col("red")} wrap="truncate-end">
@@ -658,7 +666,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
       ) : (
         <Box marginTop={1} flexGrow={1} alignItems="flex-end">
           <Text dimColor wrap="truncate-end">
-            {footerText(tab, orgEnabled)}
+            {footerText(tab, orgEnabled, items.length > 0)}
           </Text>
           {flash && <Text color={col("cyan")}> {flash}</Text>}
         </Box>
@@ -730,16 +738,20 @@ function nextHomeTab(tab: HomeTab, _orgEnabled: boolean): HomeTab {
   return tabs[(index + 1) % tabs.length] ?? "runs";
 }
 
-function footerText(tab: HomeTab, orgEnabled: boolean): string {
+function footerText(tab: HomeTab, orgEnabled: boolean, runsHasItems: boolean): string {
   switch (tab) {
     case "runs":
-      return "↑↓ select · ↵ attach/launch · tab loops · n new run · S schedule · r re-run · q quit";
+      // On a fresh install the Runs list is empty, so ↵/n/S/r have nothing to
+      // act on — advertise only the keys that actually do something.
+      return runsHasItems
+        ? "↑↓ select · ↵ attach/launch · n new run · S schedule · r re-run · tab loops · q quit"
+        : "tab loops · q quit";
     case "loops":
-      return "↑↓ select · ↵ launch goal / open loop · S schedule · tab schedules · q quit";
+      return "↑↓ select · ↵ launch/open · n launch goal · S schedule · tab schedules · esc back · q quit";
     case "schedules":
-      return `↑↓ select · ↵ detail · e exec now · p pause/resume · x remove · tab org · q quit`;
+      return `↑↓ select · ↵ detail · e exec now · p pause/resume · x remove · tab org · esc back · q quit`;
     case "org":
-      return "j/k/↑↓ move · l/↵ expand · v view · tab runs · q quit";
+      return "j/k/↑↓ move · l/↵ expand · v view · tab runs · esc back · q quit";
   }
 }
 

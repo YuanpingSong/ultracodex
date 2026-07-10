@@ -865,4 +865,13 @@ describe("status line summary (lightweight doctor)", () => {
     expect(s.backend).toBe("claude");
     expect(s.model).toBe(DEFAULT_CONFIG.claude.defaultModel);
   });
+
+  it("does not fabricate a model for a mistyped/unknown catch-all backend", () => {
+    const cfg = { ...DEFAULT_CONFIG, route: [{ pattern: "*", backend: "gemeni" }] };
+    const s = summarizeConfig(cfg);
+    expect(s.backend).toBe("gemeni");
+    // Must NOT return codex's default model for an unrecognized backend.
+    expect(s.model).not.toBe(DEFAULT_CONFIG.codex.defaultModel);
+    expect(s.model).toBe("(unknown backend)");
+  });
 });

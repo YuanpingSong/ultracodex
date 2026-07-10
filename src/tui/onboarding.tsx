@@ -53,8 +53,8 @@ export const SCHEDULES_ONBOARDING: Onboarding = {
     "  ▶       ▶       ▶      a run each tick",
   ],
   commands: [
-    "ultracodex schedule add digest --every 30m --budget 200k -- run digest.js",
-    "ultracodex schedule add nightly --daily 18:30 --until-done --budget 500k -- run goal",
+    "ultracodex schedule add digest --every 30m --budget 200k -- run path/to/digest.js",
+    "ultracodex schedule add nightly --daily 18:30 --until-done --budget 500k -- run goal --args '{\"task\":\"…\",\"criteria\":\"…\"}'",
     "ultracodex schedule ls",
   ],
   docs: `${REPO}/blob/main/docs/schedule.md`,
