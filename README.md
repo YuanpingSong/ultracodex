@@ -15,7 +15,7 @@
 
 The idea underneath: the **agent is a unit of programming**. `await agent(prompt, { schema })` returns a typed, validated value, plain JavaScript composes those calls, and a portable [Executor Contract](docs/executor-contract.md) keeps the unit running on whichever backend you route to. Workflows, loops, schedules, and orgs are what you build once the agent is something you can program with.
 
-The claims check out, and every figure in this README traces to a committed artifact. Same build script, one `[route]` line apart: Codex (gpt-5.6) shipped a 12-test module in **107 s with zero Claude quota**; Claude Opus shipped it in 219 s on the meter. And any vendor drives it — a stranger's agent, given nothing but the installed skill, ran all four pillars across Codex, Claude, and OpenCode ([the receipts](#status)).
+Same build script, one `[route]` line apart: Codex (gpt-5.6) ships a 12-test module in **107 s with zero Claude quota**, Claude Opus in 219 s on the meter. And any backend can drive it — given only the installed skill, a fresh agent ran all four pillars on Codex, Claude, and OpenCode ([the numbers](#status)).
 
 ## Quickstart
 
@@ -197,7 +197,7 @@ script.js ──▶ loader (acorn meta parse + vm) ──▶ runtime (semantics,
               TUI / show / --json = pure folds over the journal
 ```
 
-The agent is the unit of programming here: `agent()` is a call with a typed, validated return, Agent Script is the format, and the [Executor Contract](docs/executor-contract.md) is what keeps the unit portable — a capability descriptor plus a 10-assertion conformance kit that all three adapters pass. Structured output is belt-and-suspenders: schemas ride the wire where the backend supports it (Codex strict mode, OpenCode `json_schema`), degrade to a prompt contract mid-call when a provider rejects them, and are always enforced on our side (ajv validation + repair turns on the same session). The entire test suite runs hermetically against scripted fakes of all three harnesses — no API keys in CI.
+The agent is the unit of programming here: `agent()` is a call with a typed, validated return, Agent Script is the format, and the [Executor Contract](docs/executor-contract.md) is what keeps the unit portable — a capability descriptor plus a 10-assertion conformance kit that all three adapters pass. Structured output is belt-and-suspenders: schemas ride the wire where the backend supports it (Codex strict mode, OpenCode `json_schema`), degrade to a prompt contract mid-call when a provider rejects them, and are always enforced engine-side (ajv validation + repair turns on the same session). The entire test suite runs hermetically against scripted fakes of all three harnesses — no API keys in CI.
 
 Deeper reading: [docs/loops.md](docs/loops.md) · [docs/schedule.md](docs/schedule.md) · [docs/org.md](docs/org.md) · [docs/architecture.md](docs/architecture.md) · [docs/operations.md](docs/operations.md) · [docs/skills.md](docs/skills.md) · [docs/agent-script-spec.md](docs/agent-script-spec.md) · [docs/executor-contract.md](docs/executor-contract.md) (write your own backend).
 
@@ -213,8 +213,6 @@ The rule that follows: route work you'd be comfortable running yourself to Claud
 
 ## Limitations
 
-Shipping honestly means naming the edges:
-
 - **Orgs are experimental.** The runtime is tested and the dependency-watching example org is real, but this is the newest pillar and its discipline is young — interfaces and defaults may change, and early cycles want supervision — do not schedule them unattended yet.
 - **OpenCode has no OS sandbox** (see above), and its server-per-call design can collide under heavy concurrency; keep concurrent OpenCode agent counts modest. Codex and Claude are the load-bearing backends.
 - **The OS sandbox is validated on macOS.** Confinement rests on macOS Seatbelt, and the nested-fleet auto-downgrade keys off codex's Seatbelt marker; on Linux, codex sandboxes differently, so live sandbox behavior there is unverified. The hermetic test suite runs everywhere.
@@ -224,9 +222,9 @@ Shipping honestly means naming the edges:
 
 Current release: **v0.5.0** — workflows, loops, the scheduler, and orgs, in one package. 600 hermetic tests; pinned against codex-cli 0.144.0 (gpt-5.6) and opencode 1.17.18; `ultracodex doctor` reports drift with next steps.
 
-The project builds itself, and the evidence lives in this repo:
+The project builds itself:
 
-- The fleets that built v0.5.0: 22 runs, 118 agents, 1.7M output tokens — all on Codex, with the driving Claude session doing planning and review.
+- The fleets that built v0.5.0: 14 runs, 72 agents, 1.26M output tokens — all on Codex, with the driving Claude session doing planning and review ([per-run ledger](docs/internal/research/v050-fleet-usage.md)).
 - This project was built twice — once by Claude fleets on the Workflow tool, once as a clean-room rebuild by Codex fleets through ultracodex, independently verified at 125/125 tests ([the record](docs/internal/acceptance-comparison.md)).
 - A controlled comparison, one `[route]` line apart: the same build script shipped the same module at 12/12 tests on every model tried — Codex (gpt-5.6-sol) in 107 s with zero Claude quota; Claude Opus 4.8 in 219 s, sonnet-5 in 237 s, and a deliberately-overkill Fable 5 in 246 s, all on the Claude meter. Capability beyond the task simply runs a pricier meter — which is why routing is a config line ([methodology and raw journals](docs/internal/research/cmp-build/README.md)).
 - Any vendor drives it: given only the installed skill, a stranger’s agent chose and ran the right pillar — workflow, loop, scheduler, or org — with dispatch correct on every run. Across 15 tasks per backend: Claude (sonnet-5) 14/15, OpenCode (GLM-5.2) 14/15, Codex (gpt-5.6-terra) 10/15. The misses were model quality (a weakly-worded verifier) or infrastructure (server-spawn contention under concurrency), never a wrong pillar or a broken command ([the campaign, with every judgment](docs/internal/research/skill-validation/README.md)).
