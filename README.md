@@ -102,7 +102,7 @@ ultracodex run goal --args '{
 }' --budget 250k
 ```
 
-The builder works in rounds; a separate verifier checks every criterion against the work itself and rejects until it holds. The TUI folds the rounds into a trajectory — `✖ ✖ ✔ · converged after 3 rounds` — with per-round token cost, so convergence is something you watch. Loops are plain JavaScript `while`/`for` in any script; two packaged loops ship (`goal` builds until approved, `loop` discovers until dry); `budget` is the governor and pause/skip/stop work live. → [docs/loops.md](docs/loops.md)
+The builder works in rounds; a separate verifier checks every criterion against the work itself and rejects until it holds. The TUI folds the rounds into a trajectory — `✖ ✖ ✔ · converged after 3 rounds` — with per-round token cost, so convergence is something you watch. Loops are plain JavaScript `while`/`for` in any script; the packaged `goal` ships in the box (builds until approved — completion criteria like "the backlog is empty" work too); `budget` is the governor and pause/skip/stop work live. → [docs/loops.md](docs/loops.md)
 
 ## Scheduler
 

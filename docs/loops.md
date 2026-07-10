@@ -2,8 +2,8 @@
 
 Loops scale how long agents keep at it — the time axis of agent work. The
 stopping condition moves out of your code and into judgment or the clock: keep
-going **until a skeptical verifier approves** (`goal`), **until discovery runs
-dry** (`loop`), **until a scheduled run reports done**
+going **until a skeptical verifier approves** (`goal`), **until a scheduled
+run reports done**
 (`ultracodex schedule … --until-done`). One axis, two granularities: rounds
 within a run, runs across time.
 
@@ -13,17 +13,19 @@ meant to stay dual-runnable: one JavaScript file, one set of globals, no
 engine-only syntax. Breadth is `parallel()`, flow is `pipeline()`, and depth
 is ordinary JavaScript.
 
-The package ships two reference loops:
+The package ships one reference loop:
 
-- `goal` - a builder-verifier loop for one explicit task and acceptance rubric.
-- `loop` - an until-dry finder loop for repeated discovery with deduplication.
+- `goal` - a builder-verifier loop for one explicit task and acceptance
+  rubric. The criteria carry the stop condition, so completion goals work
+  too: "the backlog is empty", "a fresh adversarial search finds nothing
+  unlisted".
 
 ## Vocabulary
 
 | Claude Code loop taxonomy | Ultracodex expression | Notes |
 |---|---|---|
 | goal-based | `ultracodex run goal --budget 250k` | Builder rounds continue until a skeptical verifier approves, rounds cap, budget floor, or agent failure. |
-| time-based | `ultracodex schedule` | Cron wakes the run. Always budget scheduled runs, and add `--until-done` when the workflow returns `{ done: true }`; see [schedule.md](schedule.md#budgets-and-quota-safety). |
+| time-based (`/loop`) | `ultracodex schedule` | Claude Code's `/loop` runs a prompt on an interval; that job lands here — with owned crontab lines, mandatory budgets, and `--until-done` retirement when the workflow returns `{ done: true }`. See [schedule.md](schedule.md#budgets-and-quota-safety). |
 | turn-based | interactive sessions | Out of scope for packaged workflows; use the interactive agent surface directly. |
 | proactive | an [org](org.md) | The next rung of the delegation gradient: hand off the memory and the organization, not just the trigger. |
 
@@ -75,57 +77,6 @@ Return shape:
 `done: true` means the verifier approved. A final rejected verifier at the round
 cap returns `verdict: 'rejected'`; stopping on budget floor or a null agent
 return is `verdict: 'exhausted'`.
-
-## Loop
-
-`loop` runs a finder until enough consecutive rounds produce zero fresh
-findings. Deduplication is against everything seen, including findings later
-rejected by the optional verifier, so the same rejected item cannot reappear
-forever.
-
-| arg | required | default | notes |
-|---|---:|---:|---|
-| `find` | yes | - | Finder instructions for one round. |
-| `verify` | no | - | Optional adversarial verifier instructions. When omitted, fresh findings are accepted. |
-| `dryRounds` | no | `2` | Consecutive zero-fresh rounds required to converge. |
-| `maxRounds` | no | `8` | Positive integer round cap. |
-| `dedupBy` | no | `title` | Finding field used as the dedup key; falls back to `title`, then JSON. |
-| `finderModel` | no | engine default | Passed as `model` only when provided. |
-| `verifierModel` | no | engine default | Passed as `model` only when provided. |
-| `budgetFloor` | no | `20000` | If `--budget` is set and remaining output tokens are below this before a round, the loop stops. |
-
-CLI:
-
-```bash
-ultracodex run loop --args '{"find":"Find one fresh correctness bug in src/ and tests/. Return precise locations.","verify":"Check each finding by reading the code. real=false when uncertain.","dryRounds":2,"dedupBy":"title"}' --budget 250k --json
-```
-
-Nested from another workflow:
-
-```js
-const sweep = await workflow('loop', {
-  find: 'Find one fresh correctness bug in src/ and tests/. Return precise locations.',
-  verify: 'Check each finding by reading the code. real=false when uncertain.',
-  dryRounds: 2,
-})
-if (sweep.findings.length > 0) log(`confirmed ${sweep.findings.length} findings`)
-return sweep
-```
-
-Return shape:
-
-```js
-{
-  done: boolean,
-  rounds: number,
-  dry: boolean,
-  findings: [{ title: string, detail: string, location?: string }],
-  seenCount: number,
-}
-```
-
-`done: true` means dry convergence. Hitting `maxRounds`, the budget floor, or a
-null agent return gives `done: false`.
 
 ## Round Labels
 

@@ -12,8 +12,7 @@ ultracodex executes Claude Code Workflow-tool scripts unmodified, routing each `
 | the user asks for | reach for |
 |---|---|
 | a task done — build, review, research, migrate | **author a workflow** (the default, including loop-shaped ones) |
-| "keep iterating until it's good/passes", no bespoke roles | `ultracodex run goal` (packaged builder-verifier) |
-| "find all X", exhaustive discovery | `ultracodex run loop` (packaged until-dry) |
+| "keep iterating until it's good / until nothing is left", no bespoke roles | `ultracodex run goal` (packaged builder-verifier) |
 | "every night / every 30m / keep it running on a schedule" | `ultracodex schedule add` wrapping a run |
 | standing coverage of many subjects with memory that compounds | an org — **experimental**; only on explicit request |
 
@@ -35,16 +34,15 @@ ultracodex run <file-or-name> --json [--budget 500k] [--args '<json>']
 - Optional pre-check: `ultracodex validate <file> --strict`. Fix ERRORS; WARNINGS are non-blocking — do not rewrite a working script just to silence a warning.
 - The human can watch live with `ultracodex ls` / `attach <runId>` — you do not need to poll.
 
-## Packaged loops
+## The packaged loop
 
-Two workflows ship in the package and resolve by name:
+One reference loop ships in the package and resolves by name:
 
 ```bash
 ultracodex run goal --json --budget 300k --args '{"task":"...","criteria":"explicit, verifier-checkable"}'
-ultracodex run loop --json --budget 300k --args '{"find":"what to find each round","verify":"optional adversarial check"}'
 ```
 
-`goal` runs builder rounds gated by a skeptical verifier until the criteria hold (also: `maxRounds`, `context`, `builderModel`/`verifierModel`). `loop` runs discovery rounds until nothing fresh appears (`dryRounds`, `maxRounds`, `dedupBy`). Both return `{ done: ... }` — and any workflow that returns `{ done: true }` composes with scheduled `--until-done` runs.
+`goal` runs builder rounds gated by a skeptical verifier until the criteria hold (also: `maxRounds`, `context`, `builderModel`/`verifierModel`). The criteria carry the stop condition — completion works too ("the backlog is empty", "a fresh search finds nothing unlisted"). It returns `{ done: ... }` — and any workflow that returns `{ done: true }` composes with scheduled `--until-done` runs.
 
 ## Scheduling
 

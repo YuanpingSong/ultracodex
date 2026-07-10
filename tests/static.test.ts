@@ -428,14 +428,14 @@ describe("HomeView workflow listing", () => {
       );
       const workflows = loadWorkflows(projectDir);
       const goalItems = workflows.filter((wf) => wf.name === "goal");
-      const loopItem = workflows.find((wf) => wf.name === "loop");
+      const auditItem = workflows.find((wf) => wf.name === "org-audit");
 
       expect(goalItems).toHaveLength(1);
       expect(goalItems[0]?.builtin).toBeUndefined();
       expect(goalItems[0]?.description).toBe("local goal");
-      expect(loopItem?.builtin).toBe(true);
+      expect(auditItem?.builtin).toBe(true);
       expect(workflows.findIndex((wf) => wf.name === "goal")).toBeLessThan(
-        workflows.findIndex((wf) => wf.name === "loop"),
+        workflows.findIndex((wf) => wf.name === "org-audit"),
       );
     } finally {
       fs.rmSync(projectDir, { recursive: true, force: true });

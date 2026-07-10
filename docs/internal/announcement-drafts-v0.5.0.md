@@ -139,8 +139,9 @@ session.
   validated object; `parallel`/`pipeline` compose fleets; a TUI watches
   live; runs are detached processes over plain files.
 - **Loops** — `run goal`: builder rounds gated by a skeptical verifier
-  until explicit criteria hold; the TUI folds rounds into a convergence
-  trajectory with per-round cost.
+  until explicit criteria hold (completion criteria like "the backlog is
+  empty" work too); the TUI folds rounds into a convergence trajectory
+  with per-round cost.
 - **Scheduler** — recurring runs via tagged crontab lines it fully owns
   (no daemon), `--until-done` retirement, loud warnings on unbudgeted
   scheduled runs so a 1-minute loop can't drain your quota overnight.

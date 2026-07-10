@@ -357,7 +357,7 @@ async function runCliInProc(
 
 describe("packaged builtin workflows", () => {
   it("validate --strict passes for packaged builtins by name", async () => {
-    for (const name of ["goal", "loop", "org-lint-repair", "org-audit"]) {
+    for (const name of ["goal", "org-lint-repair", "org-audit"]) {
       const res = await runCliInProc(["validate", name, "--strict"], tmpProject());
       expect(res.code).toBe(0);
       expect(res.stderr).toBe("");

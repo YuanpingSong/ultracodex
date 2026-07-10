@@ -7,11 +7,11 @@ unit now runs once, runs until good, and runs forever.
 
 ## Loops
 
-- Two packaged workflows ship in the box: **`goal`** (builder rounds
-  against explicit criteria, gated by a skeptical verifier) and **`loop`**
-  (until-dry discovery with dedup and an optional adversarial verifier).
-  Both are strict-valid portable Agent Scripts; both return `{ done }` so
-  they compose with scheduling.
+- The packaged **`goal`** workflow ships in the box: builder rounds
+  against explicit criteria, gated by a skeptical verifier — and the
+  criteria carry the stop condition, so completion goals ("the backlog is
+  empty") work too. Strict-valid portable Agent Script; returns `{ done }`
+  so it composes with scheduling.
 - `run <name>` resolves packaged workflows after project-saved ones;
   nested `workflow('<name>')` too.
 - **Loop observability**: agents labeled with the round grammar
@@ -82,5 +82,5 @@ this release was built by ultracodex fleets running on ultracodex.
 - Shipped defaults moved to gpt-5.6 / codex-cli 0.144.0. On older codex
   binaries, `doctor` reports the drift; pin models via config if needed.
 - New reserved behavior: a project `.ultracodex/workflows/<name>.js`
-  shadows a packaged workflow of the same name (`goal`, `loop`,
+  shadows a packaged workflow of the same name (`goal`,
   `org-lint-repair`, `org-audit`).

@@ -372,48 +372,6 @@ describe("packaged loop workflows", () => {
     ]);
   });
 
-  it("loop dedups seen findings and converges after dry rounds", async () => {
-    const replies = [
-      {
-        findings: [
-          { title: "Alpha", detail: "first sighting" },
-          { title: "Alpha", detail: "duplicate sighting" },
-          { title: "Beta", detail: "second sighting", location: "src/beta.ts" },
-        ],
-      },
-      { findings: [] },
-      { findings: [] },
-    ];
-    const { runDir } = setupRun(builtinScript("loop"), {
-      argsJson: {
-        find: "Find fresh issues.",
-        dryRounds: 2,
-        maxRounds: 5,
-        budgetFloor: 0,
-      },
-      strict: true,
-    });
-
-    await withScriptedReplies(replies, () => runnerMain(runDir));
-
-    const end = lastEvent(runDir);
-    expect(end.status).toBe("ok");
-    const result = JSON.parse(fs.readFileSync(path.join(runDir, "result.json"), "utf8"));
-    expect(result.done).toBe(true);
-    expect(result.dry).toBe(true);
-    expect(result.rounds).toBe(3);
-    expect(result.seenCount).toBe(2);
-    expect(result.findings).toEqual([
-      { title: "Alpha", detail: "first sighting" },
-      { title: "Beta", detail: "second sighting", location: "src/beta.ts" },
-    ]);
-
-    const labels = (readJournal(runDir).filter((e) => e.t === "agent_start") as AgentStartEvent[]).map(
-      (e) => e.label,
-    );
-    expect(labels).toEqual(["loop:find-r1", "loop:find-r2", "loop:find-r3"]);
-  });
-
   it("goal missing required args fails the run with a usage error", async () => {
     const { runDir } = setupRun(builtinScript("goal"), { strict: true });
     await runnerMain(runDir);
