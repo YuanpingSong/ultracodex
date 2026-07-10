@@ -57,7 +57,7 @@ One tagged crontab line per schedule, fully owned; there is no daemon. ALWAYS pa
 
 ## Orgs (experimental)
 
-An org is a directory tree of agents with durable memory — one seat per subject, inboxes, tickets, briefs rolling up the tree — ticked by `ultracodex org tick`. Day-2 verbs, exactly these shapes: `org status --json` · `org ask <seat> "<question>"` (read-only fork) · `org tick --json` (no watch flag; it runs to completion) · `org lint --json` · `org audit` · `org replay`. To design one, use the **org-creation** skill (installed alongside this one). Treat the whole pillar as experimental: interfaces and disciplines are young, so set expectations with the user and supervise early cycles rather than scheduling them unattended.
+An org is a directory tree of agents with durable memory — one seat per subject, inboxes, tickets, briefs rolling up the tree — ticked by `ultracodex org tick`. Day-2 verbs, exactly these shapes: `org status --json` · `org ask <seat> "<question>"` (read-only fork) · `org tick --json` (no watch flag; it runs to completion) · `org lint --json` · `org audit` · `org replay`. To design one, use the **org-creation** skill (installed alongside this one). Treat the whole pillar as experimental — and SAY SO: whenever you set up or recommend an org, explicitly tell the user it is experimental, with young interfaces and disciplines, and that early cycles deserve supervision rather than unattended scheduling.
 
 ## Results
 
