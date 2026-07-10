@@ -16,6 +16,8 @@ ultracodex executes Claude Code Workflow-tool scripts unmodified, routing each `
 | "every night / every 30m / keep it running on a schedule" | `ultracodex schedule add` wrapping a run |
 | standing coverage of many subjects with memory that compounds | an org — **experimental**; only on explicit request |
 
+If the request implies recurrence or standing coverage without saying so ("track X for me", "keep an eye on Y"), name the options — run once now, a budgeted schedule, or an experimental org — and let the user pick. Do not guess upward.
+
 ## Authoring
 
 Write the script EXACTLY as you would for the Workflow tool — same format, byte for byte: `export const meta = {name, description, phases?}` as a pure literal, then a plain-JS async body over the injected globals `agent` / `parallel` / `pipeline` / `phase` / `log` / `args` / `budget` / `workflow`. Loops are ordinary JavaScript (null-check every agent result; guard unbounded loops on `budget`). No imports, no TypeScript. Save it to a file.
@@ -55,7 +57,7 @@ One tagged crontab line per schedule, fully owned; there is no daemon. ALWAYS pa
 
 ## Orgs (experimental)
 
-An org is a directory tree of agents with durable memory — one seat per subject, inboxes, tickets, briefs rolling up the tree — ticked by `ultracodex org tick`. Day-2 verbs: `org status --json`, `org ask <seat> "<question>"` (read-only fork), `org lint`, `org audit`, `org replay`. To design one, use the **org-creation** skill (installed alongside this one). Treat the whole pillar as experimental: interfaces and disciplines are young, so set expectations with the user and supervise early cycles rather than scheduling them unattended.
+An org is a directory tree of agents with durable memory — one seat per subject, inboxes, tickets, briefs rolling up the tree — ticked by `ultracodex org tick`. Day-2 verbs, exactly these shapes: `org status --json` · `org ask <seat> "<question>"` (read-only fork) · `org tick --json` (no watch flag; it runs to completion) · `org lint --json` · `org audit` · `org replay`. To design one, use the **org-creation** skill (installed alongside this one). Treat the whole pillar as experimental: interfaces and disciplines are young, so set expectations with the user and supervise early cycles rather than scheduling them unattended.
 
 ## Results
 

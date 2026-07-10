@@ -90,6 +90,12 @@ for test in TESTS:
             (d / "digest.js").write_text(DIGEST_JS)
         elif test == "S2":
             (d / "until.js").write_text(UNTIL_JS)
+        elif test == "L4":
+            # seed a completed goal-style run so "the most recent run" exists
+            seed = os.environ.get("SKILLVAL_L4_SEED", "")
+            if seed and pathlib.Path(seed).is_dir():
+                dst = d / ".ultracodex" / "runs" / pathlib.Path(seed).name
+                shutil.copytree(seed, dst)
         elif test == "O2":
             (d / "coverage.toml").write_text(COVERAGE)
             sh(f"'{UCX}' org init", d)

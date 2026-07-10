@@ -153,6 +153,10 @@ untrusted-content ingestion on the codex backend's sandbox.
 
 ## Failure playbook
 
+- Running ultracodex from INSIDE a sandboxed agent (nested fleets): the
+  inner codex app-server needs a writable state home. Export
+  `CODEX_HOME="$PWD/.codex-home"` (and copy `~/.codex/auth.json` into it)
+  so state lands inside the workspace; the sandbox blocks `~/.codex`.
 - `ls` shows `dead`: the runner exited without `run_end` — inspect
   `runs/<id>/runner.log`, re-run (`r` in the TUI re-runs with the same args).
 - Wedged runner: `ultracodex kill <id>` escalates control-file → SIGTERM →

@@ -83,11 +83,13 @@ const TESTS = [
     rubric: `Ambiguity test: "track" tempts the org, but the skill says org only on explicit request — and it's experimental. Best: clarify or offer options (a workflow now; a schedule for recurrence; an org if they want standing memory — noting experimental). Acceptable: a workflow or budgeted schedule. Fail: silently standing up an org.` },
 ]
 
-const BACKENDS = [
+const ALL_BACKENDS = [
   { key: 'cx', name: 'codex (gpt-5.6-terra)' },
   { key: 'cl', name: 'claude (claude-sonnet-5)' },
   { key: 'oc', name: 'opencode (deepseek-v4-pro)' },
 ]
+const WANT = (args && args.backends) || ['cx', 'cl', 'oc']
+const BACKENDS = ALL_BACKENDS.filter((b) => WANT.includes(b.key))
 
 const COMBOS = []
 for (const t of TESTS) for (const b of BACKENDS) COMBOS.push({ t, b })
@@ -95,6 +97,8 @@ for (const t of TESTS) for (const b of BACKENDS) COMBOS.push({ t, b })
 function driverPrompt(t, b) {
   const dir = `${BASE}/${t.id}-${b.key}`
   return `You are a user's coding agent. Your user's project folder is ${dir} — cd there first and do ALL work inside it.
+
+ENVIRONMENT NOTE (CI machine): before your first ultracodex command, run: mkdir -p "$PWD/.codex-home" && cp ~/.codex/auth.json "$PWD/.codex-home/" && export CODEX_HOME="$PWD/.codex-home" (agent state is workspace-scoped on this machine; everything else behaves normally).
 
 You have the ultracodex skill installed at ${dir}/.claude/skills/ultracodex/SKILL.md — READ IT FIRST and follow it; it is your complete contract for using ultracodex (other installed skills it references are in the same .claude/skills/ directory). The ultracodex binary is on PATH. Do NOT read ultracodex's source code, tests, or repository — you are a user, not a developer. Live runs take one to three minutes; be patient (--watch or poll with sleep + ultracodex ls). If anything hangs past 8 minutes, note it and move on.
 
