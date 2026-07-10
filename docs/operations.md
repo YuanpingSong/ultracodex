@@ -7,7 +7,7 @@
   `OPENAI_API_KEY`). Pinned against codex 0.142.4.
 - Optional: Claude Code CLI for the `claude` backend routes.
 - Optional: [OpenCode](https://opencode.ai) for the `opencode` backend routes
-  (tested against 1.16.2; any provider/model configured in your opencode,
+  (tested against 1.17.18; any provider/model configured in your opencode,
   local models included).
 
 Run `ultracodex doctor` to check all of the above with actionable next steps.

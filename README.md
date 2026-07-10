@@ -17,7 +17,7 @@ Measured, same build script, configs one `[route]` line apart, frontier vs front
 
 ## Quickstart
 
-Prerequisites: Node ≥ 20 and the [Codex CLI](https://github.com/openai/codex) installed and authenticated (`codex login`; tested against codex-cli 0.144.0). [OpenCode](https://opencode.ai) is optional (tested against 1.16.2) — one `[route]` line turns it on.
+Prerequisites: Node ≥ 20 and the [Codex CLI](https://github.com/openai/codex) installed and authenticated (`codex login`; tested against codex-cli 0.144.0). [OpenCode](https://opencode.ai) is optional (tested against 1.17.18) — one `[route]` line turns it on.
 
 ```bash
 npm install -g ultracodex      # or: pnpm add -g ultracodex
@@ -188,13 +188,14 @@ Deeper reading: [docs/loops.md](docs/loops.md) · [docs/schedule.md](docs/schedu
 
 ## Status
 
-Current release: **v0.5.0** — workflows, loops, the scheduler, and orgs, in one package. 581 hermetic tests; pinned against codex-cli 0.144.0 (gpt-5.6) and opencode 1.16.2; `ultracodex doctor` reports drift with next steps.
+Current release: **v0.5.0** — workflows, loops, the scheduler, and orgs, in one package. 600 hermetic tests; pinned against codex-cli 0.144.0 (gpt-5.6) and opencode 1.17.18; `ultracodex doctor` reports drift with next steps.
 
 The project builds itself, and the evidence lives in this repo:
 
 - The fleets that built v0.5.0: 22 runs, 118 agents, 1.7M output tokens — all on Codex, with the driving Claude session doing planning and review.
 - This project was built twice — once by Claude fleets on the Workflow tool, once as a clean-room rebuild by Codex fleets through ultracodex, independently verified at 125/125 tests ([the record](docs/internal/acceptance-comparison.md)).
 - A controlled comparison, one `[route]` line apart: the same build script shipped the same module at 12/12 tests on every model tried — Codex (gpt-5.6-sol) in 107 s with zero Claude quota; Claude Opus 4.8 in 219 s, sonnet-5 in 237 s, and a deliberately-overkill Fable 5 in 246 s, all on the Claude meter. Capability beyond the task simply runs a pricier meter — which is why routing is a config line ([methodology and raw journals](docs/internal/research/cmp-build/README.md)).
+- Any vendor drives it: given only the installed skill, a stranger’s agent chose and ran the right pillar — workflow, loop, scheduler, or org — with dispatch correct on every run that reached a verdict. Across 15 tasks per backend: Claude (sonnet-5) 14/15, Codex (gpt-5.6-terra) 10/15, OpenCode (GLM-5.2) 13/15 — where OpenCode’s two misses were server-spawn crashes, not skill errors, so all 13 of its judged runs passed ([the campaign, with every judgment](docs/internal/research/skill-validation/README.md)).
 - One three-vendor run shipped a real feature on this repo: OpenCode implemented it, Codex gated it, Claude adversarially reviewed it — one journal.
 - The org runtime's acceptance test ran here too: the dependency-watching org above completed its first full live cycle on the shipped runtime, briefs and audits included.
 
