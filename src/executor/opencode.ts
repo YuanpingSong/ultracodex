@@ -483,6 +483,8 @@ class OpencodeServe {
     }
   }
 
+  readonly inflight = new Set<http.ClientRequest>();
+
   private async fetchRequest(method: string, path: string, body?: unknown): Promise<JsonResponse> {
     // node:http with a generous FINITE timeout. Global fetch (undici)
     // enforces 300s and killed long provider turns; no timeout at all
@@ -503,6 +505,8 @@ class OpencodeServe {
       req.setTimeout(timeoutMs, () => {
         req.destroy(err("OpencodeProtocolError", `request timed out after ${timeoutMs}ms: ${path}`));
       });
+      this.inflight.add(req);
+      req.on("close", () => this.inflight.delete(req));
       req.on("error", reject);
       req.end(body === undefined ? undefined : JSON.stringify(body));
     });
@@ -705,6 +709,14 @@ export class OpencodeExecutor implements Executor {
         let idleAborted = false;
         const idleTimer = setInterval(() => {
           if (Date.now() - lastActivity < idleMs) return;
+          if (idleAborted) {
+            // Second tick past idle: the polite /abort didn't release the
+            // turn — destroy the pending requests ourselves.
+            for (const req of serve!.inflight) {
+              req.destroy(err("OpencodeIdleTimeout", `turn idle past ${Math.round(idleMs / 1000)}s`));
+            }
+            return;
+          }
           idleAborted = true;
           if (threadId) {
             void settle(
@@ -722,6 +734,11 @@ export class OpencodeExecutor implements Executor {
               bodyFor(prompt, format),
             ),
           );
+        } catch (error) {
+          if (idleAborted) {
+            return { status: "failed", text: "", usage: ZERO_USAGE, error: `opencode turn idle for ${Math.round(idleMs / 1000)}s (provider stall)`, errorName: "OpencodeIdleTimeout" };
+          }
+          throw error;
         } finally {
           clearInterval(idleTimer);
         }
