@@ -21,6 +21,8 @@ import {
 } from "../src/tui/reducer.js";
 import { RUNNER_START_GRACE_MS, runnerLooksDead } from "../src/tui/RunView.js";
 import { renderRunStatic } from "../src/tui/static.js";
+import { summarizeConfig } from "../src/tui/statusLine.js";
+import { DEFAULT_CONFIG } from "../src/constants.js";
 import type { JournalEvent, Usage, WorkflowMeta } from "../src/types.js";
 
 const ANSI = /\u001b\[/;
@@ -830,5 +832,37 @@ describe("agent-list windowing (format.windowAgents)", () => {
         }
       }
     }
+  });
+});
+
+describe("status line summary (lightweight doctor)", () => {
+  it("reports the catch-all backend and its default model for the default config", () => {
+    const s = summarizeConfig(DEFAULT_CONFIG);
+    expect(s.ok).toBe(true);
+    expect(s.backend).toBe("codex");
+    expect(s.model).toBe("gpt-5.6-sol");
+    expect(s.extraBackends).toEqual([]);
+  });
+
+  it("surfaces extra routed backends distinct from the default", () => {
+    const cfg = {
+      ...DEFAULT_CONFIG,
+      route: [
+        { pattern: "judge:*", backend: "claude" },
+        { pattern: "impl:*", backend: "opencode" },
+        { pattern: "*", backend: "codex" },
+      ],
+    };
+    const s = summarizeConfig(cfg);
+    expect(s.backend).toBe("codex");
+    expect(s.model).toBe("gpt-5.6-sol");
+    expect(s.extraBackends).toEqual(["claude", "opencode"]);
+  });
+
+  it("uses the claude default model when claude is the catch-all", () => {
+    const cfg = { ...DEFAULT_CONFIG, route: [{ pattern: "*", backend: "claude" }] };
+    const s = summarizeConfig(cfg);
+    expect(s.backend).toBe("claude");
+    expect(s.model).toBe(DEFAULT_CONFIG.claude.defaultModel);
   });
 });

@@ -42,6 +42,7 @@ import {
   type ScheduleFormDraft,
 } from "./schedules.js";
 import { prepareRun, rerunFromDir, spawnRunner } from "./spawn.js";
+import { loadStatus } from "./statusLine.js";
 import {
   TabOnboarding,
   RUNS_ONBOARDING,
@@ -204,6 +205,12 @@ export interface HomeViewProps {
 
 export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): ReactElement {
   const workflows = useMemo(() => loadWorkflows(projectDir), [projectDir]);
+  // The Runs launcher shows only the workflows YOU'VE written; the packaged
+  // builtins live on the tab they belong to — `goal` is a loop (Loops tab), the
+  // org workflows are internal to `org audit`/`tick` (Org tab). This keeps the
+  // pillars from bleeding into each other's front door.
+  const userWorkflows = useMemo(() => workflows.filter((w) => !w.builtin), [workflows]);
+  const goalWf = useMemo(() => workflows.find((w) => w.builtin && w.name === "goal") ?? null, [workflows]);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const tick = useTick(2000, true);
   useEffect(() => {
@@ -231,6 +238,9 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
   const countdownTick = useTick(1000, tab === "schedules");
   void countdownTick;
 
+  // Lightweight, synchronous doctor for the header — cheap enough to re-read on
+  // the tick, so a config edit shows up without a restart.
+  const status = useMemo(() => loadStatus(projectDir), [projectDir, tick]);
   const shownRuns = useMemo(() => runs.slice(0, RUNS_SHOWN), [runs]);
   const shownSchedules = useMemo(() => scheduleRows.slice(0, SCHEDULES_SHOWN), [scheduleRows]);
   const scannedRuns = useMemo(() => runs.slice(0, LOOPS_SCAN), [runs]);
@@ -284,11 +294,14 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
   const items: Item[] =
     tab === "runs"
       ? [
-          ...workflows.map((wf): Item => ({ kind: "wf", wf })),
+          ...userWorkflows.map((wf): Item => ({ kind: "wf", wf })),
           ...shownRuns.map((run): Item => ({ kind: "run", run })),
         ]
       : tab === "loops"
-        ? loopRows.map((row): Item => ({ kind: "loop", row }))
+        ? [
+            ...(goalWf ? [{ kind: "wf", wf: goalWf } as Item] : []),
+            ...loopRows.map((row): Item => ({ kind: "loop", row })),
+          ]
         : tab === "schedules"
           ? shownSchedules.map((row): Item => ({ kind: "schedule", row }))
           : [];
@@ -370,10 +383,9 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         else if (selected.wf.error) showFlash(`invalid workflow: ${selected.wf.error}`);
         else setMode({ kind: "launch", wf: selected.wf });
       } else if (input === "n") {
-        if (tab !== "runs") return;
+        // Any launchable workflow item — the Runs launcher, or `goal` on Loops.
         if (selected?.kind === "wf" && !selected.wf.error) setMode({ kind: "launch", wf: selected.wf });
       } else if (input === "S") {
-        if (tab !== "runs") return;
         if (selected?.kind === "wf" && !selected.wf.error) setMode({ kind: "scheduleForm", wf: selected.wf });
         else if (selected?.kind === "wf" && selected.wf.error) showFlash(`invalid workflow: ${selected.wf.error}`);
       } else if (input === "r") {
@@ -471,6 +483,21 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         ultracodex
       </Text>
       <Text dimColor>{projectDir}</Text>
+      {status.ok ? (
+        <Text wrap="truncate-end">
+          <Text dimColor>backend </Text>
+          <Text color={col("cyan")}>{status.backend}</Text>
+          <Text dimColor> · {status.model}</Text>
+          {status.extraBackends.length > 0 && (
+            <Text dimColor> · also {status.extraBackends.join(", ")}</Text>
+          )}
+          <Text dimColor> · ultracodex doctor for auth/version</Text>
+        </Text>
+      ) : (
+        <Text color={col("red")} wrap="truncate-end">
+          config error — run ultracodex doctor ({truncate(status.error ?? "", 60)})
+        </Text>
+      )}
       {missedWarnings.slice(0, 2).map((warning) => (
         <Text key={warning} color={col("yellow")} dimColor wrap="truncate-end">
           {warning}
@@ -491,8 +518,8 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
       {tab === "runs" && (
         <Box flexDirection="column" marginTop={1}>
           <Text bold>Workflows</Text>
-          {workflows.length === 0 && <Text dimColor> none — add .ultracodex/workflows/*.js</Text>}
-          {workflows.map((wf, i) => {
+          {userWorkflows.length === 0 && <Text dimColor> none — add .ultracodex/workflows/*.js</Text>}
+          {userWorkflows.map((wf, i) => {
             const isSel = mode.kind === "list" && items[sel]?.kind === "wf" && i === sel;
             return (
               <Box key={wf.file} flexDirection="column">
@@ -519,7 +546,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
             <Text bold>Runs</Text>
             {shownRuns.length === 0 && <TabOnboarding o={RUNS_ONBOARDING} />}
             {shownRuns.map((r, i) => {
-              const idx = workflows.length + i;
+              const idx = userWorkflows.length + i;
               const isSel = mode.kind === "list" && idx === sel;
               const g = runGlyph(r);
               const elapsed =
@@ -538,9 +565,17 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         ) : tab === "loops" ? (
           <>
             <Text bold>Loops</Text>
+            {goalWf && (
+              <Text bold={mode.kind === "list" && sel === 0} wrap="truncate-end">
+                {mode.kind === "list" && sel === 0 ? "❯ " : "  "}
+                <Text color={col("cyan")}>▸ {goalWf.name}</Text>
+                <Text dimColor> — {goalWf.description}</Text>
+                {mode.kind === "list" && sel === 0 && <Text dimColor>   ↵ launch</Text>}
+              </Text>
+            )}
             {loopRows.length === 0 && <TabOnboarding o={LOOPS_ONBOARDING} />}
             {loopRows.map((row, i) => {
-              const idx = i;
+              const idx = i + (goalWf ? 1 : 0);
               const isSel = mode.kind === "list" && idx === sel;
               const loopColor =
                 row.loop.status === "running"
@@ -700,7 +735,7 @@ function footerText(tab: HomeTab, orgEnabled: boolean): string {
     case "runs":
       return "↑↓ select · ↵ attach/launch · tab loops · n new run · S schedule · r re-run · q quit";
     case "loops":
-      return "↑↓ select · ↵ open loop · tab schedules · q quit";
+      return "↑↓ select · ↵ launch goal / open loop · S schedule · tab schedules · q quit";
     case "schedules":
       return `↑↓ select · ↵ detail · e exec now · p pause/resume · x remove · tab org · q quit`;
     case "org":

@@ -24,9 +24,9 @@ export const RUNS_ONBOARDING: Onboarding = {
     "        └─→ agent ─┘",
   ],
   commands: [
-    "ultracodex sync-skills          # then ask Claude Code to run a workflow",
-    "ultracodex run goal --budget 200k --args '{\"task\":\"…\",\"criteria\":\"…\"}'",
+    "ultracodex sync-skills                 # teach your coding agent to write one",
     "ultracodex run path/to/workflow.js --watch",
+    "ultracodex validate --strict workflow.js",
   ],
   docs: `${REPO}/tree/main/examples`,
 };

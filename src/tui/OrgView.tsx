@@ -129,7 +129,18 @@ function OrgTreeView({
       <Text dimColor wrap="truncate-end">
         {formatOrgTreeHeaderLine(snapshot, columns)}
       </Text>
-      {snapshot.tickInfo.latestWake === null && <TabOnboarding o={ORG_ONBOARDING} />}
+      {snapshot.tickInfo.latestWake === null ? (
+        <TabOnboarding o={ORG_ONBOARDING} />
+      ) : (
+        // In-TUI triggers land in v0.6; for now, point at the real command paths
+        // (a tick wakes seats + lints + repairs; audit checks brief accuracy).
+        <Box>
+          <Text dimColor>drive · </Text>
+          <Text color={col("green")}>ultracodex org tick</Text>
+          <Text dimColor> · </Text>
+          <Text color={col("green")}>ultracodex org audit</Text>
+        </Box>
+      )}
       {snapshot.agents.length === 0 ? (
         <Text dimColor> no org seats</Text>
       ) : (
