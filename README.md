@@ -211,6 +211,15 @@ Agents ship with safe defaults, and how strongly those defaults are *enforced* d
 
 The rule that follows: route work you'd be comfortable running yourself to Claude or OpenCode, and keep untrusted-content ingestion — fetched docs, third-party repos — on Codex's sandbox. `ultracodex doctor` prints each backend's real posture, and the engine journals a warning whenever a script requests a sandbox tier a backend cannot honor, so the gap between what a script asks for and what a backend enforces is always visible. Full escalation ladder and the exfiltration note: [docs/operations.md](docs/operations.md).
 
+## Limitations
+
+Shipping honestly means naming the edges:
+
+- **Orgs are experimental.** The runtime is tested and the dependency-watching example org is real, but this is the newest pillar and its discipline is young — interfaces and defaults may change, and early cycles want supervision — do not schedule them unattended yet.
+- **OpenCode has no OS sandbox** (see above), and its server-per-call design can collide under heavy concurrency; keep concurrent OpenCode agent counts modest. Codex and Claude are the load-bearing backends.
+- **The OS sandbox is validated on macOS.** Confinement rests on macOS Seatbelt, and the nested-fleet auto-downgrade keys off codex's Seatbelt marker; on Linux, codex sandboxes differently, so live sandbox behavior there is unverified. The hermetic test suite runs everywhere.
+- **Pre-1.0, pinned to a moving target.** The codex app-server protocol is experimental and version-pinned (codex-cli 0.144.0, opencode 1.17.18); `ultracodex doctor` flags drift, but a newer backend can shift behavior under you.
+
 ## Status
 
 Current release: **v0.5.0** — workflows, loops, the scheduler, and orgs, in one package. 600 hermetic tests; pinned against codex-cli 0.144.0 (gpt-5.6) and opencode 1.17.18; `ultracodex doctor` reports drift with next steps.
