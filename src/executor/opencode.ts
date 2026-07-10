@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import http from "node:http";
 import { TextDecoder } from "node:util";
 import { resolveOpencodeEffort, resolveOpencodeModel } from "../config.js";
 import { INTERRUPT_GRACE_MS, SIGTERM_GRACE_MS } from "../constants.js";
@@ -447,22 +448,22 @@ class OpencodeServe {
       this.eventClose = this.stdio.openEvents("/event", onEvent);
       return;
     }
-    const abort = new AbortController();
-    this.eventClose = async () => abort.abort();
     const state: SseState = { buffer: "", onEvent };
-    const res = await fetch(`${this.baseUrl}/event`, { signal: abort.signal });
-    void (async () => {
-      try {
-        const reader = res.body?.getReader();
-        if (!reader) return;
-        const decoder = new TextDecoder();
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) return;
-          parseSse(state, decoder.decode(value, { stream: true }));
-        }
-      } catch {}
-    })();
+    const decoder = new TextDecoder();
+    const req = http.request(`${this.baseUrl}/event`, { method: "GET" }, (res) => {
+      res.on("data", (chunk: Buffer) => {
+        try {
+          parseSse(state, decoder.decode(chunk, { stream: true }));
+        } catch {}
+      });
+      res.on("error", () => {});
+    });
+    req.setTimeout(0);
+    req.on("error", () => {});
+    req.end();
+    this.eventClose = async () => {
+      req.destroy();
+    };
   }
 
   async close(): Promise<void> {
@@ -483,16 +484,28 @@ class OpencodeServe {
   }
 
   private async fetchRequest(method: string, path: string, body?: unknown): Promise<JsonResponse> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method,
-      headers: { "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+    // node:http with timeouts disabled — global fetch (undici) enforces a
+    // 300s headers timeout, which kills long provider turns (observed:
+    // uniform ~5.1m deaths on long reasoning turns).
+    const { status, text } = await new Promise<{ status: number; text: string }>((resolve, reject) => {
+      const req = http.request(`${this.baseUrl}${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+      }, (res) => {
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, text: data }));
+        res.on("error", reject);
+      });
+      req.setTimeout(0);
+      req.on("error", reject);
+      req.end(body === undefined ? undefined : JSON.stringify(body));
     });
-    const text = await res.text();
-    if (!res.ok) {
-      throw err("OpencodeProtocolError", `HTTP ${res.status} ${path}: ${text.slice(0, 200)}`);
+    if (status < 200 || status >= 300) {
+      throw err("OpencodeProtocolError", `HTTP ${status} ${path}: ${text.slice(0, 200)}`);
     }
-    return parseJsonResponse(res.status, text);
+    return parseJsonResponse(status, text);
   }
 
   private onStdout(chunk: string): void {
