@@ -86,8 +86,14 @@ XDG_DATA_HOME=/tmp/oc-data ultracodex run <repo>/fleet/skill-validation.js \
   coding-plan) both pass short probes in seconds but stall identically on
   long driver sessions — the provider is ruled out; the fault is
   opencode 1.17.x (or our long-session interaction with it), which keeps
-  the SSE connection warm with non-progress events during a stall. Our
-  fixes make the FAILURE fast and clean (idle abort at the window); the
-  underlying stall is opencode-side. Recorded as blocked-by-integration;
-  v0.6 owns the root-cause work (live conformance kit on 1.17.x, capture
-  a stalled session's raw SSE, /abort semantics, per-backend caps).
+  the SSE connection warm with non-progress events during a stall. ROOT
+  CAUSE FOUND (via opencode server logs + the message DB): NOT a stall and
+  NOT the provider — our adapter never told opencode headless serve to
+  auto-approve tool permissions, so reading the skill file (outside the
+  agent cwd → permission=external_directory, action=ask) blocked the turn
+  forever. Short probes passed because they read files INSIDE cwd
+  (auto-allow). Fixed by setting OPENCODE_PERMISSION on serve spawn;
+  opencode drivers then completed for the first time. The idle watchdog +
+  turn timeout remain as defense-in-depth for genuine stalls. Lesson:
+  when a headless integration hangs, read ITS logs before blaming the
+  model or the network — the owner called this exactly.
