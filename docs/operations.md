@@ -156,12 +156,11 @@ untrusted-content ingestion on the codex backend's sandbox.
 - Running ultracodex from INSIDE a sandboxed agent (nested fleets): two
   adjustments. (1) The inner codex app-server needs a writable state home —
   export `CODEX_HOME="$PWD/.codex-home"` (and copy `~/.codex/auth.json`
-  into it); the sandbox blocks `~/.codex`. (2) The inner agents cannot
-  build their own sandboxes (macOS rejects nested Seatbelt; the sandbox
-  helper exits 71 and exec tools silently limp) — set
-  `sandbox = "danger-full-access"` in the nested project's config. The
-  OUTER sandbox remains the enforcement boundary, so nothing is actually
-  unconfined.
+  into it); the sandbox blocks `~/.codex`. (2) Inner agents cannot build
+  their own sandboxes (macOS rejects nested Seatbelt) — the engine detects
+  this automatically (codex sets CODEX_SANDBOX=seatbelt) and runs inner
+  agents without their own sandbox, journaling a status note. The OUTER
+  sandbox remains the enforcement boundary, so nothing is unconfined.
 - `ls` shows `dead`: the runner exited without `run_end` — inspect
   `runs/<id>/runner.log`, re-run (`r` in the TUI re-runs with the same args).
 - Wedged runner: `ultracodex kill <id>` escalates control-file → SIGTERM →

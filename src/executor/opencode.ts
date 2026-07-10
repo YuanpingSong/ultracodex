@@ -595,8 +595,10 @@ export class OpencodeExecutor implements Executor {
       }
     };
 
+    let lastActivity = Date.now();
     const onEvent = (event: unknown) => {
       if (!isRecord(event) || !isRecord(event["properties"])) return;
+      lastActivity = Date.now();
       const type = event["type"];
       const properties = event["properties"];
       if (type === "message.part.delta" && typeof properties["delta"] === "string") {
@@ -686,19 +688,46 @@ export class OpencodeExecutor implements Executor {
         return null;
       };
 
+      // Idle watchdog: an opencode/provider turn can stall server-side (the
+      // POST holds open while no tokens or usage events arrive — observed as
+      // multi-hour hangs). A turn that emits ZERO activity for IDLE_MS is
+      // hung; abort it. A long-but-progressing turn resets the timer on every
+      // event, so this never cuts a healthy turn. Default 10min (comfortably
+      // longer than any single tool call, incl. a nested run).
+      const idleMs = Number(process.env.ULTRACODEX_OPENCODE_IDLE_TIMEOUT_MS) || 600_000;
       const turn = async (prompt: string, format: boolean): Promise<TurnResult> => {
         if (ctx.signal.aborted) {
           return { status: "failed", text: "", usage: ZERO_USAGE, error: "interrupted", errorName: "MessageAbortedError" };
         }
         const before = total;
         liveBase = before;
-        const response = await waitForMessage(
-          serve!.request(
-            "POST",
-            `/session/${encodeURIComponent(threadId!)}/message`,
-            bodyFor(prompt, format),
-          ),
-        );
+        lastActivity = Date.now();
+        let idleAborted = false;
+        const idleTimer = setInterval(() => {
+          if (Date.now() - lastActivity < idleMs) return;
+          idleAborted = true;
+          if (threadId) {
+            void settle(
+              serve!.request("POST", `/session/${encodeURIComponent(threadId)}/abort`, {}),
+              1_000,
+            );
+          }
+        }, Math.min(idleMs, 30_000));
+        let response: JsonResponse | null;
+        try {
+          response = await waitForMessage(
+            serve!.request(
+              "POST",
+              `/session/${encodeURIComponent(threadId!)}/message`,
+              bodyFor(prompt, format),
+            ),
+          );
+        } finally {
+          clearInterval(idleTimer);
+        }
+        if (idleAborted) {
+          return { status: "failed", text: "", usage: ZERO_USAGE, error: `opencode turn idle for ${Math.round(idleMs / 1000)}s (provider stall)`, errorName: "OpencodeIdleTimeout" };
+        }
         if (response === null) {
           return { status: "failed", text: "", usage: ZERO_USAGE, error: "interrupted", errorName: "MessageAbortedError" };
         }

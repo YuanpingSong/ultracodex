@@ -338,6 +338,29 @@ describe("OpencodeExecutor", () => {
     });
   });
 
+  test("idle watchdog aborts a stalled turn (provider hang) without external signal", async () => {
+    const cwd = tmpDir();
+    const logPath = path.join(cwd, "invocations.jsonl");
+
+    await withEnv(
+      { ...fakeEnv(logPath), ULTRACODEX_OPENCODE_IDLE_TIMEOUT_MS: "400" },
+      async () => {
+        const exec = new OpencodeExecutor(cfg(), {});
+        const { ctx } = makeCtx(new AbortController().signal);
+
+        const started = Date.now();
+        const res = await exec.run({ prompt: "[[hang]]", cwd, label: "idle" }, ctx);
+        const elapsed = Date.now() - started;
+
+        expect(res.ok).toBe(false);
+        if (!res.ok) expect(res.error).toMatch(/idle for \d+s \(provider stall\)/);
+        // 400ms idle + 400ms poll tick + overhead — must resolve well under a minute
+        expect(elapsed).toBeLessThan(30_000);
+        expect(readInvocations(logPath).some((entry) => entry.path?.endsWith("/abort"))).toBe(true);
+      },
+    );
+  });
+
   test("abort posts /abort, settles inside the grace window, and kills the serve process", async () => {
     const cwd = tmpDir();
     const logPath = path.join(cwd, "invocations.jsonl");

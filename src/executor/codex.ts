@@ -25,6 +25,27 @@ function message(err: unknown): string {
 const THREAD_START_TIMEOUT_MS = 30_000;
 
 /** Reject with "interrupted" as soon as `signal` aborts (the promise itself keeps its own timeout). */
+type CodexSandbox = "read-only" | "workspace-write" | "danger-full-access";
+
+/**
+ * Inside a codex Seatbelt sandbox (codex sets CODEX_SANDBOX=seatbelt in every
+ * sandboxed agent's env), a nested agent cannot apply its own Seatbelt
+ * profile — macOS rejects nested sandbox_apply ("Operation not permitted").
+ * The OUTER sandbox is already the enforcement boundary, so the inner agent
+ * runs without its own sandbox to keep exactly one level. Network confinement
+ * (CODEX_SANDBOX_NETWORK_DISABLED) is enforced by the outer sandbox and
+ * survives the downgrade. Returns the sandbox to use and whether it changed.
+ */
+export function resolveNestedSandbox(
+  requested: CodexSandbox,
+  insideSeatbelt: boolean = process.env.CODEX_SANDBOX === "seatbelt",
+): { sandbox: CodexSandbox; downgraded: boolean } {
+  if (insideSeatbelt && requested !== "danger-full-access") {
+    return { sandbox: "danger-full-access", downgraded: true };
+  }
+  return { sandbox: requested, downgraded: false };
+}
+
 function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) {
     // The abandoned request may still reject later (e.g. when the client
@@ -130,13 +151,22 @@ export class CodexExecutor implements Executor {
     let threadId: string | undefined;
     let total: Usage = ZERO_USAGE;
     try {
+      const { sandbox: resolvedSandbox, downgraded } = resolveNestedSandbox(
+        (profile?.sandbox ?? this.cfg.sandbox) as CodexSandbox,
+      );
+      if (downgraded) {
+        ctx.onActivity({
+          kind: "status",
+          text: "nested sandbox: outer seatbelt is the boundary — inner agent runs without its own sandbox",
+        });
+      }
       const started = await withAbort(
         client.request<{ thread: { id: string } }>(
           "thread/start",
           {
             cwd: req.cwd,
             approvalPolicy: "never",
-            sandbox: profile?.sandbox ?? this.cfg.sandbox,
+            sandbox: resolvedSandbox,
             ephemeral: false,
           },
           { timeoutMs: THREAD_START_TIMEOUT_MS },
