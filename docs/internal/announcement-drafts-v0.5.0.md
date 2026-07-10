@@ -45,9 +45,8 @@ latency is higher than upstream subagents — the point is whose meter
 runs, not speed. Pre-1.0; the app-server protocol is experimental and
 version-pinned (`doctor` reports drift). The org pillar ships explicitly
 experimental — the runtime is tested end to end and its acceptance test
-was an org watching this repo's own dependency tree (that org's briefs
-are in the repo history), but the discipline is young and I expect it to
-evolve with feedback.
+was an org watching this repo's own dependency tree, but the discipline is
+young and I expect it to evolve with feedback.
 
 https://github.com/YuanpingSong/ultracodex · npm: `ultracodex`
 
