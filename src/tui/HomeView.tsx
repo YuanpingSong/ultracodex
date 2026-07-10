@@ -684,7 +684,7 @@ function TabStrip({
       {sep}
       <Tab label="Schedules" active={selected === "schedules"} count={counts.schedules} />
       {sep}
-      <Tab label="Org (experimental)" active={selected === "org"} populated={orgEnabled} />
+      <Tab label="Org (exp)" active={selected === "org"} populated={orgEnabled} />
     </Box>
   );
 }
