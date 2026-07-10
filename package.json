@@ -1,7 +1,7 @@
 {
   "name": "ultracodex",
-  "version": "0.4.0",
-  "description": "Run Claude Code workflow scripts unmodified on the OpenAI Codex CLI \u2014 fable plans, codex executes, fable verifies",
+  "version": "0.5.0",
+  "description": "Run Claude Code workflow scripts unmodified on the OpenAI Codex CLI — fable plans, codex executes, fable verifies",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
