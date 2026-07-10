@@ -21,6 +21,7 @@ export interface LoopInstance {
   id: string;
   rounds: Round[];
   status: LoopStatus;
+  endedWithRejection: boolean;
   convergedAt: number | null;
   totalTokens: number;
   totalDurationMs: number;
@@ -118,7 +119,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function verdictTextFromRecord(value: Record<string, unknown>): string | null {
   const issues = value["issues"];
   if (Array.isArray(issues)) {
-    const joined = issues.map((item) => String(item)).join("; ");
+    const joined = issues
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (isRecord(item)) {
+          for (const field of ["issue", "what", "message", "title"] as const) {
+            const text = item[field];
+            if (typeof text === "string" && text.trim() !== "") return text;
+          }
+          return JSON.stringify(item);
+        }
+        const compact = JSON.stringify(item);
+        return compact === undefined ? "" : compact;
+      })
+      .filter((item) => item.trim() !== "")
+      .join("; ");
     if (joined.trim() !== "") return truncate(joined, 120);
   } else if (typeof issues === "string" && issues.trim() !== "") {
     return truncate(issues, 120);
@@ -190,8 +205,10 @@ export function detectLoops(
   state: TuiState,
   readAgentOutput: (resultRef: string) => string | null,
   nowMs = inferredNowMs(state),
+  runResult?: unknown,
 ): LoopInstance[] {
   const groups = new Map<string, Map<number, AgentView[]>>();
+  const colonStems = new Map<string, Set<string>>();
   const agents = [...state.agents.values()].sort((a, b) => a.n - b.n);
 
   for (const agent of agents) {
@@ -205,14 +222,19 @@ export function detectLoops(
     const bucket = rounds.get(marker.round);
     if (bucket === undefined) rounds.set(marker.round, [agent]);
     else bucket.push(agent);
+    if (marker.form === "label" && marker.stem !== null && marker.stem.includes(":")) {
+      let stems = colonStems.get(marker.loopId);
+      if (stems === undefined) {
+        stems = new Set<string>();
+        colonStems.set(marker.loopId, stems);
+      }
+      stems.add(marker.stem);
+    }
   }
 
   const loops: LoopInstance[] = [];
   const entries = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
   for (const [id, roundsByN] of entries) {
-    const qualifies = roundsByN.size >= 2 || (roundsByN.size >= 1 && state.status === "running");
-    if (!qualifies) continue;
-
     const rounds: Round[] = [...roundsByN.entries()]
       .sort(([a], [b]) => a - b)
       .map(([n, roundAgents]) => {
@@ -228,15 +250,31 @@ export function detectLoops(
 
     const last = rounds[rounds.length - 1];
     if (last === undefined) continue;
+    const runHasBooleanDone = isRecord(runResult) && typeof runResult["done"] === "boolean";
+    const singleRoundQualifies =
+      rounds.length === 1 &&
+      ((colonStems.get(id)?.size ?? 0) >= 2 ||
+        last.verdict.kind !== "unknown" ||
+        runHasBooleanDone);
+    const qualifies =
+      roundsByN.size >= 2 || state.status === "running" || singleRoundQualifies;
+    if (!qualifies) continue;
+
     const totalTokens = rounds.reduce((sum, round) => sum + round.outputTokens, 0);
     const totalDurationMs = rounds.reduce((sum, round) => sum + round.durationMs, 0);
+    const runDone = isRecord(runResult) && runResult["done"] === true;
     const status: LoopStatus =
-      state.status === "running" ? "running" : last.verdict.kind === "approved" ? "converged" : "ended";
+      state.status === "running"
+        ? "running"
+        : runDone || last.verdict.kind === "approved"
+          ? "converged"
+          : "ended";
 
     loops.push({
       id,
       rounds,
       status,
+      endedWithRejection: status === "ended" && last.verdict.kind === "rejected",
       convergedAt: status === "converged" ? last.n : null,
       totalTokens,
       totalDurationMs,
@@ -258,14 +296,18 @@ export function verdictGlyph(verdict: RoundVerdict, running = false, spinner = "
   }
 }
 
-export function loopStatusGlyph(status: LoopStatus, spinner = "●"): string {
+export function loopStatusGlyph(
+  status: LoopStatus,
+  spinner = "●",
+  endedWithRejection = true,
+): string {
   switch (status) {
     case "running":
       return spinner;
     case "converged":
       return "✔";
     case "ended":
-      return "✖";
+      return endedWithRejection ? "✖" : "○";
   }
 }
 
@@ -328,10 +370,14 @@ export function tokenDeltaPct(previous: number | null | undefined, current: numb
 
 export function formatLoopStatus(loop: LoopInstance, spinner = "●"): string {
   const rounds = loop.rounds.length;
+  const roundsLabel = `${rounds} round${rounds === 1 ? "" : "s"}`;
   const lastRound = loop.rounds[rounds - 1]?.n ?? 0;
   if (loop.status === "running") return `${loopStatusGlyph("running", spinner)} running (round ${lastRound})`;
-  if (loop.status === "converged") return `${loopStatusGlyph("converged")} converged after ${rounds} rounds`;
-  return `${loopStatusGlyph("ended")} ended after ${rounds} rounds (not converged)`;
+  if (loop.status === "converged") return `${loopStatusGlyph("converged")} converged after ${roundsLabel}`;
+  if (loop.endedWithRejection) {
+    return `${loopStatusGlyph("ended")} ended after ${roundsLabel} (not converged)`;
+  }
+  return `${loopStatusGlyph("ended", spinner, false)} ended after ${roundsLabel}`;
 }
 
 function normalizeNonNegative(value: number): number {
@@ -411,7 +457,11 @@ export function formatLoopListRow(opts: {
       : opts.loop.status === "converged"
         ? `converged r${opts.loop.convergedAt ?? lastRound}`
         : `ended r${lastRound}`;
-  return `${opts.selected ? "❯ " : "  "}${loopStatusGlyph(opts.loop.status, spinner)} ${opts.runId} ${
+  return `${opts.selected ? "❯ " : "  "}${loopStatusGlyph(
+    opts.loop.status,
+    spinner,
+    opts.loop.endedWithRejection,
+  )} ${opts.runId} ${
     opts.loop.id
   } · ${trajectoryStrip(opts.loop.rounds, spinner, opts.maxTrajectory ?? 10)} · ${status} · ${formatLoopListTokens(
     opts.loop.totalTokens,

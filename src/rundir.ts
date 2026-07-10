@@ -12,6 +12,8 @@ import { readJournal } from "./journal.js";
 import type { RunSummary, RunTotals, Usage } from "./types.js";
 import { ZERO_USAGE, addUsage } from "./types.js";
 
+export const DEAD_JOURNAL_GRACE_MS = 250;
+
 export function stateDir(projectDir: string): string {
   return path.join(projectDir, STATE_DIR_NAME);
 }
@@ -117,7 +119,15 @@ export function isRunDead(runDir: string): boolean {
   }
   if (!hasStart) return false;
   const pid = readPid(runDir);
-  return pid === null || !runnerPidAlive(runDir, pid);
+  if (pid !== null && runnerPidAlive(runDir, pid)) return false;
+
+  // The runner may have exited just before its final journal flush became
+  // visible. Every synchronous dead decision gets one last complete read;
+  // CLI wait/list paths add the short grace window before reporting it.
+  for (const ev of readJournal(runDir)) {
+    if (ev.t === "run_end") return false;
+  }
+  return true;
 }
 
 export function agentDir(runDir: string, n: number, label: string): string {
@@ -155,7 +165,16 @@ export function listRuns(projectDir: string): RunSummary[] {
       continue;
     }
 
-    const events = readJournal(runDir);
+    const pid = readPid(runDir);
+    const rawAlive = pid !== null && pidAlive(pid);
+    const verifiedRunnerAlive =
+      pid !== null && rawAlive && runnerPidAlive(runDir, pid);
+    let events = readJournal(runDir);
+    if (!verifiedRunnerAlive && !events.some((event) => event.t === "run_end")) {
+      // Match isRunDead's final-read discipline so a just-flushed run_end wins
+      // over a stale/dead pid even for non-CLI listRuns callers.
+      events = readJournal(runDir);
+    }
 
     let name: string | null = null;
     let startedAt: number | null = null;
@@ -199,13 +218,11 @@ export function listRuns(projectDir: string): RunSummary[] {
       outputTokens = combined.outputTokens;
     }
 
-    const pid = readPid(runDir);
-    const rawAlive = pid !== null && pidAlive(pid);
     // Without a run_end, "alive" additionally requires the pid to verifiably
     // be this run's runner (guards OS pid reuse flipping a dead run back to
     // "running").
     const alive =
-      pid !== null && rawAlive && (runStatus !== null || runnerPidAlive(runDir, pid));
+      pid !== null && rawAlive && (runStatus !== null || verifiedRunnerAlive);
 
     if (runStatus === null && pid !== null && !rawAlive) {
       // Crashed runner left a stale pidfile; clean it so the pid can never be
@@ -250,6 +267,25 @@ export function listRuns(projectDir: string): RunSummary[] {
   });
 
   return summaries;
+}
+
+/**
+ * User-visible run listing with final dead-run reconciliation.
+ *
+ * A runner can disappear just before its final journal flush becomes visible.
+ * If an initial listing sees any dead run, read the complete journals again
+ * immediately and, while any run still looks dead, once more after a short
+ * grace. Callers must await this result before publishing a dead status.
+ */
+export async function listRunsReconciled(projectDir: string): Promise<RunSummary[]> {
+  let runs = listRuns(projectDir);
+  if (!runs.some((run) => run.status === "dead")) return runs;
+
+  runs = listRuns(projectDir);
+  if (!runs.some((run) => run.status === "dead")) return runs;
+
+  await new Promise<void>((resolve) => setTimeout(resolve, DEAD_JOURNAL_GRACE_MS));
+  return listRuns(projectDir);
 }
 
 export function resolveRunId(projectDir: string, ref: string): string {

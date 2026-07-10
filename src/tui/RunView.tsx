@@ -26,7 +26,7 @@ import {
 import { useFlash, useFileTail, useJournalState, useTick } from "./hooks.js";
 import { LoopView } from "./LoopView.js";
 import { detectLoops } from "./loops.js";
-import { makeAgentOutputReader } from "./loopFiles.js";
+import { makeAgentOutputReader, readJsonOutputCapped } from "./loopFiles.js";
 import type { AgentView, TuiState } from "./reducer.js";
 import { Timeline } from "./Timeline.js";
 
@@ -81,7 +81,14 @@ export function RunView({ runDir, rows, onBack, onQuit }: RunViewProps): ReactEl
   const { stdout } = useStdout();
   const columns = stdout?.columns ?? 100;
   const readAgentOutput = useMemo(() => makeAgentOutputReader(runDir), [runDir]);
-  const loops = useMemo(() => detectLoops(state, readAgentOutput, now), [state, readAgentOutput, now]);
+  const runResult = useMemo(
+    () => readJsonOutputCapped(runDir, state.resultRef),
+    [runDir, state.resultRef],
+  );
+  const loops = useMemo(
+    () => detectLoops(state, readAgentOutput, now, runResult),
+    [state, readAgentOutput, now, runResult],
+  );
 
   const [mode, setMode] = useState<Mode>({ kind: "main" });
   const [selIdx, setSelIdx] = useState(0);

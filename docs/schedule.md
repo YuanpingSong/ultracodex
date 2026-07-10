@@ -24,7 +24,7 @@ Create a schedule from the project directory:
 
 ```
 ultracodex schedule add digest --every 30m --budget 200k -- run digest.js
-ultracodex schedule add nightly --daily 18:30 --budget 500k -- run nightly-review
+ultracodex schedule add nightly --daily 18:30 --budget 300k -- run nightly-review
 ultracodex schedule add cleanup --cron "15 9 * * 1" -- node scripts/cleanup.mjs
 ```
 
@@ -64,10 +64,12 @@ ultracodex schedule rm <name>
 Names are lowercase slugs: letters, digits, and hyphens, starting with a
 letter or digit.
 
-`--every` accepts `1-59m` or `1-23h`, mapped to ordinary five-field cron:
-`*/N * * * *` for minutes and `0 */N * * *` for hours. `--daily HH:MM`
-maps to `MM HH * * *`. `--cron` is the escape hatch and validates only that
-the expression has five fields.
+`--every` accepts only cadences that divide the cron clock uniformly: `1m`,
+`2m`, `3m`, `4m`, `5m`, `6m`, `10m`, `12m`, `15m`, `20m`, `30m`, or `1h`,
+`2h`, `3h`, `4h`, `6h`, `8h`, `12h`. Use `1h` rather than `60m`. These map to
+`*/N * * * *` for minutes and `0 */N * * *` for hours. Use `--cron` for an
+intentionally irregular cadence. `--daily HH:MM` maps to `MM HH * * *`;
+`--cron` validates only that the expression has five fields.
 
 If the scheduled command starts with `run`, ultracodex resolves the script or
 saved workflow at add time and later invokes its own CLI with `--json`.

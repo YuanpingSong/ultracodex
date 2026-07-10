@@ -13,10 +13,11 @@ import {
   reportInteractiveDivergence,
   resolveScript,
   sanitizeText,
+  tailRun,
 } from "../src/cli.js";
 import { DEFAULT_CODEX_CONFIG, TESTED_CODEX_VERSION, TESTED_OPENCODE_VERSION } from "../src/constants.js";
 import { JournalWriter } from "../src/journal.js";
-import { createRunDir, pidAlive, writePidFile } from "../src/rundir.js";
+import { createRunDir, listRuns, pidAlive, writePidFile } from "../src/rundir.js";
 import { scheduleSpecPath } from "../src/schedule/spec.js";
 import { fmtDuration } from "../src/tui/format.js";
 import type { JournalEvent } from "../src/types.js";
@@ -26,6 +27,7 @@ const dirs: string[] = [];
 const children: ChildProcess[] = [];
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const c of children.splice(0)) {
     try {
       c.kill("SIGKILL");
@@ -470,6 +472,52 @@ describe("show on dead runs", () => {
     const res = await runCliInProc(["show", "uc_okshow1", "--json"], proj);
     expect(res.code).toBe(0);
     expect((JSON.parse(res.stdout) as { status: string }).status).toBe("ok");
+  });
+
+  it("waits for a final run_end flush after pid death instead of returning dead", async () => {
+    vi.useFakeTimers();
+    const proj = tmpProject();
+    const runDir = makeRun(proj, "uc_flushrace1", [runStartEvent("uc_flushrace1")]);
+    const seen: JournalEvent[] = [];
+    const pending = tailRun(runDir, { onEvent: (event) => seen.push(event) });
+
+    await vi.advanceTimersByTimeAsync(3000);
+    const writer = new JournalWriter(runDir);
+    writer.append({
+      t: "run_end",
+      ts: 2000,
+      status: "ok",
+      resultRef: "result.json",
+      error: null,
+      totals: { agents: 0, ok: 0, failed: 0, skipped: 0, usage: {}, ms: 1000 },
+    });
+    writer.close();
+    await vi.advanceTimersByTimeAsync(250);
+
+    await expect(pending).resolves.toMatchObject({ t: "run_end", status: "ok" });
+    expect(seen.some((event) => event.t === "run_end")).toBe(true);
+  });
+
+  it("lists run_end as ok even when the pid is dead", () => {
+    const proj = tmpProject();
+    makeRun(
+      proj,
+      "uc_lsend1",
+      [
+        runStartEvent("uc_lsend1"),
+        {
+          t: "run_end",
+          ts: 2000,
+          status: "ok",
+          resultRef: null,
+          error: null,
+          totals: { agents: 0, ok: 0, failed: 0, skipped: 0, usage: {}, ms: 1000 },
+        },
+      ],
+      9999999,
+    );
+
+    expect(listRuns(proj)[0]?.status).toBe("ok");
   });
 });
 

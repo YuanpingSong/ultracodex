@@ -99,7 +99,7 @@ Everything needed to author these — or to teach **any** model to author them �
 ultracodex run goal --args '{
   "task": "Implement the CSV import endpoint",
   "criteria": "Build passes. Tests pass. Malformed rows are rejected with row-level errors."
-}'
+}' --budget 250k
 ```
 
 The builder works in rounds; a separate verifier checks every criterion against the work itself and rejects until it holds. The TUI folds the rounds into a trajectory — `✖ ✖ ✔ · converged after 3 rounds` — with per-round token cost, so convergence is something you watch. Loops are plain JavaScript `while`/`for` in any script; two packaged loops ship (`goal` builds until approved, `loop` discovers until dry); `budget` is the governor and pause/skip/stop work live. → [docs/loops.md](docs/loops.md)
@@ -110,7 +110,7 @@ The builder works in rounds; a separate verifier checks every criterion against 
 
 ```bash
 ultracodex schedule add digest --every 30m --budget 200k -- run digest.js
-ultracodex schedule add nightly --daily 18:30 --until-done --budget 500k -- run goal --args '…'
+ultracodex schedule add nightly --daily 18:30 --until-done --budget 300k -- run goal --args '…'
 ```
 
 `schedule add` writes one tagged crontab line and owns it completely; there is no daemon. `--until-done` retires a schedule the day its workflow returns `{ done: true }`. `--budget` caps every scheduled run — and scheduling a run without one gets a loud warning, because an unattended loop with no ceiling can drain a quota overnight. The Schedules tab shows exec-history strips, next-fire countdowns, and a run-now key. → [docs/schedule.md](docs/schedule.md)

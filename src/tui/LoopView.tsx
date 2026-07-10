@@ -13,7 +13,7 @@ import {
   type LoopInstance,
   type Round,
 } from "./loops.js";
-import { makeAgentOutputReader } from "./loopFiles.js";
+import { makeAgentOutputReader, readJsonOutputCapped } from "./loopFiles.js";
 import { fmtDuration, fmtTokens, spinnerFrame, statusColor, statusGlyph, truncate } from "./format.js";
 import { useJournalState, useTick } from "./hooks.js";
 import type { AgentView } from "./reducer.js";
@@ -36,7 +36,14 @@ export function LoopView({ runDir, initialLoopId, onBack, onQuit }: LoopViewProp
   const columns = stdout?.columns ?? 100;
   const spinner = spinnerFrame(Math.floor(now / 250));
   const readAgentOutput = useMemo(() => makeAgentOutputReader(runDir), [runDir]);
-  const loops = useMemo(() => detectLoops(state, readAgentOutput, now), [state, readAgentOutput, now]);
+  const runResult = useMemo(
+    () => readJsonOutputCapped(runDir, state.resultRef),
+    [runDir, state.resultRef],
+  );
+  const loops = useMemo(
+    () => detectLoops(state, readAgentOutput, now, runResult),
+    [state, readAgentOutput, now, runResult],
+  );
 
   const appliedInitialLoop = useRef(false);
   const [mode, setMode] = useState<Mode>({ kind: "main" });

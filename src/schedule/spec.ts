@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { CliError } from "../cli-error.js";
 import { stateDir } from "../rundir.js";
 
 export const SCHEDULES_DIR_NAME = "schedules";
@@ -64,20 +65,25 @@ export function validateScheduleName(name: string): void {
 }
 
 export function parseEvery(value: string): ParsedSchedule {
+  const validMinutes = [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30] as const;
+  const validHours = [1, 2, 3, 4, 6, 8, 12] as const;
+  const help =
+    "valid values: 1m, 2m, 3m, 4m, 5m, 6m, 10m, 12m, 15m, 20m, 30m, " +
+    "1h, 2h, 3h, 4h, 6h, 8h, or 12h; use 1h for 60 minutes or --cron for irregular cadences";
   const m = /^([1-9]\d*)([mh])$/.exec(value);
   if (!m) {
-    throw new Error(`invalid --every "${value}" (use 1-59m or 1-23h)`);
+    throw new CliError(`invalid --every "${value}" (${help})`);
   }
   const n = Number(m[1]);
   const unit = m[2];
   if (unit === "m") {
-    if (!Number.isInteger(n) || n < 1 || n > 59) {
-      throw new Error(`invalid --every "${value}" (minutes must be 1-59)`);
+    if (!(validMinutes as readonly number[]).includes(n)) {
+      throw new CliError(`invalid --every "${value}" (${help})`);
     }
     return { schedule: { kind: "every", value }, cronExpr: `*/${n} * * * *` };
   }
-  if (!Number.isInteger(n) || n < 1 || n > 23) {
-    throw new Error(`invalid --every "${value}" (hours must be 1-23)`);
+  if (!(validHours as readonly number[]).includes(n)) {
+    throw new CliError(`invalid --every "${value}" (${help})`);
   }
   return { schedule: { kind: "every", value }, cronExpr: `0 */${n} * * *` };
 }

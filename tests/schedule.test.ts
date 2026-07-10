@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildProgram } from "../src/cli.js";
+import { CliError } from "../src/cli-error.js";
 import { addSchedule, NO_SCHEDULE_BUDGET_WARNING } from "../src/schedule/add.js";
 import {
   renderCrontabLine,
@@ -16,6 +17,7 @@ import {
   checkMissedSchedules,
   nextFireMs,
   newScheduleSpec,
+  parseEvery,
   readScheduleSpec,
   scheduleLockPath,
   scheduleLogPath,
@@ -180,7 +182,7 @@ describe("schedule time helpers", () => {
       nextFireMs({ kind: "every", value: "15m" }, localMs(2026, 1, 1, 12, 31, 5)),
     ).toBe(localMs(2026, 1, 1, 12, 45));
     expect(
-      nextFireMs({ kind: "every", value: "17m" }, localMs(2026, 1, 1, 12, 59, 30)),
+      nextFireMs({ kind: "every", value: "20m" }, localMs(2026, 1, 1, 12, 59, 30)),
     ).toBe(localMs(2026, 1, 1, 13, 0));
     expect(
       nextFireMs({ kind: "every", value: "30m" }, localMs(2026, 1, 1, 12, 30)),
@@ -204,6 +206,28 @@ describe("schedule time helpers", () => {
       nextFireMs({ kind: "daily", value: "18:30" }, localMs(2026, 1, 1, 18, 30, 1)),
     ).toBe(localMs(2026, 1, 2, 18, 30));
     expect(nextFireMs({ kind: "cron", value: "7 8 * * 1" }, localMs(2026, 1, 1, 18, 30))).toBeNull();
+  });
+});
+
+describe("parseEvery", () => {
+  it("rejects non-uniform minute and hour steps with valid values and --cron guidance", () => {
+    for (const value of ["59m", "7m", "5h"]) {
+      let thrown: unknown;
+      try {
+        parseEvery(value);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(CliError);
+      expect((thrown as Error).message).toContain("valid values:");
+      expect((thrown as Error).message).toContain("--cron for irregular cadences");
+    }
+  });
+
+  it("accepts uniform divisor cadences", () => {
+    expect(parseEvery("15m").cronExpr).toBe("*/15 * * * *");
+    expect(parseEvery("30m").cronExpr).toBe("*/30 * * * *");
+    expect(parseEvery("6h").cronExpr).toBe("0 */6 * * *");
   });
 });
 
@@ -725,10 +749,10 @@ describe("schedule lifecycle", () => {
 
   it("maps every and daily specs to cron expressions", async () => {
     const projectDir = tmpProject();
-    await runCliInProc(["schedule", "add", "minutely", "--every", "17m", "--", "node"], projectDir);
+    await runCliInProc(["schedule", "add", "minutely", "--every", "20m", "--", "node"], projectDir);
     await runCliInProc(["schedule", "add", "hourly", "--every", "6h", "--", "node"], projectDir);
     await runCliInProc(["schedule", "add", "daily", "--daily", "18:30", "--", "node"], projectDir);
-    expect(readScheduleSpec(projectDir, "minutely").cronExpr).toBe("*/17 * * * *");
+    expect(readScheduleSpec(projectDir, "minutely").cronExpr).toBe("*/20 * * * *");
     expect(readScheduleSpec(projectDir, "hourly").cronExpr).toBe("0 */6 * * *");
     expect(readScheduleSpec(projectDir, "daily").cronExpr).toBe("30 18 * * *");
   });

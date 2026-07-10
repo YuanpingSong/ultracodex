@@ -25,8 +25,9 @@ import { newRunId } from "./ids.js";
 import { readJournal, tailJournal } from "./journal.js";
 import {
   createRunDir,
+  DEAD_JOURNAL_GRACE_MS,
   isRunDead,
-  listRuns,
+  listRunsReconciled,
   pidAlive,
   readPid,
   resolveRunId,
@@ -39,7 +40,7 @@ import { validateWorkflowScript, type ValidationIssue } from "./validate.js";
 import { resolveScript } from "./workflows.js";
 import { AppServerClient } from "./appserver/client.js";
 import { fmtDuration, fmtTokens } from "./tui/format.js";
-import { makeAgentOutputReader } from "./tui/loopFiles.js";
+import { makeAgentOutputReader, readJsonOutputCapped } from "./tui/loopFiles.js";
 import { initialState, reduce, type TuiState } from "./tui/reducer.js";
 import { renderRunStatic } from "./tui/static.js";
 import { runTui } from "./tui/index.js";
@@ -152,11 +153,15 @@ export function spawnRunner(runDir: string): number | null {
 
 const DEAD_RUNNER_CHECKS = 6; // × 500ms — grace for runner startup before "dead"
 
+function journalRunEnd(runDir: string): RunEndEvent | undefined {
+  return readJournal(runDir).find((event) => event.t === "run_end") as RunEndEvent | undefined;
+}
+
 /**
  * Tail the journal until run_end. Resolves "dead" when the runner exits without
  * one, "timeout" past opts.timeoutMs. onEvent sees every event, run_end included.
  */
-function tailRun(
+export function tailRun(
   runDir: string,
   opts?: { onEvent?: (ev: JournalEvent) => void; timeoutMs?: number },
 ): Promise<RunEndEvent | "dead" | "timeout"> {
@@ -164,15 +169,28 @@ function tailRun(
     let done = false;
     let deadChecks = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let deadGraceTimer: ReturnType<typeof setTimeout> | null = null;
+    let liveness: ReturnType<typeof setInterval> | null = null;
+    let stopTail = (): void => {};
     const finish = (v: RunEndEvent | "dead" | "timeout"): void => {
       if (done) return;
       done = true;
       stopTail();
-      clearInterval(liveness);
+      if (liveness !== null) clearInterval(liveness);
       if (timer !== null) clearTimeout(timer);
+      if (deadGraceTimer !== null) clearTimeout(deadGraceTimer);
       resolve(v);
     };
-    const stopTail = tailJournal(
+    const finishFromFullRead = (): boolean => {
+      const end = journalRunEnd(runDir);
+      if (end === undefined) return false;
+      // The tailer may have missed the runner's last flush. Preserve --watch's
+      // event stream when the final full read is what discovers run_end.
+      opts?.onEvent?.(end);
+      finish(end);
+      return true;
+    };
+    stopTail = tailJournal(
       runDir,
       (ev) => {
         opts?.onEvent?.(ev);
@@ -180,7 +198,12 @@ function tailRun(
       },
       { pollMs: 200 },
     );
-    const liveness = setInterval(() => {
+    if (done) {
+      stopTail();
+      return;
+    }
+    liveness = setInterval(() => {
+      if (deadGraceTimer !== null) return;
       const pid = readPid(runDir);
       if (pid !== null && runnerPidAlive(runDir, pid)) {
         deadChecks = 0;
@@ -188,8 +211,19 @@ function tailRun(
       }
       deadChecks += 1;
       if (deadChecks >= DEAD_RUNNER_CHECKS) {
-        const end = readJournal(runDir).find((e) => e.t === "run_end") as RunEndEvent | undefined;
-        finish(end ?? "dead");
+        // A runner can disappear between its final journal write and the
+        // tailer's next poll. Read the complete journal now, then give the
+        // last flush one short grace window and read it completely again.
+        if (finishFromFullRead()) return;
+        deadGraceTimer = setTimeout(() => {
+          deadGraceTimer = null;
+          const latestPid = readPid(runDir);
+          if (latestPid !== null && runnerPidAlive(runDir, latestPid)) {
+            deadChecks = 0;
+            return;
+          }
+          if (!finishFromFullRead()) finish("dead");
+        }, DEAD_JOURNAL_GRACE_MS);
       }
     }, 500);
     if (opts?.timeoutMs !== undefined) {
@@ -696,9 +730,9 @@ export function lsElapsed(r: Pick<RunSummary, "runDir" | "status" | "startedAt" 
   return fmtDuration(Date.now() - r.startedAt);
 }
 
-function lsAction(): void {
+async function lsAction(): Promise<void> {
   emitMissedScheduleWarnings(process.cwd());
-  const runs = listRuns(process.cwd());
+  const runs = await listRunsReconciled(process.cwd());
   if (runs.length === 0) {
     process.stdout.write("no runs\n");
     return;
@@ -733,8 +767,27 @@ async function showAction(ref: string, opts: ShowCliOpts): Promise<void> {
   }
   const projectDir = process.cwd();
   const { runId, runDir } = runDirOf(projectDir, ref);
-  // A dead run (run_start, no run_end, runner pid gone) is terminal: never wait on it.
-  if (opts.wait && !hasRunEnd(runDir) && !isRunDead(runDir)) {
+
+  const foldAfterDeadGrace = async (): Promise<{ state: TuiState; dead: boolean }> => {
+    let state = foldJournal(runDir);
+    if (state.status !== "running") return { state, dead: false };
+    if (!isRunDead(runDir)) {
+      // isRunDead performs its own final full read; fold again in case that
+      // read observed run_end after the first fold above.
+      state = foldJournal(runDir);
+      return { state, dead: false };
+    }
+    await sleep(DEAD_JOURNAL_GRACE_MS);
+    state = foldJournal(runDir);
+    if (state.status !== "running") return { state, dead: false };
+    const dead = isRunDead(runDir);
+    if (!dead) state = foldJournal(runDir);
+    return { state, dead };
+  };
+
+  let snapshot = await foldAfterDeadGrace();
+  // A genuinely dead run is terminal; a live run waits for run_end.
+  if (opts.wait && snapshot.state.status === "running" && !snapshot.dead) {
     const end = await tailRun(runDir, timeoutMs !== undefined ? { timeoutMs } : {});
     if (end === "timeout") {
       process.stderr.write(`timed out waiting for run ${runId} to end\n`);
@@ -742,9 +795,9 @@ async function showAction(ref: string, opts: ShowCliOpts): Promise<void> {
       return;
     }
     // end === "dead" (or run_end): fall through — the fold below reports it.
+    snapshot = await foldAfterDeadGrace();
   }
-  const state = foldJournal(runDir);
-  const dead = state.status === "running" && isRunDead(runDir);
+  const { state, dead } = snapshot;
   if (opts.json) {
     let result: unknown = null;
     if (state.resultRef !== null) {
@@ -770,7 +823,12 @@ async function showAction(ref: string, opts: ShowCliOpts): Promise<void> {
     if (dead) process.exitCode = 1;
     return;
   }
-  process.stdout.write(renderRunStatic(state, { readAgentOutput: makeAgentOutputReader(runDir) }) + "\n");
+  process.stdout.write(
+    renderRunStatic(state, {
+      readAgentOutput: makeAgentOutputReader(runDir),
+      runResult: readJsonOutputCapped(runDir, state.resultRef),
+    }) + "\n",
+  );
   if (dead) {
     process.stderr.write(`run ${runId} is dead: runner exited before run_end\n`);
     process.exitCode = 1;
@@ -1391,7 +1449,7 @@ export function buildProgram(): Command {
 
   schedule
     .command("add <name> [command...]")
-    .option("--every <dur>", "run every Nm (1-59) or Nh (1-23)")
+    .option("--every <dur>", "uniform cadence whose minutes divide 60 or hours divide 24")
     .option("--daily <HH:MM>", "run daily at local time HH:MM")
     .option("--cron <expr>", "raw 5-field cron expression")
     .option("--until-done", "retire when a scheduled run returns an object with done:true")

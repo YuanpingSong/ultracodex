@@ -15,6 +15,7 @@ import {
   type Round,
 } from "../src/tui/loops.js";
 import { initialState, reduce, type AgentView, type TuiState } from "../src/tui/reducer.js";
+import { renderRunStatic } from "../src/tui/static.js";
 import type {
   AgentEndEvent,
   AgentStartEvent,
@@ -121,8 +122,9 @@ function detected(
   events: JournalEvent[],
   out: Record<string, string | null> = {},
   nowMs?: number,
+  runResult?: unknown,
 ) {
-  return detectLoops(fold(events), outputs(out), nowMs);
+  return detectLoops(fold(events), outputs(out), nowMs, runResult);
 }
 
 function agentsWithRefs(refs: Array<string | null>): AgentView[] {
@@ -301,6 +303,63 @@ describe("detectLoops", () => {
     expect(loops[0]?.convergedAt).toBeNull();
     expect(loops[0]?.rounds[1]?.verdict).toEqual({ kind: "rejected", text: "still failing" });
   });
+
+  it("treats a done:true run result as convergence for until-dry rounds without verdicts", () => {
+    const events = [
+      runStart(),
+      agentStart(1, "loop:find-r1"),
+      agentEnd(1, 10, 2100, "r1.json"),
+      agentStart(2, "loop:find-r2"),
+      agentEnd(2, 10, 2200, "r2.json"),
+      agentStart(3, "loop:find-r3"),
+      agentEnd(3, 10, 2300, "r3.json"),
+      runEnd(),
+    ];
+
+    const converged = detected(events, {}, undefined, { done: true });
+    expect(converged[0]?.rounds.map((round) => round.verdict.kind)).toEqual([
+      "unknown",
+      "unknown",
+      "unknown",
+    ]);
+    expect(converged[0]?.status).toBe("converged");
+    expect(formatLoopStatus(converged[0]!)).toBe("✔ converged after 3 rounds");
+    expect(detected(events, {}, undefined, { done: false })[0]?.status).toBe("ended");
+    expect(detected(events)[0]?.status).toBe("ended");
+  });
+
+  it("keeps legitimate one-round loops and excludes an unrelated bare one-shot label", () => {
+    const goalEvents = [
+      runStart(),
+      agentStart(1, "goal:build-r1"),
+      agentEnd(1, 10, 2100, "build.json"),
+      agentStart(2, "goal:verify-r1"),
+      agentEnd(2, 10, 2200, "verify.json"),
+      runEnd(),
+    ];
+    const state = fold(goalEvents);
+    const reader = outputs({ "verify.json": JSON.stringify({ verdict: "approved" }) });
+    const loops = detectLoops(state, reader);
+
+    expect(loops).toHaveLength(1);
+    expect(formatLoopStatus(loops[0]!)).toBe("✔ converged after 1 round");
+    expect(
+      renderRunStatic(state, { color: false, readAgentOutput: reader }),
+    ).toContain("LOOPS\n  goal · ✔ converged after 1 round");
+
+    const untilDry = detected(
+      [runStart(), agentStart(1, "find-r1"), agentEnd(1, 10), runEnd()],
+      {},
+      undefined,
+      { done: true },
+    );
+    expect(untilDry).toHaveLength(1);
+    expect(untilDry[0]?.status).toBe("converged");
+
+    expect(
+      detected([runStart(), agentStart(1, "foo-r1"), agentEnd(1, 10), runEnd()]),
+    ).toEqual([]);
+  });
 });
 
 describe("extractRoundVerdict", () => {
@@ -364,6 +423,28 @@ describe("extractRoundVerdict", () => {
     );
     expect(verdict.text).toHaveLength(120);
     expect(verdict.text?.endsWith("…")).toBe(true);
+  });
+
+  it("renders object issue records as readable fields or compact JSON", () => {
+    const verdict = extractRoundVerdict(
+      agentsWithRefs(["issues.json"]),
+      outputs({
+        "issues.json": JSON.stringify({
+          verdict: "rejected",
+          issues: [
+            { severity: "major", file: "src/a.ts", issue: "missing final read", fix: "retry" },
+            { what: "stale status" },
+            { code: 17 },
+          ],
+        }),
+      }),
+    );
+
+    expect(verdict).toEqual({
+      kind: "rejected",
+      text: 'missing final read; stale status; {"code":17}',
+    });
+    expect(verdict.text).not.toContain("[object Object]");
   });
 
   it("never throws on malformed, absent, non-json, thrown, or oversized output", () => {
@@ -460,6 +541,28 @@ describe("loop display helpers", () => {
 
     expect(formatLoopStatus(loop)).toBe("✔ converged after 2 rounds");
     expect(formatLoopTotals(loop)).toBe("3.0k tok · 2.5s");
+  });
+
+  it("renders rejected endings as failures and unknown-only endings as neutral", () => {
+    const baseEvents = [
+      runStart(),
+      agentStart(1, "goal:verify-r1"),
+      agentEnd(1, 10, 2100, "r1.json"),
+      agentStart(2, "goal:verify-r2"),
+      agentEnd(2, 10, 2200, "r2.json"),
+      runEnd(),
+    ];
+    const rejected = detected(baseEvents, {
+      "r2.json": JSON.stringify({ verdict: "rejected" }),
+    })[0]!;
+    const neutral = detected(baseEvents)[0]!;
+
+    expect(rejected.endedWithRejection).toBe(true);
+    expect(formatLoopStatus(rejected)).toBe("✖ ended after 2 rounds (not converged)");
+    expect(formatLoopListRow({ runId: "wf", loop: rejected })).toContain("  ✖ wf");
+    expect(neutral.endedWithRejection).toBe(false);
+    expect(formatLoopStatus(neutral)).toBe("○ ended after 2 rounds");
+    expect(formatLoopListRow({ runId: "wf", loop: neutral })).toContain("  ○ wf");
   });
 
   it("formats LoopView/HomeView rows with ledger token deltas", () => {

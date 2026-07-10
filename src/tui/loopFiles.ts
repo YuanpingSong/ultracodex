@@ -18,3 +18,14 @@ export function readAgentOutputCapped(runDir: string, resultRef: string): string
 export function makeAgentOutputReader(runDir: string): (resultRef: string) => string | null {
   return (resultRef) => readAgentOutputCapped(runDir, resultRef);
 }
+
+export function readJsonOutputCapped(runDir: string, resultRef: string | null): unknown {
+  if (resultRef === null || !resultRef.endsWith(".json")) return undefined;
+  const raw = readAgentOutputCapped(runDir, resultRef);
+  if (raw === null) return undefined;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
+}

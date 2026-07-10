@@ -22,7 +22,7 @@ The package ships two reference loops:
 
 | Claude Code loop taxonomy | Ultracodex expression | Notes |
 |---|---|---|
-| goal-based | `ultracodex run goal` | Builder rounds continue until a skeptical verifier approves, rounds cap, budget floor, or agent failure. |
+| goal-based | `ultracodex run goal --budget 250k` | Builder rounds continue until a skeptical verifier approves, rounds cap, budget floor, or agent failure. |
 | time-based | `ultracodex schedule` | Cron wakes the run. Always budget scheduled runs, and add `--until-done` when the workflow returns `{ done: true }`; see [schedule.md](schedule.md#budgets-and-quota-safety). |
 | turn-based | interactive sessions | Out of scope for packaged workflows; use the interactive agent surface directly. |
 | proactive | an [org](org.md) | The next rung of the delegation gradient: hand off the memory and the organization, not just the trigger. |
@@ -46,7 +46,7 @@ teams can override the default locally without changing commands.
 CLI:
 
 ```bash
-ultracodex run goal --args '{"task":"Implement the CSV import UI","criteria":"Build passes. Vitest passes. Users can upload a CSV and see row-level validation errors.","context":"Relevant files: src/import/, tests/import.test.ts"}' --json
+ultracodex run goal --args '{"task":"Implement the CSV import UI","criteria":"Build passes. Vitest passes. Users can upload a CSV and see row-level validation errors.","context":"Relevant files: src/import/, tests/import.test.ts"}' --budget 250k --json
 ```
 
 Nested from another workflow:
@@ -97,7 +97,7 @@ forever.
 CLI:
 
 ```bash
-ultracodex run loop --args '{"find":"Find one fresh correctness bug in src/ and tests/. Return precise locations.","verify":"Check each finding by reading the code. real=false when uncertain.","dryRounds":2,"dedupBy":"title"}' --json
+ultracodex run loop --args '{"find":"Find one fresh correctness bug in src/ and tests/. Return precise locations.","verify":"Check each finding by reading the code. real=false when uncertain.","dryRounds":2,"dedupBy":"title"}' --budget 250k --json
 ```
 
 Nested from another workflow:

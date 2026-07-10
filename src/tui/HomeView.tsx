@@ -7,7 +7,7 @@ import { JOURNAL_FILE, WORKFLOWS_DIR_NAME } from "../constants.js";
 import { slugify } from "../ids.js";
 import { readJournal } from "../journal.js";
 import { parseMeta } from "../loader.js";
-import { listRuns, stateDir } from "../rundir.js";
+import { listRunsReconciled, stateDir } from "../rundir.js";
 import { packageRootDir } from "../skills.js";
 import type { RunSummary } from "../types.js";
 import { col } from "./colors.js";
@@ -15,7 +15,7 @@ import { fmtDuration, fmtTokens, parseBudget, spinnerFrame, truncate } from "./f
 import { useFlash, useTick } from "./hooks.js";
 import { LoopView } from "./LoopView.js";
 import { detectLoops, formatLoopListRow, type LoopInstance } from "./loops.js";
-import { makeAgentOutputReader } from "./loopFiles.js";
+import { makeAgentOutputReader, readJsonOutputCapped } from "./loopFiles.js";
 import { OrgView } from "./OrgView.js";
 import { isOrgProject, refreshOrgSnapshot, type OrgSnapshotLoad } from "./orgFiles.js";
 import { initialState, reduce, type TuiState } from "./reducer.js";
@@ -169,7 +169,13 @@ function loadLoopRows(
     if (mtimeMs === null) continue;
     let loops = cache.get(run.runId)?.mtimeMs === mtimeMs ? cache.get(run.runId)!.loops : undefined;
     if (loops === undefined) {
-      loops = detectLoops(foldRun(run.runDir), makeAgentOutputReader(run.runDir));
+      const state = foldRun(run.runDir);
+      loops = detectLoops(
+        state,
+        makeAgentOutputReader(run.runDir),
+        undefined,
+        readJsonOutputCapped(run.runDir, state.resultRef),
+      );
       cache.set(run.runId, { mtimeMs, loops });
     }
     loops.forEach((loop, loopIndex) => rows.push({ run, loop, loopIndex, loopCount: loops.length }));
@@ -186,10 +192,16 @@ export interface HomeViewProps {
 
 export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): ReactElement {
   const workflows = useMemo(() => loadWorkflows(projectDir), [projectDir]);
-  const [runs, setRuns] = useState<RunSummary[]>(() => listRuns(projectDir));
+  const [runs, setRuns] = useState<RunSummary[]>([]);
   const tick = useTick(2000, true);
   useEffect(() => {
-    setRuns(listRuns(projectDir));
+    let active = true;
+    void listRunsReconciled(projectDir).then((nextRuns) => {
+      if (active) setRuns(nextRuns);
+    });
+    return () => {
+      active = false;
+    };
   }, [projectDir, tick]);
 
   const [mode, setMode] = useState<Mode>({ kind: "list" });
@@ -503,8 +515,23 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
             {loopRows.map((row, i) => {
               const idx = i;
               const isSel = mode.kind === "list" && idx === sel;
+              const loopColor =
+                row.loop.status === "running"
+                  ? col("cyan")
+                  : row.loop.status === "converged"
+                    ? col("green")
+                    : row.loop.endedWithRejection
+                      ? col("red")
+                      : undefined;
+              const neutralEnded = row.loop.status === "ended" && !row.loop.endedWithRejection;
               return (
-                <Text key={`${row.run.runId}:${row.loop.id}:${row.loopIndex}`} bold={isSel} wrap="truncate-end">
+                <Text
+                  key={`${row.run.runId}:${row.loop.id}:${row.loopIndex}`}
+                  bold={isSel}
+                  color={loopColor}
+                  dimColor={neutralEnded && !isSel}
+                  wrap="truncate-end"
+                >
                   {formatLoopListRow({ runId: row.run.runId, loop: row.loop, selected: isSel })}
                   {row.loopCount > 1 && <Text dimColor> · loop {row.loopIndex + 1}/{row.loopCount}</Text>}
                 </Text>

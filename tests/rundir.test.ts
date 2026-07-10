@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -14,6 +14,7 @@ import {
   isRunDead,
   agentDir,
   listRuns,
+  listRunsReconciled,
   resolveRunId,
 } from "../src/rundir.js";
 import { JournalWriter } from "../src/journal.js";
@@ -45,6 +46,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const c of children.splice(0)) {
     try { c.kill("SIGKILL"); } catch {}
   }
@@ -344,6 +346,75 @@ describe("listRuns", () => {
     const runs = listRuns(proj);
     const r = runs[0]!;
     expect(r.status).toBe("dead");
+  });
+
+  it("reconciles a final run_end during the HomeView/list grace before publishing dead", async () => {
+    vi.useFakeTimers();
+    const proj = tmpDir();
+    const runId = "uc_listflushrace1";
+    const runDir = createRunDir(proj, runId);
+    const writer = new JournalWriter(runDir);
+    writer.append({
+      t: "run_start",
+      ts: 100,
+      runId,
+      meta: { name: "flush-race", description: "..." },
+      scriptSha: "x",
+      argsRef: null,
+      budgetTotal: null,
+      concurrency: 1,
+    });
+
+    const pending = listRunsReconciled(proj);
+    let published = false;
+    void pending.then(() => {
+      published = true;
+    });
+    await vi.advanceTimersByTimeAsync(249);
+    expect(published).toBe(false);
+
+    writer.append({
+      t: "run_end",
+      ts: 200,
+      status: "ok",
+      resultRef: "result.json",
+      error: null,
+      totals: { agents: 0, ok: 0, failed: 0, skipped: 0, usage: {}, ms: 100 },
+    });
+    writer.close();
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(pending).resolves.toMatchObject([{ runId, status: "ok" }]);
+  });
+
+  it("publishes a runner with no run_end as dead after the list grace", async () => {
+    vi.useFakeTimers();
+    const proj = tmpDir();
+    const runId = "uc_listdeadgrace1";
+    const runDir = createRunDir(proj, runId);
+    const writer = new JournalWriter(runDir);
+    writer.append({
+      t: "run_start",
+      ts: 100,
+      runId,
+      meta: { name: "dead-after-grace", description: "..." },
+      scriptSha: "x",
+      argsRef: null,
+      budgetTotal: null,
+      concurrency: 1,
+    });
+    writer.close();
+
+    const pending = listRunsReconciled(proj);
+    let published = false;
+    void pending.then(() => {
+      published = true;
+    });
+    await vi.advanceTimersByTimeAsync(249);
+    expect(published).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(pending).resolves.toMatchObject([{ runId, status: "dead" }]);
   });
 
   it("marks run as 'running' when no run_end and its runner pid is alive", async () => {
