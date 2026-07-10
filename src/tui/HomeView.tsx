@@ -464,6 +464,8 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         </Text>
       )}
 
+      <TabStrip selected={tab} orgEnabled={orgEnabled} />
+
       {tab === "runs" && (
         <Box flexDirection="column" marginTop={1}>
           <Text bold>Workflows</Text>
@@ -488,8 +490,6 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
           })}
         </Box>
       )}
-
-      <TabStrip selected={tab} orgEnabled={orgEnabled} />
 
       <Box flexDirection="column" marginTop={1}>
         {tab === "runs" ? (
