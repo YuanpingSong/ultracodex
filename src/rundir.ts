@@ -18,11 +18,31 @@ export function stateDir(projectDir: string): string {
   return path.join(projectDir, STATE_DIR_NAME);
 }
 
+/**
+ * The state dir holds run journals, per-agent events, and args.json snapshots
+ * that can contain whatever a caller passed via --args (including secrets).
+ * Scaffold a .gitignore that ignores the whole dir so none of it can be
+ * committed by accident. Best-effort; written once, never overwritten.
+ */
+export function ensureStateDirIgnored(projectDir: string): void {
+  const dir = stateDir(projectDir);
+  const ignore = path.join(dir, ".gitignore");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(ignore)) {
+      fs.writeFileSync(ignore, "# ultracodex state — never commit (may hold args/secrets)\n*\n", "utf8");
+    }
+  } catch {
+    // best-effort; a read-only or unwritable project dir is not our problem
+  }
+}
+
 export function runsDir(projectDir: string): string {
   return path.join(stateDir(projectDir), RUNS_DIR_NAME);
 }
 
 export function createRunDir(projectDir: string, runId: string): string {
+  ensureStateDirIgnored(projectDir);
   const runDir = path.join(runsDir(projectDir), runId);
   fs.mkdirSync(path.join(runDir, AGENTS_DIR), { recursive: true });
   return runDir;

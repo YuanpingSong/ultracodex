@@ -57,6 +57,32 @@ afterEach(() => {
 
 import { pidAlive as _pidAliveCheck } from "../src/rundir.js";
 
+import { ensureStateDirIgnored, createRunDir as _mkRun } from "../src/rundir.js";
+
+describe("state dir is gitignored by default", () => {
+  it("writes .ultracodex/.gitignore ignoring everything on run-dir creation", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ucx-ignore-"));
+    try {
+      _mkRun(dir, "uc_test");
+      const ig = fs.readFileSync(path.join(dir, ".ultracodex", ".gitignore"), "utf8");
+      expect(ig).toContain("*");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("is idempotent and never clobbers an existing .gitignore", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ucx-ignore2-"));
+    try {
+      fs.mkdirSync(path.join(dir, ".ultracodex"), { recursive: true });
+      fs.writeFileSync(path.join(dir, ".ultracodex", ".gitignore"), "custom\n", "utf8");
+      ensureStateDirIgnored(dir);
+      expect(fs.readFileSync(path.join(dir, ".ultracodex", ".gitignore"), "utf8")).toBe("custom\n");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("pidAlive across permission boundaries", () => {
   it("treats EPERM as alive (sandbox/other-user processes exist)", () => {
     // pid 1 (launchd/init) exists but cannot be signaled by a normal user:

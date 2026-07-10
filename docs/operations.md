@@ -145,7 +145,11 @@ defaults (no network) and pre-fetch inputs into the project dir.
 **The opencode backend has no OS sandbox at all** — treat every opencode
 route as tier 2. Headless opencode executes tools including shell with no
 approval gate, has network, and inherits the MCP servers from your opencode
-user config into every agent session. The engine journals a warning when a
+user config into every agent session. Because headless `serve` has no one to
+answer permission prompts, ultracodex auto-approves opencode's tool
+permissions (edit/bash/webfetch/external_directory) so turns don't block
+forever — set the `OPENCODE_PERMISSION` environment variable yourself (a JSON
+permission map) to override this. The engine journals a warning when a
 profile requests a sandbox opencode cannot honor, and `ultracodex doctor`
 prints the full posture whenever a route targets opencode. Route
 implementation work you'd be comfortable running as yourself; keep
@@ -155,12 +159,21 @@ untrusted-content ingestion on the codex backend's sandbox.
 
 - Running ultracodex from INSIDE a sandboxed agent (nested fleets): two
   adjustments. (1) The inner codex app-server needs a writable state home —
-  export `CODEX_HOME="$PWD/.codex-home"` (and copy `~/.codex/auth.json`
-  into it); the sandbox blocks `~/.codex`. (2) Inner agents cannot build
-  their own sandboxes (macOS rejects nested Seatbelt) — the engine detects
-  this automatically (codex sets CODEX_SANDBOX=seatbelt) and runs inner
-  agents without their own sandbox, journaling a status note. The OUTER
-  sandbox remains the enforcement boundary, so nothing is unconfined.
+  add `.codex-home/` to your project's `.gitignore` **first**, then export
+  `CODEX_HOME="$PWD/.codex-home"` and copy `~/.codex/auth.json` into it (the
+  sandbox blocks `~/.codex`). The gitignore step matters: that file is a
+  live OAuth credential and must never be committed. (2) Inner agents cannot
+  build their own sandboxes (macOS rejects nested Seatbelt) — the engine
+  detects this automatically (codex sets CODEX_SANDBOX=seatbelt) and runs
+  inner agents without their own sandbox, journaling a status note. The
+  OUTER sandbox remains the enforcement boundary, so nothing is unconfined —
+  but note this erases per-profile granularity: a nested agent a profile
+  marked `read-only` (e.g. Explore/Plan) runs unrestricted within the outer
+  boundary, so do not rely on a per-agent read-only profile as a security
+  control inside a nested fleet.
+- ultracodex writes a `.gitignore` (`*`) into `.ultracodex/` on first use:
+  run journals and `args.json` snapshots can hold whatever you passed via
+  `--args`, so the whole state dir is ignored by default.
 - `ls` shows `dead`: the runner exited without `run_end` — inspect
   `runs/<id>/runner.log`, re-run (`r` in the TUI re-runs with the same args).
 - Wedged runner: `ultracodex kill <id>` escalates control-file → SIGTERM →
