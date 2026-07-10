@@ -17,7 +17,7 @@ Measured, same build script, configs one `[route]` line apart, frontier vs front
 
 ## Quickstart
 
-Prerequisites: Node ≥ 20 and the [Codex CLI](https://github.com/openai/codex) installed and authenticated (`codex login`; tested against codex-cli 0.144.0). [OpenCode](https://opencode.ai) is optional (tested against 1.17.18) — one `[route]` line turns it on.
+Prerequisites: Node ≥ 20, the [Codex CLI](https://github.com/openai/codex) installed and authenticated (`codex login`; tested against codex-cli 0.144.0), and — for the prompt-driven flow below — a driving agent, typically [Claude Code](https://claude.ai/code). No driving agent handy? Skip to [driving from the CLI](#driving-from-the-cli). [OpenCode](https://opencode.ai) is optional (tested against 1.17.18) — one `[route]` line turns it on.
 
 ```bash
 npm install -g ultracodex      # or: pnpm add -g ultracodex
@@ -31,13 +31,16 @@ Then, in Claude Code, the prompt is just the task:
 
 Claude authors the workflow, the fleet executes on Codex (watch it live with `ultracodex ls` / `attach <runId>`, or bare `ultracodex` for the TUI), and the verified result lands back in your Claude session.
 
-Driving from the CLI works the same way — the examples ship with the package:
+<a id="driving-from-the-cli"></a>
+Driving from the CLI works the same way. `run` takes a path to any Agent Script you've written, or a packaged workflow by name — the two that ship in the box are `goal` and `loop`:
 
 ```bash
-ultracodex run examples/actor-critic-loop/workflow.js --watch --budget 200k
+ultracodex run goal --budget 200k --args '{"task":"Write a limerick about cron jobs.","criteria":"5 lines, AABBA, mentions crontab, actually funny."}'
 ```
 
-For real work, run from **your project's root** — agents work in your cwd. `--json` blocks and prints the result (the machine path a driving LLM calls); `--watch` streams events; `--detach` prints the runId and exits; `--budget` takes output tokens (`500k`, `1m`). Runs are detached processes over plain files: quit the terminal, nothing dies.
+The example scripts live in the repo (`examples/`) once you've cloned it (see [From source](#from-source)); from a clone, `ultracodex run examples/actor-critic-loop/workflow.js --watch --budget 200k` runs one directly.
+
+Run from **your project's root** — agents work in your cwd. `--json` blocks and prints the result (the machine path a driving LLM calls); `--watch` streams events; `--detach` prints the runId and exits; `--budget` takes output tokens (`500k`, `1m`). Runs are detached processes over plain files: quit the terminal, nothing dies.
 
 ## Workflows
 
@@ -169,6 +172,16 @@ ultracodex doctor                 env, auth, execution profile, schedules, inter
 ```
 
 Every run directory (`.ultracodex/runs/<runId>/`) is plain files — journal, per-agent events, `result.json` — and any agent's Codex session can be resumed interactively (`codex resume <threadId>`, surfaced in the TUI).
+
+<a id="from-source"></a>
+### From source
+
+```bash
+git clone https://github.com/YuanpingSong/ultracodex && cd ultracodex
+pnpm install && pnpm build && pnpm link --global
+```
+
+The clone includes the [examples gallery](examples/) — nine orchestration shapes as a complexity ladder, each a validated reference script.
 
 ## How it works
 

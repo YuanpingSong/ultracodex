@@ -44,6 +44,10 @@ import { prepareRun, rerunFromDir, spawnRunner } from "./spawn.js";
 
 const RUNS_SHOWN = 12;
 const LOOPS_SHOWN = 12;
+// The Loops tab folds runs to find loops — cheap pure work over journals — so
+// it scans well past the 12 rows the Runs tab shows; otherwise a loop in an
+// older run reads as "no loops" while `show` on that run detects it.
+const LOOPS_SCAN = 60;
 const SCHEDULES_SHOWN = 12;
 
 export interface WorkflowItem {
@@ -221,10 +225,11 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
 
   const shownRuns = useMemo(() => runs.slice(0, RUNS_SHOWN), [runs]);
   const shownSchedules = useMemo(() => scheduleRows.slice(0, SCHEDULES_SHOWN), [scheduleRows]);
+  const scannedRuns = useMemo(() => runs.slice(0, LOOPS_SCAN), [runs]);
   useEffect(() => {
     if (tab !== "loops") return;
-    setLoopRows(loadLoopRows(shownRuns, loopCache.current));
-  }, [shownRuns, tab]);
+    setLoopRows(loadLoopRows(scannedRuns, loopCache.current));
+  }, [scannedRuns, tab]);
 
   useEffect(() => {
     setMissedWarnings(loadMissedScheduleWarnings(projectDir));
