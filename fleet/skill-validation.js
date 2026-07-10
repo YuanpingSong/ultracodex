@@ -91,8 +91,10 @@ const ALL_BACKENDS = [
 const WANT = (args && args.backends) || ['cx', 'cl', 'oc']
 const BACKENDS = ALL_BACKENDS.filter((b) => WANT.includes(b.key))
 
+const WANT_TESTS = (args && args.tests) || null
+const RUN_TESTS = WANT_TESTS ? TESTS.filter((t) => WANT_TESTS.includes(t.id)) : TESTS
 const COMBOS = []
-for (const t of TESTS) for (const b of BACKENDS) COMBOS.push({ t, b })
+for (const t of RUN_TESTS) for (const b of BACKENDS) COMBOS.push({ t, b })
 
 function driverPrompt(t, b) {
   const dir = `${BASE}/${t.id}-${b.key}`
