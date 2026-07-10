@@ -96,4 +96,11 @@ XDG_DATA_HOME=/tmp/oc-data ultracodex run <repo>/fleet/skill-validation.js \
   opencode drivers then completed for the first time. The idle watchdog +
   turn timeout remain as defense-in-depth for genuine stalls. Lesson:
   when a headless integration hangs, read ITS logs before blaming the
-  model or the network — the owner called this exactly.
+  model or the network — the owner called this exactly. RESULT after the
+  fix (opencode-glm52-results.json): 13/13 judged drivers PASS — a clean
+  sweep across all four pillars (W 3/3, L 4/4, S 4/4, O 2/2), dispatch
+  correct on every one, budget discipline universal. The two non-passes
+  were driver deaths on the serve spawn-collision (concurrency contention,
+  v0.6), not skill failures. Net: the skill is validated on ALL THREE
+  backends — the opencode column just needed the adapter to stop asking a
+  headless server for approvals no one could give.
