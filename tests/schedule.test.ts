@@ -1242,5 +1242,15 @@ describe("missed-run nudges", () => {
     expect(warnings.join("\n")).toContain("overdue-daily");
     expect(warnings.join("\n")).not.toContain("fresh");
     expect(warnings.join("\n")).not.toContain("raw");
+
+    // "expected ~" is the real cron fire time (nextFireMs), not base+interval.
+    // Computed with the same helper so the assertion is timezone-robust.
+    const everyBase = now - 16 * 60_000;
+    const everyExpected = new Date(nextFireMs({ kind: "every", value: "10m" }, everyBase)!).toISOString();
+    expect(warnings.join("\n")).toContain(`expected ~${everyExpected}`);
+
+    const dailyBase = now - 37 * 60 * 60_000;
+    const dailyExpected = new Date(nextFireMs({ kind: "daily", value: "12:00" }, dailyBase)!).toISOString();
+    expect(warnings.join("\n")).toContain(`expected ~${dailyExpected}`);
   });
 });

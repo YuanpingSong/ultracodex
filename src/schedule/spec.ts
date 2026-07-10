@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { CliError } from "../cli-error.js";
 import { stateDir } from "../rundir.js";
+import { nextFireMs } from "./time.js";
 
 export const SCHEDULES_DIR_NAME = "schedules";
 export const SCHEDULE_SPEC_VERSION = 1;
@@ -40,7 +41,7 @@ export interface ParsedSchedule {
   cronExpr: string;
 }
 
-export { nextFireMs } from "./time.js";
+export { nextFireMs };
 
 export function schedulesDir(projectDir: string): string {
   return path.join(stateDir(projectDir), SCHEDULES_DIR_NAME);
@@ -244,7 +245,13 @@ export function checkMissedSchedules(projectDir: string, nowMs = Date.now()): st
       const base = Date.parse(baseIso);
       if (!Number.isFinite(base)) continue;
       if (nowMs - base <= interval * 1.5) continue;
-      const expected = new Date(base + interval).toISOString();
+      // The first run owed after the last run (or creation) — the real cron
+      // fire time, not a crude base+interval guess (a daily 18:30 created at
+      // 07:33 is owed a run at 18:30, not 07:33 the next day). Falls back to
+      // base+interval only if the fire time can't be derived (never expected
+      // for daily/every, which is all that reaches here).
+      const expectedMs = nextFireMs(spec, base) ?? base + interval;
+      const expected = new Date(expectedMs).toISOString();
       warnings.push(`schedule '${spec.name}' looks overdue (expected ~${expected}) — is cron running?`);
     } catch {
       continue;
