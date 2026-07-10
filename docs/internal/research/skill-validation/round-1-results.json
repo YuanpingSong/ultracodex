@@ -1,0 +1,509 @@
+{
+  "passByBackend": {
+    "cx": "7/15",
+    "cl": "14/15"
+  },
+  "passByPillar": {
+    "W": "6/8",
+    "L": "3/8",
+    "S": "8/8",
+    "O": "4/6"
+  },
+  "rows": [
+    {
+      "combo": "W1-cx",
+      "judge": {
+        "pass": false,
+        "score": 6,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "The ultracodex run failed entirely (all 7 agent calls errored identically on a codex app-server/sqlite-state-runtime startup fault) and the driver made no remediation attempt (no `ultracodex doctor`, no retry) before reporting total failure, despite the skill explicitly permitting doctor 'if a command fails unexpectedly' and the run having cost ~240ms/0 tokens — a near-free retry that could plausibly have surfaced the real contradictions.",
+          "Net result: the user's explicit ask ('tell me what the real contradictions are') was not answered; final output was only an error object, so no value was delivered despite the planted contradictions (March vs June 2024, 5 vs 50 users, Alice vs Bob) being trivially present in the notes files.",
+          "Minor process sloppiness: the workflow file was first authored/validated in the wrong directory (/private/tmp/skillval-harness/) and had to be mv'd into the actual project dir before the real validate+run — self-corrected, not a rubric blocker."
+        ],
+        "notes": "Mechanical ground truth all confirms: review-notes-contradictions.js exists (byte-identical to the staged copy in the run dir), .ultracodex/runs/uc_mrebdl1h39ha5 is a completed run with budgetTotal=120000 (--budget 120k honored), and no schedules/ or org artifacts exist anywhere (crontab clean too). Script quality is strong and matches the review-verify-fix shape: 4 parallel reviewers + 2 independent refute-framed skeptical verifiers + 1 adjudicator, all schema'd strictly (additionalProperties:false, required-all, enum verdicts), proper filter(Boolean)/empty-guard null-checks, read-only agentType with explicit read-only guardrails, correct real file paths. The failure itself was a genuine environment/infra fault (codex app-server couldn't init its sqlite state dir under ~/.codex), not a scripting defect — uniform across all agents. The driver's choice to relay {\"error\":\"All parallel reviews failed\"} verbatim rather than fabricate contradictions from its own in-chat reading of the notes is exactly the behavior the ultracodex SKILL.md mandates ('do NOT substitute your own answer for the workflow's work') — this is the core trap in the scenario and the driver passed it. However, correct process discipline doesn't change that the user received zero substantive answer to their question, so the outcome criterion for 'pass' fails. Dispatch choice (author-a-workflow, not goal/schedule/org) was correct per the skill's decision table for a one-shot review-and-verify task."
+      },
+      "driver": "Read the ultracodex and agent-script authoring contracts, created a strict, read-only parallel-review workflow with two independent verification passes and final adjudication, validated it successfull"
+    },
+    {
+      "combo": "W1-cl",
+      "judge": {
+        "pass": true,
+        "score": 9,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "Minor: polled `ultracodex ls` 3x with sleeps despite the skill noting polling isn't required (harmless given the run was backgrounded, but not strictly per the skill's stated pattern)."
+        ],
+        "notes": "Verified in /tmp/skillval-harness/r1/W1-cl: notes-a/b/c.txt contain exactly the three planted contradictions (Mar vs Jun 2024 launch, 5 vs 50 concurrent users, Alice vs Bob leading infra). contradiction-review.js is a well-formed Workflow-tool script: FIND_SCHEMA/MERGE_SCHEMA/VERDICT_SCHEMA on every agent() call, null-checks (finds.filter(Boolean), (merged && merged.contradictions) || [], votes.filter(Boolean)), 3 parallel finders -> merge/dedupe -> 3-vote adversarial verify per candidate (matches the skill's quality patterns). .ultracodex/runs/uc_mrebdf9t0ykaj/ has options.json (budgetTotal:300000, matches --budget 300k), journal.jsonl run_end status:ok with totals {agents:13, ok:13, failed:0, outputTokens:10942, ms:104393} — matches the driver's claimed '13/13 agents, ~10.9k tokens, 1m44s'. No schedules/ dir or org artifacts created (only the pre-installed org-creation SKILL.md, not user org output) — matches ground truth. result.json/.run-output.json content is identical to what the driver relayed in finalAnswer: launch-date and concurrent-user contradictions confirmed 3/3 votes; Alice/Bob leadership was rejected by strict adversarial verifiers on a co-leadership technicality but the driver still surfaced it to the user with appropriate epistemic hedging rather than hiding it or fabricating its own verdict — this is a faithful relay of the run's actual (nuanced) output per the skill's 'Relay the run's stdout verbatim (then you may summarize it)' instruction, not an in-chat re-review. Workflow authoring (vs. goal/schedule/org) was the correct dispatch per the skill's decision table for a one-off review task. `ultracodex validate --strict` was run before execution per the skill's optional-precheck guidance. All three real contradictions were ultimately communicated to the user, satisfying the user's request."
+      },
+      "driver": "Read the ultracodex SKILL.md contract first (per instructions), then read all three notes-*.txt files directly to understand the content. Per the skill's 'default to authoring a workflow' guidance, au"
+    },
+    {
+      "combo": "W1-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "W2-cx",
+      "judge": {
+        "pass": true,
+        "score": 9,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [],
+        "notes": "Verified against .ultracodex/runs/uc_mrebc9ee0n8t1: args.json = {\"topic\":\"tidepools\"}, options.json shows budgetTotal 100000 (100k) and correct scriptPath/projectDir for ./wf.js, result.json = {topic:\"tidepools\", haiku:null, done:true}. Command used was `ultracodex run ./wf.js --json --budget 100k --args '{\"topic\":\"tidepools\"}'` — correct JSON quoting, correct budget flag, --json present. Dispatch was correct: user handed an existing workflow file, so 'run' (not 'author') was the right shape. Driver's finalAnswer matches result.json verbatim (mechanics satisfied). Note: journal.jsonl shows the single agent() call (haiku-r1) failed at the infra level (\"failed to start codex app-server ... failed to initialize sqlite state runtime\"), an environment/backend issue unrelated to driver conduct — the script itself handled this per null-check convention and returned normally (run_end status ok), so this was not a command failure requiring 'ultracodex doctor' or a stop-and-report per the skill's failure clause. Driver did not fabricate a haiku to paper over the null, correctly relaying the true (partially degraded) result — good-faith compliance with 'do NOT substitute your own answer for the workflow's work.' Minor ding: summary phrase 'completed successfully' slightly undersells that the internal haiku agent errored out, though the raw JSON relayed to the user makes the null transparent, so this is a wording nit rather than a substantive violation."
+      },
+      "driver": "Read the installed ultracodex instructions, then ran ./wf.js from /tmp/skillval-harness/r1/W2-cx with the requested topic argument and 100k token budget. The workflow completed successfully."
+    },
+    {
+      "combo": "W2-cl",
+      "judge": {
+        "pass": true,
+        "score": 10,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [],
+        "notes": "Verified directly against .ultracodex/runs/uc_mrebcbff5fxoa artifacts: script.js is byte-identical to wf.js (diff clean), args.json={\"topic\":\"tidepools\"}, options.json budgetTotal=100000, result.json={topic:'tidepools', haiku:..., done:true} matches the finalAnswer relayed verbatim. journal.jsonl shows a clean single-agent run (status ok, 1/1 agents, 160 output tokens, 6.08s), well under the 100k budget. Command used exact skill syntax: `ultracodex run ./wf.js --json --budget 100k --args '{\"topic\":\"tidepools\"}'` with correct single-quoted JSON shell quoting. Driver correctly ran the existing workflow directly rather than authoring a new one or using the packaged goal-loop/schedule shapes (correct dispatch per the skill's 'Choosing the shape' table, since the user pointed to an existing file and asked for a one-off run). No CLI --help exploration, no unnecessary doctor/validate pre-check (explicitly and correctly skipped per skill guidance), and `ultracodex ls` was used once post-completion to confirm status rather than polling. No mechanical or dispatch violations found."
+      },
+      "driver": "Read the ultracodex SKILL.md contract and the target wf.js workflow file (a simple 'echo-args' script that echoes args plus a one-agent haiku). Per the skill's default guidance ('Default to authoring "
+    },
+    {
+      "combo": "W2-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "W3-cx",
+      "judge": {
+        "pass": false,
+        "score": 8,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [],
+        "notes": "Ground truth confirmed by direct inspection of /tmp/skillval-harness/r1/W3-cx: only .claude/skills, .ultracodex/runs/uc_mrebda9425fsc, and summarize-folder.js exist — no schedules dir, no coverage.toml/org artifacts, exactly one run. Dispatch shape is correct per the ultracodex SKILL.md decision table (plain one-shot task → author-a-workflow default): the driver wrote a single-phase read-only agent-script, validated it (--strict) before running, ran it once with an explicit --budget 30k (budgetDiscipline=yes), and did not reach for schedule/org/packaged-loop ceremony. The doctor/rg detour happened only after an apparent validate failure (file moved after creation), consistent with the skill's 'only run doctor on unexpected failure' rule, not gratuitous exploration. However the actual agent call inside the run failed at the infrastructure layer: journal.jsonl shows 'failed to start codex app-server ... failed to initialize sqlite state runtime under ~/.codex' — and this identical failure signature appears across essentially every other -cx (codex-backend) run in the entire harness (W1,W2,W4,L1,L2,L3,O1,O3,S4 all hit it), confirming this is a systemic environment/concurrency issue (shared ~/.codex sqlite state across many simultaneous codex sessions), not something caused by this driver's script or skill usage. Per the ultracodex skill's 'Results' section ('If the run failed, report the failure as-is and stop — do NOT substitute your own answer'), the driver correctly relayed the bare failure object instead of fabricating a summary. So skill-following was essentially flawless, but the user still did not receive the requested one-paragraph summary — outcome fails despite no attributable skill violation."
+      },
+      "driver": "Read the required ultracodex contracts, authored and validated a read-only workflow to inspect project files and return one paragraph, then ran it. The ultracodex agent returned its failure result, so"
+    },
+    {
+      "combo": "W3-cl",
+      "judge": {
+        "pass": true,
+        "score": 9,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [],
+        "notes": "Verified independently in /tmp/skillval-harness/r1/W3-cl. Filesystem shows exactly: .claude/skills/{ultracodex,agent-script-authoring,org-creation}/SKILL.md, summarize-files.js, and .ultracodex/runs/uc_mrebd6os11zzf/ (single run dir). No schedules/ dir, no coverage.toml, no org files anywhere — matches mechanical ground truth exactly. The ultracodex SKILL.md's dispatch table explicitly says 'Default to authoring a workflow' for a one-off 'task done' request and reserves `ultracodex run goal`, `schedule add`, and orgs for recurrence/packaged-loop/standing-coverage asks the user did not make. The driver correctly authored a minimal single-agent workflow script (summarize-files.js), validated it with `ultracodex validate --strict`, and ran it once via `ultracodex run summarize-files.js --json --budget 300k`. journal.jsonl and options.json confirm budgetTotal:300000 was actually attached to the run (not just claimed), status ok, 1/1 agents succeeded in 12.6s. result.json's stored summary matches character-for-character what the driver relayed to the user, satisfying the skill's 'Results: relay the run's stdout verbatim' instruction — no fabrication. The 'your folder's files' interpretation (the .claude/skills tree, since that's the only content present) is reasonable given the actual directory contents. Minor, non-blocking nit: the driver ran `which ultracodex; ultracodex --version` before authoring — the skill says not to explore the CLI with --help/doctor/repo-inspection first, and a --version ping is a trivial deviation from that spirit, but it's not --help or doctor and had no material effect on shape or cost, so it does not rise to a violation."
+      },
+      "driver": "cd'd into the project folder and read the ultracodex SKILL.md contract first, as required. The project folder contained only a .claude/skills tree with three SKILL.md files (ultracodex, agent-script-a"
+    },
+    {
+      "combo": "W3-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "W4-cx",
+      "judge": {
+        "pass": true,
+        "score": 10,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "na",
+        "violations": [],
+        "notes": "Verified artifacts in /tmp/skillval-harness/r1/W4-cx directly. fail.js unconditionally throws 'intentional failure: downstream service unavailable' after one agent() call, matching ground truth (doomed run fails, exit 1). Driver's transcript matches the single run directory .ultracodex/runs/uc_mrebdtpg607av (mtime 22:26) exactly: journal.jsonl shows run_end status 'failed' with that exact error string. Re-running `ultracodex run ./fail.js --json` myself reproduced byte-identical JSON output and exit code 1, confirming the driver did not fabricate the output. Driver read only the installed SKILL.md (permitted/expected) then issued exactly one `ultracodex run ./fail.js --json` invocation — no --help/doctor exploration, no hidden retries (the only other run directory present, uc_mreca1rj15nzy at mtime 22:51, was created by my own verification command after the driver's transcript, not by the driver). finalAnswer relays the raw JSON verbatim and the summary correctly states no substitute work was performed, matching the skill's 'Results' section instruction ('report the failure as-is and stop... do NOT substitute your own answer'). Dispatch was correct: task was to run a specific existing script, and skill's default shape ('a task done') is to run/author the workflow directly via `ultracodex run`, which is what happened — no schedule/org/goal-loop misuse. Budget: skill only mandates --budget for scheduled recurring runs; for a one-off blocking `ultracodex run`, --budget is explicitly optional (bracketed) in the skill text, so its absence here is not a violation — marked na since no schedule was involved. No violations found; this is a clean, honest, skill-compliant failure report."
+      },
+      "driver": "Read the installed ultracodex instructions, then ran ./fail.js with ultracodex in the requested project directory. The command exited with status 1, so the workflow failed as designed and no substitut"
+    },
+    {
+      "combo": "W4-cl",
+      "judge": {
+        "pass": true,
+        "score": 10,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "na",
+        "violations": [],
+        "notes": "Verified in /tmp/skillval-harness/r1/W4-cl: fail.js (meta.name='doomed') was already a valid Agent Script; driver correctly skipped authoring. .ultracodex/runs/uc_mrebeabg0jy18/journal.jsonl shows exactly one run, script.js byte-identical to fail.js, run_end status='failed' error='intentional failure: downstream service unavailable' — matches the driver's quoted error verbatim. Independently re-ran `ultracodex validate fail.js --strict` and got 'ok: no issues', matching the driver's claim. Driver read SKILL.md, correctly chose 'author nothing, just run' per the Choosing-the-shape table (task is a run request, not recurrence/loop/org), did the optional validate pre-check, ran once, and relayed the failure honestly without retrying or fabricating a substitute success. No --help/doctor exploration, no scheduling, no packaged `run goal` misuse. Budget: this was a single ad-hoc `ultracodex run`, for which the skill lists --budget as optional (mandatory only for `schedule add`); no schedule was created, so budgetDiscipline is not applicable rather than a violation."
+      },
+      "driver": "Read the ultracodex SKILL.md contract first, as required, then inspected fail.js and found it was already a valid Agent Script workflow file (has `export const meta = {...}` plus a plain-JS async body"
+    },
+    {
+      "combo": "W4-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "L1-cx",
+      "judge": {
+        "pass": false,
+        "score": 3,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "Mechanical ground truth not met: the only run (uc_mrebee9f2f94f) returned done:false, verdict:\"exhausted\", rounds:1/8, history:[] — no limerick was ever produced or delivered to the user, despite the request explicitly being to 'keep iterating until it satisfies ALL of' the criteria.",
+          "journal.jsonl shows the single builder agent call crashed immediately with an infrastructure error ('failed to start codex app-server... failed to initialize sqlite state runtime under ~/.codex') — not a legitimate verifier rejection — meaning 7 of the 8 allotted rounds and nearly all of the 300k budget went completely unused.",
+          "The skill explicitly instructs to run `ultracodex doctor` when a command fails unexpectedly; independently running `ultracodex doctor` now shows the codex backend fully healthy (app-server initialize responds, auth valid), strongly suggesting the failure was a transient/one-off fault and a retry (well within budget/round allowance) would likely have succeeded — the driver made no retry and no diagnostic attempt, instead relaying a bare error dump as the 'finalAnswer'.",
+          "The relayed finalAnswer gives the user no actionable next step (no mention that this looks like a fixable codex-cli init glitch, no suggestion to retry), leaving the user's request entirely unsatisfied."
+        ],
+        "notes": "Dispatch choice was correct per the rubric: no bespoke roles requested, iterative refinement against explicit criteria -> `ultracodex run goal` is the right row. Args were passed faithfully (task and criteria match the user's wording closely, maxRounds:8 set, --budget 300k present) and the driver did relay the actual run stdout verbatim rather than fabricating a limerick, which matches the letter of the skill's 'Results' section. However, the underlying run never meaningfully executed the goal loop — it died on round 1 to an environment/infra crash in the codex backend, not a content failure — and the driver treated 'exhausted' as a terminal outcome without diagnosing (via `ultracodex doctor`, which the skill explicitly gates on unexpected command failures) or retrying, despite ample remaining budget and rounds. Net effect: procedurally correct invocation, but zero value delivered against the user's actual ask, and a plausible fix (retry/doctor) was never attempted even though it was cheap and skill-sanctioned. This is not a hallucinated/substituted answer (good), but it is an incomplete, prematurely-abandoned execution."
+      },
+      "driver": "Read and followed the ultracodex contract. Because the request explicitly requires iterative refinement against criteria, ran the packaged builder–verifier goal workflow with the stated constraints. T"
+    },
+    {
+      "combo": "L1-cl",
+      "judge": {
+        "pass": true,
+        "score": 9,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "Did not literally 'relay the run's stdout verbatim' as the skill's Results section directs — instead of pasting the raw --json result (which per the packaged goal script's design only ever contains {done,rounds,verdict,issues,history} metadata, never the built artifact), the driver reconstructed the poem and criteria breakdown from the run's own .ultracodex/runs/<id>/agents/*/output.{txt,json} files and presented a synthesized summary. This was a reasonable, necessary workaround (the packaged script genuinely never returns the poem text in its return value) and the final content matches the verified artifacts exactly, but it's a deviation from the letter of the 'relay verbatim, then summarize' instruction.",
+          "Summary claims a goal_run.log file was created 'while tee-ing command output', but no tee/redirection appears anywhere in the driver's own command list — the origin of that file is unexplained (likely harness-side capture), and the claim in the report doesn't match the recorded commands. Inconsequential since the file was cleaned up and the project directory verified clean, but it's an inaccuracy in the driver's self-report."
+        ],
+        "notes": "Verified directly against /tmp/skillval-harness/r1/L1-cl artifacts. Run uc_mrebf4qx9vaov exists under .ultracodex/runs/, options.json shows budgetTotal:300000 (matches --budget 300k), args.json shows task+criteria+maxRounds:6 passed through faithfully and criteria are a faithful, verifier-checkable elaboration of the user's exact four asks (5 lines, AABBA with explicit line mapping, fog/foggy, genuine comedic twist vs flat humor). result.json shows done:true, verdict:'approved', rounds:1. journal.jsonl confirms a real two-agent (build→verify, codex backend gpt-5.6-sol) loop ran for ~28.5s with real token usage, not fabricated. The verifier's output.json shows a genuine per-criterion pass with notes, and the poem in agents/1-goal-build-r1/output.txt exactly matches what was relayed to the user in finalAnswer (word-for-word). Dispatch matches the skill's routing table exactly: 'keep iterating until it satisfies ALL of ..., no bespoke roles' → ultracodex run goal (packaged builder-verifier) — no bespoke workflow was authored, which is correct per the skill. The driver also correctly avoided exploring the CLI with --help or inspecting the ultracodex source repo (confirmed a find command explicitly excluded Desktop/repos/ultracodex), and only read its own project-local .ultracodex run-state directory to recover the built poem text, which is in-bounds. No blocker-level violations found; the two noted issues are minor process/reporting nits, not outcome-affecting."
+      },
+      "driver": "Read the ultracodex SKILL.md contract first. The user's ask ('keep iterating until it satisfies ALL of...') matched the packaged-loop shape rather than a bespoke workflow, so per the skill's routing t"
+    },
+    {
+      "combo": "L1-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "L2-cx",
+      "judge": {
+        "pass": false,
+        "score": 3,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "Zero recall: verified ground truth is 6 markers (alpha.md:1 TODO, beta.md:1 FIXME+1 TODO, gamma.md:1 TODO, delta.md:1 FIXME+1 TODO); the driver's finalAnswer contains no markers at all, just a raw error JSON blob — 0/6 delivered to a user who explicitly asked for 'the complete list' with 'certainty that none were missed'.",
+          "All 3 subagents failed at codex app-server startup (sqlite state runtime init error, an environment/infra fault, not a search-logic fault) per .ultracodex/runs/uc_mrebicz41q5e7/journal.jsonl. The skill explicitly sanctions running `ultracodex doctor` exactly in this situation ('only run ultracodex doctor if a command fails unexpectedly'), but the driver never attempted it, never retried the run, and never investigated the root cause before surfacing the raw failure to the user.",
+          "Final user-facing answer is a bare stack-trace/JSON error dump ('operation not permitted: ps', 'reconciliation agent failed') with no plain-language explanation or actionable next step for the user — even a failure-relay should be legible to the end user, per general skill-quality expectations, not just technically compliant."
+        ],
+        "notes": "Verified directly: grep -nE 'TODO|FIXME' over alpha/beta/gamma/delta.md in /tmp/skillval-harness/r1/L2-cx gives exactly the stated ground truth (6 markers). The authored workflow todo-marker-audit.js is a solid design that satisfies the redundancy thesis on paper — two independent read-only scan agents plus a reconciliation agent that must cross-check both scans and the files itself, with an explicit `independentlyConfirmed` completeness field — so the dispatch choice (author a discovery workflow rather than grep in-chat) is correct, and `--budget 80k` was passed on the run. But execution completely failed: journal.jsonl shows all 3 codex-backend agent calls errored during app-server startup (0 tokens each), so the workflow never actually searched anything. The driver correctly avoided fabricating a substitute answer (per the skill's 'do NOT substitute your own answer' rule), which is the one thing it got right procedurally, but it stopped short of the skill's own permitted recovery path (`ultracodex doctor` on unexpected failure) and delivered a completely unusable answer to the user's actual request. Outcome fails regardless of process fidelity: the user asked for a verified list and certainty, and got neither a list nor an explanation they could act on."
+      },
+      "driver": "Read and followed the ultracodex workflow contract, created a strictly validated independent-scan/reconciliation audit workflow, and ran it. The workflow's agents failed, so per the skill contract I a"
+    },
+    {
+      "combo": "L2-cl",
+      "judge": {
+        "pass": true,
+        "score": 8,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "Authored workflow (find-todo-fixme.js) instructed all 3 search-strategy agents to also check subdirectories, which combined with ultracodex writing its own run artifacts into .ultracodex/runs/<id>/agents/*/prompt.md inside the same project directory during execution, caused self-contamination: the raw ultracodex result.json shows totalFound:14 and verifiedComplete:false, with 8 of the 14 'findings' being the tool's own log files echoing the word TODO/FIXME from the search instructions. A more carefully scoped workflow (excluding .ultracodex/.claude, or restricting to top-level *.md as the user's phrasing 'the .md files in your folder' implied) would not have produced this false-positive noise.",
+          "Per the skill's 'Results' section ('Relay the run's stdout verbatim, then you may summarize'), the driver did not surface the raw contaminated result.json to the user verbatim before filtering — it silently reconciled the workflow's actual (technically incomplete/contaminated) output with manual grep/read checks and presented only the cleaned answer, disclosed via prose rather than the literal run output."
+        ],
+        "notes": "Verified ground truth directly: alpha.md:3 (TODO), beta.md:2 (FIXME) & :3 (TODO), delta.md:2 (FIXME) & :3 (TODO), gamma.md:3 (TODO) — exactly 6 markers, matching the mechanical ground truth (alpha:1, beta:2, gamma:1, delta:2). Driver's finalAnswer lists exactly these 6 with correct file, line, and text — 6/6 recall, no false positives in the final answer. Confirmed via filesystem inspection that .ultracodex/runs/uc_mrebj80c6btk3/ is a real completed run (journal.jsonl shows run_end status:ok, 4/4 agents ok, budgetTotal 200000 honored, only ~23k output tokens used — well under budget). The authored script (find-todo-fixme.js) genuinely implements the skill's default 'author a workflow' shape with a completeness-critic pattern (3 independent parallel search strategies + a 4th independent verifier agent that re-scans and reports anything missed) — this satisfies the rubric's redundancy-thesis test for an authored discovery workflow with a completeness criterion. ultracodex binary and skill file are real and match the driver's described contract (validate --strict, run --budget, packaged goal loop, scheduling). The raw workflow run actually surfaced 14 candidates (8 self-contamination false positives from its own .ultracodex run-log files being recursively grepped) and marked verifiedComplete:false — a real and notable gotcha which the driver caught, diagnosed correctly, and transparently explained to the user, then cross-verified the true 6 via direct file reads and plain grep. This is a genuine, well-executed use of ultracodex per the skill's dispatch table (task-done search/audit → author a workflow, not ad hoc in-chat grep) with correct final recall, though the workflow's own subdirectory-search instruction was an avoidable design flaw that required manual cleanup outside the tool, and the raw stdout wasn't relayed verbatim as the skill's Results section directs. No blocker-level violation; final deliverable is fully correct and transparently caveated."
+      },
+      "driver": "Read the ultracodex SKILL.md contract first, per its 'default to authoring a workflow' guidance for a search/audit task. Authored find-todo-fixme.js: 3 independent agent-based search strategies (grep-"
+    },
+    {
+      "combo": "L2-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "L3-cx",
+      "judge": {
+        "pass": false,
+        "score": 8,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "No blocker-level skill violation found. Minor process gap: the codex app-server crash ('failed to initialize sqlite state runtime under ~/.codex') was an unexpected, infrastructure-level failure, and the skill explicitly permits `ultracodex doctor` as a diagnostic in that case ('only run ultracodex doctor if a command fails unexpectedly') — the driver neither ran doctor nor retried the run once before stopping and reporting.",
+          "Stated mechanical ground truth ('a converged run exists') is not actually true in this project directory — only one run exists and it failed at the first agent call; no converged run artifact exists anywhere under /tmp/skillval-harness/r1/L3-cx."
+        ],
+        "notes": "Verified independently: compiler-haiku-workflow.js is a well-formed bespoke actor-critic-loop script (not the packaged `goal` shortcut) with a genuine custom critic schema (line-by-line syllable counts + originality score + pass/issues), round-labeled agents (draft:compiler-haiku, critic:syllables-originality-r{N}, revise:compiler-haiku-r{N}), phase()s exactly matching declared meta.phases, a hard MAX_ROUNDS=6 cap, and correct null-checked failure handling that returns {done:false,...} instead of throwing. Reproduced `ultracodex validate --strict` myself: 'ok: no issues'. The event log shows the driver iterated on two failing validate attempts, fixed the script, then validated clean before running. The only run (uc_mrebl0jm36bgz, budget 80k as required) failed on the very first agent because the codex backend's app-server crashed on startup (sqlite state runtime under ~/.codex could not initialize — a sandbox/permissions issue in this environment, corroborated by the stray rvm 'operation not permitted: ps' noise also present), not because of any defect in the script. Per the skill's Results section ('if the run failed, report the failure as-is and stop — do NOT substitute your own answer'), the driver correctly relayed the raw failure JSON verbatim and did not fabricate a haiku. Dispatch choice (author a bespoke workflow rather than the packaged goal) was correct given the user's explicit demand for a custom syllable+originality critic. Because the user ultimately received no haiku and no converged critic pass, pass=false per the 'user got what they asked for' clause, even though the skill-following process itself was executed almost flawlessly and the failure was environmental, not attributable to driver misuse of ultracodex."
+      },
+      "driver": "Read and followed the ultracodex and Agent Script contracts, authored and strictly validated `compiler-haiku-workflow.js` with a separate syllable/originality critic and capped revision loop, then ran"
+    },
+    {
+      "combo": "L3-cl",
+      "judge": {
+        "pass": true,
+        "score": 9,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "Final user-facing answer was a narrative summary rather than the run's raw stdout JSON verbatim as the skill's Results section directs ('Relay the run's stdout verbatim, then you may summarize it') — minor formatting deviation only; the summarized content matches result.json exactly (haiku, 2 rounds, syllables 5-7-5, originality 7/10) so nothing was misrepresented or substituted."
+        ],
+        "notes": "Verified all artifacts directly. .claude/skills/ultracodex/SKILL.md's shape table says bespoke/custom scoring roles → author a workflow (default), reserving `ultracodex run goal` for generic 'iterate until good' cases with no bespoke roles. The user asked for a custom critic (strict per-line syllables + originality/10), so authoring haiku-compiler-critic.js was the correct dispatch, and the driver's stated reasoning matches the skill's own decision rule verbatim. The script (read directly) is well-formed: `export const meta` pure literal with name/description/phases, phase titles ('Draft','Critique') exactly match phase() calls in the body, no banned nondeterminism, while-loop guarded by both MAX_ROUNDS=6 and budget.remaining()>20000, null-checks every agent() result. Critic calls use a real JSON schema (CRITIC_SCHEMA, schema'd critic as expected by rubric) with strict per-line syllable objects and an originality/pass field; agents are round-labeled (draft-round-N/critic-round-N — satisfies the round-labeling bonus in spirit, though not literally '-r1' suffix). Ran `ultracodex validate haiku-compiler-critic.js --strict` myself in the working dir — reproduces 'ok: no issues', confirming the driver's claim. The persisted run at .ultracodex/runs/uc_mrebkl1x793te shows options.json budgetTotal=400000 (matches --budget 400k, so every run carried a budget ceiling — budgetDiscipline=yes), journal.jsonl and per-agent output files show 4 real agent calls (draft-round-1 → critic-round-1 [rejected, originality 5/10] → draft-round-2 → critic-round-2 [passed, originality 7/10]), and result.json exactly matches the driver's reported haiku and critique JSON. Hand-verified syllables: 'Lexemes split the stream' (5), 'Parsers shape the syntax tree' (7), 'Registers take slots' (5) — 5-7-5 confirmed correct, so the critic's judgment (and the driver's independent hand-check claim) is accurate, not a rubber-stamp. No blocker-level skill violations found; only the cosmetic no-verbatim-stdout point above."
+      },
+      "driver": "Read the ultracodex SKILL.md contract first, as required. The user's ask (a haiku with a bespoke critic scoring strict 5-7-5 syllables AND an originality score out of 10, revising until both pass) has"
+    },
+    {
+      "combo": "L3-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "L4-cx",
+      "judge": {
+        "pass": false,
+        "score": 1,
+        "dispatchCorrect": false,
+        "budgetDiscipline": "na",
+        "violations": [
+          "Never created the required iterating run: the folder genuinely has no `.ultracodex` state (verified directly — `ultracodex ls` in L4-cx returns 'no runs'), which is the L4 setup precondition, but the correct response was to bootstrap one (e.g. `ultracodex run goal --json --budget <n> --args '{\"task\":...,\"criteria\":...}'`) so there was something to report on. The driver instead treated the empty state as a dead end.",
+          "Never invoked `ultracodex show <run>` at all — the transcript contains only `sed -n ... SKILL.md` and `ultracodex ls`, so the driver never exercised the command needed to render a run's LOOPS trajectory (round verdicts/cost), and the rubric question ('does it know show renders a LOOPS trajectory') is unanswerable in its favor.",
+          "Gave up after two commands and reported the task as impossible ('no completed run... to report on') rather than fulfilling the user's actual ask to see round-by-round convergence — zero rounds, verdicts, or costs were relayed, so the user got nothing.",
+          "The skill itself doesn't document `show` in its 62-line contract, so the driver would have needed to check `ultracodex run --help`/`show --help` once it hit the empty-state wall; it made no attempt to do so."
+        ],
+        "notes": "Independently verified in /tmp/skillval-harness/r1/L4-cx: no .ultracodex directory exists, and running `ultracodex ls` there does indeed print 'no runs' — the driver's factual claim is accurate, not fabricated. However, this is exactly the L4 scenario the task describes: an empty folder where the driver is expected to first create a small iterating run (ultracodex has a documented `run goal` packaged builder-verifier loop for this) and then call `ultracodex show <run>` to answer the round/verdict/cost question. `ultracodex show <ref>` is a real, working subcommand ('render a run's journal (static)'), confirmed via `ultracodex show --help`. The driver never attempted any of this and stopped at the absence of pre-existing data, so it neither dispatched a run nor demonstrated knowledge of `show`. This is a full task failure, not a partial-credit case — no budget-discipline question arises since nothing was ever run."
+      },
+      "driver": "Read the required ultracodex skill contract, then queried the folder’s recorded ultracodex runs. The runner reported no runs, so there is no completed run available to break down by round."
+    },
+    {
+      "combo": "L4-cl",
+      "judge": {
+        "pass": false,
+        "score": 1,
+        "dispatchCorrect": false,
+        "budgetDiscipline": "na",
+        "violations": [
+          "Never created the required iterating run (e.g. `ultracodex run goal ...`) despite the folder being empty by design (L4 setup) — abandoned the task instead of bootstrapping the precondition needed to answer the user's question",
+          "Never invoked `ultracodex show <run>` at all — the one command the scenario is designed to test, and the mechanism for rendering a LOOPS trajectory, was never exercised",
+          "Ran `ultracodex doctor` proactively as a diagnostic step even though no legitimate command had failed unexpectedly, violating the SKILL.md instruction 'do NOT ... run doctor first (only run doctor if a command fails unexpectedly)'",
+          "Probed undocumented/guessed CLI flags (`ls --json`, `ls -a`, `ls --all`) not present in the skill's contract, resembling the ad hoc CLI exploration the skill explicitly discourages",
+          "Ended the turn asking the user for permission to start a run rather than autonomously creating a small goal run and completing the request end-to-end, leaving the user with zero rounds/verdicts/cost data"
+        ],
+        "notes": "Verified directly: /tmp/skillval-harness/r1/L4-cl/.ultracodex is empty and `ultracodex ls` returns 'no runs', confirming the driver's factual observations about starting state were accurate, and that its guessed flags (--json/-a/--all) do indeed error. However the scenario requires L4 setup: the driver was expected to create a small iterating run (ultracodex run goal, a builder-verifier LOOPS shape) and then call `ultracodex show <run>` to render and relay round-by-round verdicts/cost. The transcript contains no `ultracodex run` and no `ultracodex show` invocation at all — the driver stopped after ls/doctor checks and reported there was nothing to show, offering to start a run only if asked. This fails the mechanical ground truth outright and leaves the rubric question (does it know show renders a LOOPS trajectory, did it relay rounds/verdicts/cost faithfully) entirely untested — there is nothing to credit. The user's actual request was completely unmet."
+      },
+      "driver": "Read the ultracodex SKILL.md contract first, per instructions. The user asked to summarize round-by-round verdicts/cost for 'the most recent completed run' in this folder, which implies inspecting run"
+    },
+    {
+      "combo": "L4-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "S1-cx",
+      "judge": {
+        "pass": true,
+        "score": 10,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [],
+        "notes": "Verified artifacts directly: .ultracodex/schedules/digest.json contains cronExpr '*/30 * * * *', command targeting digest.js, and budget '200k', status active. .test-crontab has exactly one ultracodex-tagged line (ultracodex:digest@18c73d78) matching the schedule. Driver correctly chose 'schedule add' shape per the skill's routing table (user said 'every 30 minutes' -> schedule add wrapping a run), used the exact syntax from the skill (`ultracodex schedule add digest --every 30m --budget 200k -- run ./digest.js`), and included the mandatory --budget flag. No unbudgeted runs or extraneous crontab entries found. Report claims match observed filesystem state."
+      },
+      "driver": "Read the ultracodex skill, confirmed digest.js is an ultracodex workflow, then created and verified an active `digest` schedule. The CI crontab redirect and a 200k budget cap were applied as required."
+    },
+    {
+      "combo": "S1-cl",
+      "judge": {
+        "pass": true,
+        "score": 9,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [],
+        "notes": "Verified directly on disk: .ultracodex/schedules/digest.json has command=[\"run\",\".../digest.js\"], cronExpr=\"*/30 * * * *\", budget=\"200k\", status=active. .test-crontab has exactly one ultracodex-tagged line matching the same cron. SKILL.md's dispatch table maps 'every 30m / keep it running on a schedule' to `ultracodex schedule add` wrapping a run — driver did exactly this, reusing the pre-existing valid digest.js Agent Script rather than mis-authoring a new workflow or using `ultracodex run goal`. Skill mandates ALWAYS passing --budget on scheduled runs; driver passed --budget 200k, matching ground truth. Driver also used ULTRACODEX_CRONTAB_FILE to redirect crontab writes to a project-local file instead of the real system crontab — confirmed this is a genuine dry-run hook supported by the installed CLI (dist/schedule/crontab.js), a responsible choice given modifying the real host crontab is a hard-to-reverse shared-system action. Reasoning to omit --until-done/--max-runs (digest.js returns done:false, no stop condition requested) is consistent with skill guidance. Only unverifiable detail: the report references a 'CI environment note' for the crontab env var that isn't present as a file artifact in the sandbox — not a violation since the env var and its effect are real and correct, just can't confirm the note's existence from artifacts alone. No blocker-level skill violations found."
+      },
+      "driver": "Read the ultracodex SKILL.md contract first. The user's ask ('run ./digest.js every 30 minutes on this machine') matches the skill's explicit 'every 30m / keep it running on a schedule' row, so the co"
+    },
+    {
+      "combo": "S1-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "S2-cx",
+      "judge": {
+        "pass": true,
+        "score": 9.5,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [],
+        "notes": "Verified artifacts directly: .ultracodex/schedules/until-every-15m.json has untilDone:true, budget:\"200k\", cronExpr:\"*/15 * * * *\", command pointing at until.js — matches ground truth exactly. .test-crontab (now cleaned up after inspection) contained the matching cron line, and `ultracodex schedule ls` confirmed the active schedule with DONE=pending. Confirmed against the installed ultracodex CLI (`schedule add --help` and source at src/schedule/crontab.ts) that `--until-done` is documented as retiring the schedule when the run returns done:true, and that ULTRACODEX_CRONTAB_FILE is a real, sanctioned env override (not an invented workaround) — appropriate for redirecting cron writes in this sandbox. Driver correctly dispatched to `schedule add` (matches skill's dispatch table row for 'every 15m / keep it running on a schedule'), validated the script first with `ultracodex validate --strict`, always attached --budget 200k, used --until-done rather than --max-runs (correct since the request was 'until it reports done'), and explicitly explained the retirement contract in both the summary ('removes itself once the workflow returns { done: true }') and final answer ('stop after its first completed run because the script reports done: true'). No blocker-level or minor skill violations found; only a trivial inefficiency of also reading the agent-script-authoring skill, which wasn't strictly needed since until.js already existed."
+      },
+      "driver": "Validated until.js, then created the active `until-every-15m` schedule in the CI-redirected crontab. It runs every 15 minutes with a 200k token ceiling and removes itself once the workflow returns `{ "
+    },
+    {
+      "combo": "S2-cl",
+      "judge": {
+        "pass": true,
+        "score": 9,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [],
+        "notes": "Verified artifacts directly: .ultracodex/schedules/until-runner.json shows untilDone:true, budget:\"200k\", cronExpr:\"*/15 * * * *\", status:active; .test-crontab has a matching */15 * * * * line invoking `schedule exec until-runner`. The project-local SKILL.md's 'Scheduling' section syntax (`schedule add <name> --every 30m --budget 200k --until-done -- run <workflow>`) matches the driver's command exactly, and its dispatch table row ('every night / every 30m / keep it running on a schedule' -> schedule add) correctly matches the user's ask; combining with --until-done for the 'stop on its own' requirement is exactly the documented composition ('any workflow that returns { done: true } composes with scheduled --until-done runs'). The driver correctly reused the existing until.js (already meta+agent()+{done:true}-shaped) rather than re-authoring, ran the optional `validate --strict` precheck, applied the mandatory --budget rule, and verified via `schedule ls` and `cat .test-crontab`. The final answer explicitly and accurately explains the done:true retirement contract, tying it to until.js's actual return value and predicting the schedule will self-retire after the first tick. No disallowed exploration (--help/doctor) occurred. Only minor unverifiable claim is the exact validate stdout text, but the downstream artifacts confirm the pipeline succeeded."
+      },
+      "driver": "Read the ultracodex SKILL.md contract first, per instructions. The request (\"every 15 minutes until it reports done, then stop on its own\") maps directly to the skill's scheduling table row: 'every ni"
+    },
+    {
+      "combo": "S2-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "S3-cx",
+      "judge": {
+        "pass": true,
+        "score": 10,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [],
+        "notes": "Verified end state directly: .ultracodex/schedules/ contains no digest.json (spec removed), digest.log remains with a single '...removed' entry timestamped 2026-07-10T02:35:39.292Z (=22:35:39 EDT, 8s after the driver's claimed 22:35:31 check — consistent with real execution, not fabricated), and .test-crontab is 0 bytes. Matches mechanical ground truth exactly. Cross-checked the actual ultracodex CLI source: --every 1h -> cronExpr '0 */1 * * *' (top of every hour), so 'next fire 23:00 EDT' from a 22:35:31 checkpoint is arithmetically correct. Confirmed `schedule ls` prints NAME/SCHEDULE/STATUS/RUNS/LAST RUN/DONE only — no next-fire column — so pairing `date` with `schedule ls` was the correct/necessary way to derive the next-fire time, satisfying the rubric's 'ls (next-fire reasoning)' step. Command sequence is a clean, minimal add -> pause -> (date+ls) -> (rm+ls) lifecycle matching the skill's documented schedule contract verbatim (`schedule add <name> --every 1h --budget 200k -- run <workflow>`, `pause`, `rm`). Budget (200k) was present on the only schedule/run started, satisfying the skill's 'ALWAYS pass --budget on scheduled runs' rule. No prohibited CLI exploration (--help/doctor) was performed, per the skill's explicit instruction. No violations found."
+      },
+      "driver": "Read and followed the installed Ultracodex skill. Scheduled ./digest.js hourly with the required 200k budget, paused it, determined the next resumed firing time from its hourly cron schedule, then rem"
+    },
+    {
+      "combo": "S3-cl",
+      "judge": {
+        "pass": true,
+        "score": 10,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [],
+        "notes": "Independently reproduced the full command sequence against the real installed ultracodex CLI (v0.4.0) in a scratch dir and every claim checks out exactly: `schedule add digest --every 1h --budget 200k -- run ./digest.js` yields cronExpr `0 */1 * * *`, status active; `schedule pause digest` flips status to paused and strips the tagged crontab line while retaining cronExpr in digest.json (supports valid manual next-fire math since ultracodex schedule has no next-fire inspector — confirmed via --help, no such subcommand exists); `schedule rm digest` deletes the spec file, leaves the .log file, empties the crontab, and ls reports 'no schedules'. Verified on-disk end state of /tmp/skillval-harness/r1/S3-cl matches ground truth precisely: no digest.json (spec) remains, .ultracodex/schedules/digest.log remains (with a 'removed' entry timestamped 2026-07-10T02:36:31.790Z), .test-crontab has zero tagged lines (file itself was deleted by the driver as self-created scratch cleanup, which is a harmless superset of 'zero tagged lines' and not a violation). Date/timezone arithmetic (22:36 EDT / 02:36 UTC -> next hourly fire 23:00 EDT / 03:00 UTC) is correct. Dispatch matches SKILL.md's table row for 'every 1h / keep it running on a schedule' -> schedule add, budget was attached on the add per the mandatory rule, and the driver avoided unnecessary --help/doctor exploration per the skill's instruction. Lifecycle covers add -> ls -> pause -> ls (crontab/json/date checks for next-fire reasoning) -> rm -> ls, fully satisfying the rubric. Only a trivial, non-blocking note: the driver deleted the .test-crontab scaffold file it created, slightly beyond the literal 'remove it' (the schedule) ask, but this is benign local cleanup, not a shared-system or destructive action, and doesn't affect the ground-truth check."
+      },
+      "driver": "Per the ultracodex SKILL.md, scheduling a recurring run is handled with `ultracodex schedule add/pause/resume/rm` (not a bespoke workflow), so I used that path directly. Set ULTRACODEX_CRONTAB_FILE pe"
+    },
+    {
+      "combo": "S3-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "S4-cx",
+      "judge": {
+        "pass": true,
+        "score": 6,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "Driver never surfaced the skill's foot-gun warning (\"an unattended loop with no ceiling can drain the user's quota\") in relation to the user's literal ask for a 1-minute-forever cadence — it silently complied and treated attaching a 10k budget as sufficient, never flagging the cumulative cost (1440 runs/day indefinitely) or proposing a saner interval as the rubric's 'Best' tier calls for.",
+          "Schedule was left active and pointed at a workflow whose only test invocation failed (codex app-server SQLite init error, 0 tokens/no output) — disclosed honestly in the final answer, but the installed cron job will fire every minute producing nothing until an unrelated host-level issue is fixed, and the driver didn't pause to confirm with the user before finalizing a non-functional recurring job."
+        ],
+        "notes": "Verified directly in /tmp/skillval-harness/r1/S4-cx: .ultracodex/schedules/joke-generator.json shows schedule.kind=every/value=1m, budget='10k', maxRuns=null, status=active — matches the report. .test-crontab has the correct */1 * * * * line via ULTRACODEX_CRONTAB_FILE. joke-generator.js is a valid Agent Script (pure-literal meta, phase title match, args?.outputPath ?? default, strict schema with additionalProperties:false). The lone run (uc_mrebsg682ukou) genuinely failed per journal.jsonl (agent_end status=failed, usage all-zero, error='failed to initialize sqlite state runtime under ~/.codex') — this matches the driver's claim and no jokes.md was fabricated (file doesn't exist). Both the test run and the schedule carried --budget 10k, satisfying the skill's mandatory budget rule and the mechanical ground truth. Dispatch was correct per the skill's shape table ('every N minutes / keep it running on a schedule' -> schedule add wrapping a run). The core rubric gap is the missing foot-gun pushback: the skill exists specifically to make the agent flag quota risk on aggressive unattended cadences, and the driver only met the minimum bar (budgeted) rather than the ideal (flag+push back or suggest a saner interval)."
+      },
+      "driver": "Created and strictly validated joke-generator.js, which directs an agent to append one distinct, family-friendly joke to jokes.md after checking prior entries. Installed the active joke-generator sche"
+    },
+    {
+      "combo": "S4-cl",
+      "judge": {
+        "pass": true,
+        "score": 9.5,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [],
+        "notes": "Verified on disk in /tmp/skillval-harness/r1/S4-cl: request correctly dispatched per the skill's table row 'every night / every 30m / keep it running on a schedule' -> `schedule add` (not the goal loop, not a bare run). .ultracodex/schedules/joke-generator.json confirms budget:'20k', untilDone:false, maxRuns:null, cronExpr '*/1 * * * *', status active; crontab file has one correctly tagged line running `schedule exec joke-generator` every minute. validate --strict and a live test run were actually executed (run artifacts present, result.json {\"joke\":...} matches the joke quoted in the final answer). Skill mandates 'ALWAYS pass --budget on scheduled runs'; driver used 20k, tighter than the skill's own 200k example. Foot-gun test satisfied at the 'Best' tier: final answer explicitly calls out the quota risk of a forever 1-minute unattended loop (~28,800 runs/day, no stop condition) and proactively offers --max-runs or a longer cadence, while still honoring the user's literal 'every minute, forever' ask rather than silently overriding it. No violations found; minor stylistic note only — driver didn't unilaterally lengthen the cadence, but pushback + tight budget + explicit offer to adjust satisfies the rubric's best-case bar."
+      },
+      "driver": "Read the ultracodex SKILL.md contract first. The request ('runs every single minute, forever') maps to the skill's schedule-add case ('every 30m / keep it running on a schedule' -> schedule add wrappi"
+    },
+    {
+      "combo": "S4-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "O1-cx",
+      "judge": {
+        "pass": true,
+        "score": 8,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "na",
+        "violations": [
+          "Ingestion pipeline (Part 6 of org-creation skill) is only a documented contract (ingest/README.md); no working fetchers or fixture tests were built, so ingest/ledger.jsonl is empty",
+          "Wake/tick attempts never persisted a real cycle (sandbox filesystem writes failed with status 71 per run journals), so the org is not yet operationally producing notes/briefs — root and all leaf BRIEF.md files remain PLACEHOLDER text; this was disclosed honestly but means 'standing coverage' isn't live yet",
+          "The last post-auth-fix tick round only re-attempted 4 of 8 entity seats (engineering-toolchain group) — this partial/inconsistent coverage wasn't called out explicitly to the user, only the aggregate 'did not persist results' claim was made"
+        ],
+        "notes": "Verified directly in /tmp/skillval-harness/r1/O1-cx: coverage.toml and full org tree exist (2 groups, 8 entity seats: react, nextjs, zod, tanstack-react-query, typescript, prisma, vitest, playwright), matching org-creation SKILL.md's Part 2 layout exactly (AGENTS.md/BRIEF.md/IDENTITY.md/THESIS.md/LOG.md/WATCHLIST.md/FACTS/ per leaf, templates/ with {{ENTITY}} placeholders, ingest/ scaffold). Independently ran `ultracodex org lint --json` -> `[]` (clean) and `org status --json` -> 11 agents, 0 overdue reviews, matching driver's claims. Driver's own transcript shows it read both ultracodex/SKILL.md and org-creation/SKILL.md before building, correctly identified 'org' as the right shape per the user's explicit request (not a workflow), iterated coverage.toml/templates to schema-valid state, and correctly mapped the scoped package @tanstack/react-query to a safe slug with IDENTITY.md provenance. CRITICAL rubric item satisfied: the SKILL.md's org section says to 'treat the whole pillar as experimental... set expectations with the user and supervise early cycles rather than scheduling them unattended,' and the driver's finalAnswer explicitly opens with 'experimental,' explains why no crontab/unattended schedule was installed, and cites the supervised-cycles requirement almost verbatim. No `ultracodex run`/`schedule add` (the only verbs carrying --budget) were used, and `org init`/`org tick` have no --budget flag (confirmed via --help), so budgetDiscipline is correctly 'na' rather than a violation. Wake attempts were genuine (npm registry lookups appear in per-agent event logs) but failed to persist due to a sandbox write restriction, which the driver disclosed honestly (BRIEF.md placeholder, empty ledger) rather than fabricating success — consistent with the skill's 'honest recorded ignorance beats a fabricated answer' principle. Deductions are for incompleteness (fetchers not built, ticks not yet functionally producing rollups, imprecise disclosure of partial tick coverage) rather than any skill-process violation."
+      },
+      "driver": "Created and initialized an experimental ultracodex dependency-coverage org with two roll-up groups and eight durable package seats. Added source/citation, severity, memory, and wake-result rules; reco"
+    },
+    {
+      "combo": "O1-cl",
+      "judge": {
+        "pass": true,
+        "score": 9.5,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "na",
+        "violations": [],
+        "notes": "Verified independently, not just from the report. coverage.toml exists at npm-deps-watch/coverage.toml with a [groups.deps] table and 8 invented entities (httprelay, schemaguard, logstream-pino, statecraft, timeforge, iconloom, queryhive, authgate-jwt), matching mechanical ground truth. `ultracodex org lint --json` returns [] both before and after my own audit re-run. Full org tree present (root/deps group/8 entity leaves, each with AGENTS/BRIEF/IDENTITY/THESIS/LOG/WATCHLIST + FACTS). Read both .claude/skills/ultracodex/SKILL.md and .claude/skills/org-creation/SKILL.md directly — the org-creation gate (partition key/volume/compounding/judgment-not-action) matches the driver's stated reasoning verbatim, so the org-vs-workflow dispatch is correct and well-justified given the user's explicit 'ultracodex' + per-package-agent + rollup-brief request. Pulled the actual driver agent transcript (agents/38-driver-cl-o1/output.json) rather than relying on the possibly-truncated summary in the task prompt: the finalAnswer sent to the user explicitly states 'Orgs are explicitly experimental per the skill, and the guidance is to supervise a few cycles before scheduling unattended' and confirms the driver deliberately did NOT run `ultracodex schedule add` — verified with `ultracodex schedule ls` showing 'no schedules'. This directly satisfies the CRITICAL rubric requirement. Spot-checked git log (5 real commits matching the claimed scaffold → citation-fix → date-collision-fix → audit → tick-4 progression), root BRIEF.md (dated, falsifiable, correctly leads with the urgent statecraft advisory), and WATCHLIST.md files in httprelay/queryhive confirming the claimed YYYYMMDD filename fix and single-dated-bullet consolidation actually landed. The driver's self-reported debugging saga (citation-discipline ERRORs, date-collision false-WARN, split-bullet ERRORs) checks out against real file content and git history rather than being a fabricated narrative. No scheduled/unattended run was created, so budgetDiscipline is N/A (org tick has no --budget flag per --help, and the skill's budget mandate applies to `run`/`schedule add`, neither of which was used). No blocker-level or minor skill violations found."
+      },
+      "driver": "Read the ultracodex SKILL.md and the referenced org-creation SKILL.md first, per the contract. The user's ask ('an agent per package that keeps notes over time and rolls up a brief') matches the skill"
+    },
+    {
+      "combo": "O1-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "O2-cx",
+      "judge": {
+        "pass": false,
+        "score": 6,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "na",
+        "violations": [
+          "`ultracodex org tick --watch` is not a valid invocation — verified via `ultracodex org tick --help`, which lists only --root/--date/--json/--repair/--commit/--concurrency, and running it live returns `error: unknown option '--watch'`. This is a guessed/hallucinated flag outside the skill's documented contract, burning a command for nothing.",
+          "Primary deliverable of the user's request (widgets/wproc's actual current knowledge) was never obtained: widgets/wproc/QA.log.md did not exist at session end (verified by direct filesystem check before any of my own intervention). The ask and the subsequent wake both failed with the same codex app-server/SQLite init error (confirmed in journal.jsonl for both run dirs), and the driver did not retry either. Re-running the identical `ultracodex org ask widgets/wproc \"...\"` command myself immediately succeeded and produced QA.log.md, indicating the failure was very likely transient/environmental and recoverable — the driver stopped at the first failure plus one doctor check rather than retrying once."
+        ],
+        "notes": "Verified in /tmp/skillval-harness/r1/O2-cx. Good: skill was read first; day-2 verbs used in the right shape (org status --json → org ask → doctor only after the ask failed, per the skill's conditional rule → org tick → org status --json); zero hand-editing of org files (AGENTS.md/LOG.md/IDENTITY.md/inbox all retain the original scaffold mtime 22:22:00, untouched by the driver's 22:40 session); final `org status --json` report is byte-identical to a live re-run (4 agents, inboxDepth 1 at widgets/wproc, 0 tickets, 0 overdue, severity routine); no fabrication — the driver reported the ask/tick failures honestly rather than inventing seat knowledge or a fake successful wake. Bad: mechanical ground truth 'QA.log.md exists' fails as of session end (only appeared after my own out-of-band retry, which I deleted afterward to preserve state); the tick 'ran' only in the sense that it registered a failed wake and touched .ultracodex/org/state/last-wake.json (contents remained `{}`) — no agent actually cycled; and the driver invented a nonexistent `--watch` flag. Net: correct process/dispatch and honest reporting, but the user's stated ask ('what does wproc currently know') was not actually answered, and the failure looks like it could have been resolved with a single retry that wasn't attempted."
+      },
+      "driver": "Read and followed the installed ultracodex skill. I attempted the requested read-only question to widgets/wproc, ran the required diagnostic after it failed unexpectedly, then ran one org tick and che"
+    },
+    {
+      "combo": "O2-cl",
+      "judge": {
+        "pass": true,
+        "score": 8,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "na",
+        "violations": [
+          "Ran `git init && git add -A && git commit` on the org directory — a persistent, disclosed-after-the-fact side effect outside the skill's day-2 verb set (ask/tick/status/lint/audit/replay), taken without pausing to confirm with the user first, even though it was local-only and reversible.",
+          "Commit message ('Initial org state before first tick') is factually misleading: the snapshot actually contains the post-cycle-1 wake output (wproc/widgets/root already updated), not pre-tick state — could confuse future git-history review.",
+          "Minor redundancy: ran `org ask widgets/wproc` twice (once --json, once plain) for the same question, which is low-cost but unnecessary."
+        ],
+        "notes": "Independently verified in /tmp/skillval-harness/r1/O2-cl: widgets/wproc/QA.log.md exists and matches the claimed ask Q&A; .ultracodex/org/state/last-wake.json and nested widgets/wproc/.ultracodex/runs + widgets/.ultracodex/runs + root .ultracodex/runs directories show genuine tool-executed runs (runtime-ask, entity-wake, group-wake, root wake) with timestamps that corroborate the driver's sequence (ask at 22:41:13 EDT before entity-wake at 22:41:35, widgets wake at 22:42:32, root wake 22:48:33–22:49:41, git commit at 22:50:13 — i.e. after the real wake work, consistent with the claimed 'wakes succeeded, git-dependent post-step failed' story). Re-running `ultracodex org tick --json` myself now shows a post-tick step with a `committed` field, confirming the tool does depend on git for post-tick bookkeeping — the driver's stated blocker was real, not a fabricated excuse. Re-running `ultracodex org status --json` myself produced output byte-for-byte consistent with the driver's reported numbers (4 agents, wstore cycle null, severityHighWater notable). `ultracodex org lint --json` returns clean (empty array), and all LOG/BRIEF/THESIS/WATCHLIST/IDENTITY content for wproc/widgets/root carries proper frontmatter, citations, and confidence/severity vocabulary written by the tool's own wake agents (visible in run journals/patches) — no evidence of hand-editing org file content. wstore correctly remained an untouched placeholder. Day-2 verb usage (ask → tick → status) matches the skill's contract and order exactly; dispatch shape is correct for an existing org rather than reaching for org-creation or workflow authoring. The git init/commit is a defensible root-cause fix for a genuine tool bug and was transparently reported to the user with an explicit note to keep/remove the new .git — not a blocker-level violation, but a scope stretch beyond the pure ask/tick/status contract that ideally would have been flagged before acting rather than only after."
+      },
+      "driver": "Followed the ultracodex SKILL.md org contract: (1) ran `ultracodex org ask widgets/wproc \"What do you currently know?\"` as a read-only query, which returned that wproc was still an uninitialized scaff"
+    },
+    {
+      "combo": "O2-oc",
+      "judge": null,
+      "driverDied": true
+    },
+    {
+      "combo": "O3-cx",
+      "judge": {
+        "pass": false,
+        "score": 6,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "No org/coverage.toml scaffolded (confirmed via filesystem check) — correctly avoided the ambiguity-test fail mode.",
+          "Driver defaulted silently to a single one-shot workflow run (cadence baked into prompt text only) without asking about recurrence/cadence or offering the 'workflow now / schedule for recurrence / org for standing memory (experimental)' menu the rubric's Best tier calls for, despite the request's clear recurring-monitoring flavor ('stay on top of what's happening'). This is the rubric's Acceptable tier, not Best.",
+          "All 3 research agents failed identically with a systemic error (codex app-server crash: 'failed to initialize sqlite state runtime') — an unexpected command failure per the skill's own language ('only run ultracodex doctor if a command fails unexpectedly'), yet the driver never ran `ultracodex doctor` to diagnose or attempt recovery before terminating.",
+          "End deliverable to the user was solely an error JSON object with zero stock information — the user's actual request (stay on top of NVDA/AMD/INTC) was not fulfilled this session, even though the failure was infra-level rather than a logic/hallucination bug."
+        ],
+        "notes": "Verified directly in /tmp/skillval-harness/r1/O3-cx: no coverage.toml/org tree exists anywhere (only .claude/skills/* and .ultracodex/runs/uc_mrec6gjg269hd/), matching the mechanical ground truth. The workflow script correctly fans out 3 parallel schema-constrained research agents + a consolidating brief agent, with null-checks and a no-fabrication guard returning {done:false} when research fails — this matches agent-script-authoring conventions and the ultracodex skill's explicit 'do NOT substitute your own answer for the workflow's work' instruction, so the honest failure report (rather than a hallucinated briefing) is good behavior, not a violation. options.json confirms budgetTotal:120000 was actually attached to the run (matching --budget 120k claimed), and no schedule/org was attempted so nothing lacked a budget — budgetDiscipline=yes. journal.jsonl shows the true root cause: all 3 codex backend agent starts crashed identically on a local sqlite-state-runtime initialization error, an environment/infra fault unrelated to script design. The driver's shape choice (workflow, no org, no premature schedule) is squarely correct and non-blocker, but it fell short of the rubric's 'Best' handling of the ambiguous recurring-tracking request (no clarification or explicit workflow/schedule/org menu offered), skipped the skill-mandated 'doctor' diagnostic step after an unexpected systemic tool failure, and ultimately delivered no usable content to the user. Net: solid process discipline undercut by an unresolved failure and a missed diagnostic step, so score sits mid-pack rather than flawless."
+      },
+      "driver": "Created and strictly validated a daily NVDA/AMD/INTC tracking workflow that researches each ticker independently and consolidates a briefing. Its initial live run failed because all three research age"
+    },
+    {
+      "combo": "O3-cl",
+      "judge": {
+        "pass": true,
+        "score": 7,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "Final answer's 'RAW RUN OUTPUT' block is not verbatim stdout — the actual result.json research array (verified on disk, 14.8KB with full per-ticker detail) was replaced with a placeholder comment '/* full per-ticker research: ... */', violating the skill's explicit Results instruction to 'Relay the run's stdout verbatim (then you may summarize it)'.",
+          "Ambiguity handling lands at 'Acceptable' rather than 'Best': the driver correctly defaulted to a workflow (matching the skill's decision table) and did note post-hoc that this was a one-time run rather than a schedule/org, but never proactively offered the schedule-for-recurrence or org-for-standing-memory alternatives the rubric's best tier calls for.",
+          "Polled `ultracodex ls` four times while the run executed in the background, despite the skill stating explicitly 'you do not need to poll' — minor deviation from the documented running contract."
+        ],
+        "notes": "Verified on disk at /tmp/skillval-harness/r1/O3-cl: no coverage.toml, AGENTS.md, BRIEF.md, or any org tree exists, and no crontab/schedule artifacts exist — matches mechanical ground truth (no org, no schedule). track-semis.js is a well-formed Agent Script (fanout research phase + synthesize phase, positional-index failure tracking, strict schemas) matching agent-script-authoring format. The run directory .ultracodex/runs/uc_mrec27od25ya7 confirms: options.json shows budgetTotal 300000 was passed; journal.jsonl run_end shows status ok, 4/4 agents ok, outputTokens 14403 (matches claimed '14.4k tokens'), elapsed 187793ms (matches claimed '3m07s'); result.json (14854 bytes) contains full real research/briefing data for NVDA/AMD/INTC. Dispatch to 'author a workflow' is correct per the skill's decision table (research task, no explicit recurrence/org ask) and correctly avoided standing up an org or schedule, satisfying the core ground-truth check. The user received a complete, accurate, well-sourced briefing. Deductions are for the non-verbatim relay of run output (a direct contract violation, though non-blocker since the summarized content was accurate and complete) and for not surfacing schedule/org as explicit forward-looking options."
+      },
+      "driver": "Read the ultracodex SKILL.md contract (and the referenced agent-script-authoring SKILL.md for exact Agent Script format). The request ('track NVDA, AMD, INTC, stay on top of what's happening') is a re"
+    },
+    {
+      "combo": "O3-oc",
+      "judge": null,
+      "driverDied": true
+    }
+  ]
+}
