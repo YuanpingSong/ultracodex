@@ -187,14 +187,25 @@ The clone includes the [examples gallery](examples/) — nine orchestration shap
 
 ## How it works
 
-```
-script.js ──▶ loader (acorn meta parse + vm) ──▶ runtime (semantics, caps,
-              budget, semaphore) ──▶ executors per [route]:
-                codex    → `codex app-server` JSON-RPC, one process per slot
-                opencode → `opencode serve` HTTP + SSE, one server per call
-                claude   → headless `claude -p`
-              journal.jsonl ◀── every event        control.jsonl ◀── pause/stop/skip
-              TUI / show / --json = pure folds over the journal
+A script is parsed once, then the runtime drives each `agent()` call through the backend its `[route]` selects — journaling every event, so the TUI, `show`, and `--json` are all pure reads of the same log:
+
+```mermaid
+flowchart LR
+    S["script.js"] --> L["loader<br/>acorn meta-parse + vm"]
+    L --> R["runtime<br/>semantics · caps · budget · semaphore"]
+
+    subgraph EX["executors — one per route"]
+        direction TB
+        CX["codex<br/>codex app-server · JSON-RPC<br/>one process per slot"]
+        OC["opencode<br/>opencode serve · HTTP + SSE<br/>one server per call"]
+        CL["claude<br/>headless claude -p"]
+    end
+
+    R --> CX & OC & CL
+
+    R -.->|every event| J[("journal.jsonl")]
+    CTL[("control.jsonl")] -.->|pause · stop · skip| R
+    J --> OBS["TUI · show · --json<br/>pure folds over the journal"]
 ```
 
 The agent is the unit of programming here: `agent()` is a call with a typed, validated return, Agent Script is the format, and the [Executor Contract](docs/executor-contract.md) is what keeps the unit portable — a capability descriptor plus a 10-assertion conformance kit that all three adapters pass. Structured output is belt-and-suspenders: schemas ride the wire where the backend supports it (Codex strict mode, OpenCode `json_schema`), degrade to a prompt contract mid-call when a provider rejects them, and are always enforced engine-side (ajv validation + repair turns on the same session). The entire test suite runs hermetically against scripted fakes of all three harnesses — no API keys in CI.
