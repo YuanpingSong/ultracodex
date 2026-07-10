@@ -15,7 +15,7 @@
 
 The idea underneath: the **agent is a unit of programming**. You write ordinary JavaScript and call an agent like a function — `await agent(prompt, { schema })` hands back a structured result. ultracodex abstracts the backend away, so one script runs on any of the three it supports: Codex, Claude, or OpenCode. Workflows, loops, schedules, and orgs are what you build once the agent is something you can program with.
 
-Getting started is quick because your agent does the learning: `ultracodex sync-skills` installs a skill that teaches Claude Code — or any coding agent — how to drive ultracodex, so you describe the task and your agent writes and runs the workflow. Given only that skill, a fresh agent ran all four pillars across Codex, Claude, and OpenCode ([the numbers](#status)).
+Getting started is quick because your agent does the learning: a bundled skill teaches your coding agent how to drive ultracodex, so you describe the task and your agent writes and runs the workflow. One command installs it for Claude Code (`ultracodex sync-skills`); [docs/skills.md](docs/skills.md) covers codex, opencode, and any other agent. Given only that skill, a fresh agent ran all four pillars across Codex, Claude, and OpenCode ([the numbers](#status)).
 
 ## Quickstart
 

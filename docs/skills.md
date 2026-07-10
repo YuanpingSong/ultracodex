@@ -23,12 +23,22 @@ claude plugin install ultracodex@ultracodex
 
 ## Codex
 
-The Codex CLI consumes the same plugin marketplace natively:
+Codex does not read `.claude/skills/`, so `sync-skills` alone does not reach a
+codex orchestrator. The tested path is to point codex at the skill file — put
+it in the project's `AGENTS.md`, or reference it in the prompt:
 
-```bash
-codex plugin marketplace add https://github.com/YuanpingSong/ultracodex
-codex plugin add ultracodex@ultracodex
 ```
+Author the workflow per skills/agent-script-authoring/SKILL.md (bundled in the
+ultracodex package), save it to a file, and run `ultracodex run <file> --json`.
+```
+
+This is the path the skill-validation runs exercised: codex agents given only
+the skill drove every pillar.
+
+The Codex CLI also has a plugin marketplace (`codex plugin marketplace add
+<repo>` / `codex plugin add`) that consumes Claude-style plugins; if your codex
+build supports it, the published repo installs the same skills that way. Prefer
+the file path above until you have confirmed the plugin route on your setup.
 
 ## opencode
 
