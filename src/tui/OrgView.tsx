@@ -1,6 +1,7 @@
 import { Box, Text, useInput, useStdout } from "ink";
 import { useEffect, useMemo, useRef, useState, type Dispatch, type ReactElement, type SetStateAction } from "react";
 import { col } from "./colors.js";
+import { TabOnboarding, ORG_ONBOARDING } from "./onboarding.js";
 import {
   buildOrgTreeRows,
   defaultOrgExpanded,
@@ -128,6 +129,7 @@ function OrgTreeView({
       <Text dimColor wrap="truncate-end">
         {formatOrgTreeHeaderLine(snapshot, columns)}
       </Text>
+      {snapshot.tickInfo.latestWake === null && <TabOnboarding o={ORG_ONBOARDING} />}
       {snapshot.agents.length === 0 ? (
         <Text dimColor> no org seats</Text>
       ) : (

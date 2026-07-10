@@ -42,6 +42,12 @@ import {
   type ScheduleFormDraft,
 } from "./schedules.js";
 import { prepareRun, rerunFromDir, spawnRunner } from "./spawn.js";
+import {
+  TabOnboarding,
+  RUNS_ONBOARDING,
+  LOOPS_ONBOARDING,
+  SCHEDULES_ONBOARDING,
+} from "./onboarding.js";
 
 const RUNS_SHOWN = 12;
 const LOOPS_SHOWN = 12;
@@ -512,7 +518,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         {tab === "runs" ? (
           <>
             <Text bold>Runs</Text>
-            {shownRuns.length === 0 && <Text dimColor> no runs yet</Text>}
+            {shownRuns.length === 0 && <TabOnboarding o={RUNS_ONBOARDING} />}
             {shownRuns.map((r, i) => {
               const idx = workflows.length + i;
               const isSel = mode.kind === "list" && idx === sel;
@@ -533,7 +539,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         ) : tab === "loops" ? (
           <>
             <Text bold>Loops</Text>
-            {loopRows.length === 0 && <Text dimColor> no loops detected in recent runs — see docs/loops.md</Text>}
+            {loopRows.length === 0 && <TabOnboarding o={LOOPS_ONBOARDING} />}
             {loopRows.map((row, i) => {
               const idx = i;
               const isSel = mode.kind === "list" && idx === sel;
@@ -563,9 +569,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         ) : tab === "schedules" ? (
           <>
             <Text bold>Schedules</Text>
-            {shownSchedules.length === 0 && (
-              <Text dimColor> no schedules — ultracodex schedule add &lt;name&gt; --every 30m -- run &lt;wf&gt;</Text>
-            )}
+            {shownSchedules.length === 0 && <TabOnboarding o={SCHEDULES_ONBOARDING} />}
             {shownSchedules.map((row, i) => {
               const idx = i;
               const isSel =
