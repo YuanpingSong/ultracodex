@@ -1,4 +1,5 @@
 import { addSchedule } from "../schedule/add.js";
+import { schedulesDir } from "../schedule/spec.js";
 import fs from "node:fs";
 import path from "node:path";
 import { Box, Text, useInput } from "ink";
@@ -226,10 +227,22 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
   const shownRuns = useMemo(() => runs.slice(0, RUNS_SHOWN), [runs]);
   const shownSchedules = useMemo(() => scheduleRows.slice(0, SCHEDULES_SHOWN), [scheduleRows]);
   const scannedRuns = useMemo(() => runs.slice(0, LOOPS_SCAN), [runs]);
+  // Load eagerly (not gated on the loops tab) so the tab strip can show
+  // whether loops exist; loadLoopRows is mtime-cached, so idle re-runs are cheap.
   useEffect(() => {
-    if (tab !== "loops") return;
     setLoopRows(loadLoopRows(scannedRuns, loopCache.current));
-  }, [scannedRuns, tab]);
+  }, [scannedRuns]);
+
+  // Cheap eager count of schedule spec files, for the tab strip's populated
+  // state (the full schedule snapshot still loads only on the Schedules tab).
+  const scheduleCount = useMemo(() => {
+    void tick;
+    try {
+      return fs.readdirSync(schedulesDir(projectDir)).filter((f) => f.endsWith(".json")).length;
+    } catch {
+      return 0;
+    }
+  }, [projectDir, tick]);
 
   useEffect(() => {
     setMissedWarnings(loadMissedScheduleWarnings(projectDir));
@@ -464,7 +477,11 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
         </Text>
       )}
 
-      <TabStrip selected={tab} orgEnabled={orgEnabled} />
+      <TabStrip
+        selected={tab}
+        orgEnabled={orgEnabled}
+        counts={{ runs: runs.length, loops: loopRows.length, schedules: scheduleCount }}
+      />
 
       {tab === "runs" && (
         <Box flexDirection="column" marginTop={1}>
@@ -607,26 +624,59 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
   );
 }
 
-function TabStrip({ selected, orgEnabled }: { selected: HomeTab; orgEnabled: boolean }): ReactElement {
+/**
+ * A tab renders in one of three states: SELECTED (inverse "button", the active
+ * view), POPULATED (bright cyan + a count — has content worth visiting), or
+ * EMPTY (dim — nothing there yet). Org has no count; when shown it is always
+ * populated (the tab only appears for org projects).
+ */
+function Tab({
+  label,
+  active,
+  count,
+}: {
+  label: string;
+  active: boolean;
+  count?: number;
+}): ReactElement {
+  const populated = count === undefined ? true : count > 0;
+  const suffix = count !== undefined && count > 0 ? ` ${count}` : "";
+  if (active) {
+    return (
+      <Text inverse bold>
+        {` ${label}${suffix} `}
+      </Text>
+    );
+  }
+  return (
+    <Text color={populated ? col("cyan") : undefined} dimColor={!populated} bold={populated}>
+      {`${label}${suffix}`}
+    </Text>
+  );
+}
+
+function TabStrip({
+  selected,
+  counts,
+  orgEnabled,
+}: {
+  selected: HomeTab;
+  counts: { runs: number; loops: number; schedules: number };
+  orgEnabled: boolean;
+}): ReactElement {
+  const sep = <Text dimColor> | </Text>;
   return (
     <Box marginTop={1}>
-      <Text inverse={selected === "runs"} dimColor={selected !== "runs"}>
-        Runs
-      </Text>
-      <Text dimColor> | </Text>
-      <Text inverse={selected === "loops"} dimColor={selected !== "loops"}>
-        Loops
-      </Text>
-      <Text dimColor> | </Text>
-      <Text inverse={selected === "schedules"} dimColor={selected !== "schedules"}>
-        Schedules
-      </Text>
+      <Text dimColor>tab ❯ </Text>
+      <Tab label="Runs" active={selected === "runs"} count={counts.runs} />
+      {sep}
+      <Tab label="Loops" active={selected === "loops"} count={counts.loops} />
+      {sep}
+      <Tab label="Schedules" active={selected === "schedules"} count={counts.schedules} />
       {orgEnabled && (
         <>
-          <Text dimColor> | </Text>
-          <Text inverse={selected === "org"} dimColor={selected !== "org"}>
-            Org
-          </Text>
+          {sep}
+          <Tab label="Org" active={selected === "org"} />
         </>
       )}
     </Box>
