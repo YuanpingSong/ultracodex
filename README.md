@@ -13,7 +13,7 @@
 
 **Run Claude Code workflow scripts, unmodified, on your Codex subscription — and on OpenCode.** Then go further than running them: **loop** them until a skeptical verifier approves, **schedule** them with cron doing the waking, or stand up a permanent **organization** of agents that remembers. Your Claude session writes the script and reads the verified result; the heavy lifting lands on the subscription you aren't rationing.
 
-The idea underneath: the **agent is a unit of programming**. `await agent(prompt, { schema })` returns a typed, validated value, plain JavaScript composes those calls, and a portable [Executor Contract](docs/executor-contract.md) keeps the unit running on whichever backend you route to. Workflows, loops, schedules, and orgs are what you build once the agent is something you can program with.
+The idea underneath: the **agent is a unit of programming**. You write ordinary JavaScript and call an agent like a function — `await agent(prompt, { schema })` hands back a structured result. ultracodex abstracts the backend away, so one script runs on any of the three it supports: Codex, Claude, or OpenCode. Workflows, loops, schedules, and orgs are what you build once the agent is something you can program with.
 
 Same build script, one `[route]` line apart: Codex (gpt-5.6) ships a 12-test module in **107 s with zero Claude quota**, Claude Opus in 219 s on the meter. And any backend can drive it — given only the installed skill, a fresh agent ran all four pillars on Codex, Claude, and OpenCode ([the numbers](#status)).
 
