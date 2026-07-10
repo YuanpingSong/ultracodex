@@ -47,6 +47,7 @@ import {
   RUNS_ONBOARDING,
   LOOPS_ONBOARDING,
   SCHEDULES_ONBOARDING,
+  ORG_CREATE_ONBOARDING,
 } from "./onboarding.js";
 
 const RUNS_SHOWN = 12;
@@ -265,13 +266,11 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
   useEffect(() => {
     const enabled = isOrgProject(projectDir);
     setOrgEnabled(enabled);
+    // The Org tab is always shown; when the project is not an org it renders
+    // the create-an-org onboarding, so there is nothing to reset here.
     if (!enabled) {
       orgSnapshot.current = null;
       setOrgLoad(null);
-      if (tab === "org") {
-        setTab("runs");
-        setSelIdx(0);
-      }
     }
   }, [projectDir, tab, tick]);
 
@@ -590,8 +589,13 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
               <ScheduleInlineDetail row={selected.row} />
             )}
           </>
-        ) : (
+        ) : orgEnabled ? (
           <OrgView projectDir={projectDir} load={orgLoad} active={mode.kind === "list" && tab === "org"} onChanged={reloadOrg} />
+        ) : (
+          <>
+            <Text bold>Org <Text dimColor>(experimental)</Text></Text>
+            <TabOnboarding o={ORG_CREATE_ONBOARDING} />
+          </>
         )}
       </Box>
 
@@ -638,12 +642,14 @@ function Tab({
   label,
   active,
   count,
+  populated: populatedOverride,
 }: {
   label: string;
   active: boolean;
   count?: number;
+  populated?: boolean;
 }): ReactElement {
-  const populated = count === undefined ? true : count > 0;
+  const populated = populatedOverride !== undefined ? populatedOverride : count === undefined ? true : count > 0;
   const suffix = count !== undefined && count > 0 ? ` ${count}` : "";
   if (active) {
     return (
@@ -677,18 +683,14 @@ function TabStrip({
       <Tab label="Loops" active={selected === "loops"} count={counts.loops} />
       {sep}
       <Tab label="Schedules" active={selected === "schedules"} count={counts.schedules} />
-      {orgEnabled && (
-        <>
-          {sep}
-          <Tab label="Org" active={selected === "org"} />
-        </>
-      )}
+      {sep}
+      <Tab label="Org (experimental)" active={selected === "org"} populated={orgEnabled} />
     </Box>
   );
 }
 
-function nextHomeTab(tab: HomeTab, orgEnabled: boolean): HomeTab {
-  const tabs: HomeTab[] = orgEnabled ? ["runs", "loops", "schedules", "org"] : ["runs", "loops", "schedules"];
+function nextHomeTab(tab: HomeTab, _orgEnabled: boolean): HomeTab {
+  const tabs: HomeTab[] = ["runs", "loops", "schedules", "org"];
   const index = tabs.indexOf(tab);
   return tabs[(index + 1) % tabs.length] ?? "runs";
 }
@@ -700,7 +702,7 @@ function footerText(tab: HomeTab, orgEnabled: boolean): string {
     case "loops":
       return "↑↓ select · ↵ open loop · tab schedules · q quit";
     case "schedules":
-      return `↑↓ select · ↵ detail · e exec now · p pause/resume · x remove · tab ${orgEnabled ? "org" : "runs"} · q quit`;
+      return `↑↓ select · ↵ detail · e exec now · p pause/resume · x remove · tab org · q quit`;
     case "org":
       return "j/k/↑↓ move · l/↵ expand · v view · tab runs · q quit";
   }

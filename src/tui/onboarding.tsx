@@ -49,9 +49,8 @@ export const SCHEDULES_ONBOARDING: Onboarding = {
   intro:
     "The scheduler runs a workflow on a recurring clock — one tagged crontab line it owns, no daemon. Use it for digests, nightly checks, or a loop that reports done and retires itself. Always pass --budget so an unattended run can't drain your quota.",
   art: [
-    " ⏰ every 30m",
-    "   │    │    │",
-    "   ▶    ▶    ▶     run · run · run",
+    " ─┬───────┬───────┬──▶  every 30m",
+    "  ▶       ▶       ▶      a run each tick",
   ],
   commands: [
     "ultracodex schedule add digest --every 30m --budget 200k -- run digest.js",
@@ -61,6 +60,25 @@ export const SCHEDULES_ONBOARDING: Onboarding = {
   docs: `${REPO}/blob/main/docs/schedule.md`,
 };
 
+// Shown in the always-on Org tab when the current project is NOT yet an org.
+export const ORG_CREATE_ONBOARDING: Onboarding = {
+  intro:
+    "An org is a standing team of agents with durable memory — one seat per subject, briefs rolling up a tree, waking on triggers so judgment compounds over time. It is experimental. Stand one up from a coverage.toml with org init, or let the org-creation skill design it with you.",
+  art: [
+    " root",
+    " ├─ group ─┬─ seat",
+    " │         └─ seat",
+    " └─ group ──── seat",
+  ],
+  commands: [
+    "ultracodex sync-skills          # installs the org-creation skill",
+    "ultracodex org init             # scaffold from coverage.toml",
+    "ultracodex org lint             # check the fresh tree",
+  ],
+  docs: `${REPO}/blob/main/docs/org.md`,
+};
+
+// Shown inside OrgView when the org is scaffolded but has never run a tick.
 export const ORG_ONBOARDING: Onboarding = {
   intro:
     "An org is a standing team of agents with durable memory — one seat per subject, briefs rolling up a tree. Each tick wakes the seats whose triggers fire, so judgment compounds over time. Your seats are scaffolded below; run a tick to bring them to life.",
