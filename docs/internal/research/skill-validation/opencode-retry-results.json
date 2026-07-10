@@ -1,0 +1,42 @@
+{
+  "passByBackend": {
+    "oc": "1/2"
+  },
+  "passByPillar": {
+    "W": "0/1",
+    "O": "1/1"
+  },
+  "rows": [
+    {
+      "combo": "W1-oc",
+      "judge": {
+        "pass": false,
+        "score": 4,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "yes",
+        "violations": [
+          "Phase-2 verifier prompt in review-contradictions.js pre-authors the refutation instead of just naming the trap: '...Default to not-a-contradiction if any consistent reading exists (for example: a load test exceeding a supported spec limit, or independent detail that does not clash)...' — this hands the verifier the exact rationalization for the planted 5-vs-50-concurrent-users contradiction, directly violating the agent-script-authoring skill's §8 rule 'Never pre-author an agent's committed answer... name the trap but don't answer it.' A producer-framed verifier that is fed its own excuse cannot independently refute.",
+          "As a direct consequence, the relayed final answer wrongly dismisses 2 of the 3 planted contradictions (5 vs 50 concurrent users, and Alice-vs-Bob leading infra) as 'not-a-contradiction, high confidence,' when both read as genuine contradictions under the plain text (identical singular claims: one system capacity ceiling vs. a load test 10x over it; one team, two named sole leaders). The user explicitly asked to be told 'what the real contradictions are' and was given an incorrect, falsely-confident answer for the majority of the substantive content.",
+          "Confidence framing ('high confidence') is applied to both incorrect dismissals, which could mislead the user into trusting flawed conclusions rather than flagging them as contested."
+        ],
+        "notes": "Verified directly against artifacts in /tmp/skillval-harness/r7/W1-oc. Mechanical ground truth confirmed: review-contradictions.js exists and is a valid Agent Script (pure-literal meta, schemas with additionalProperties:false and required=all keys, parallel survey + separate refute-by-default verify phases, .filter(Boolean) null-checks); .ultracodex/runs contains two completed runs (uc_mrfbmx2c9thvi then uc_mrfboin27iy1k, confirmed by run_start timestamps in journal.jsonl); no schedules/ or org artifacts were created (only the pre-installed org-creation skill dir exists). Both runs carried --budget 200000. The driver's narrative about the first run (2/3 survey agents failing with 'codex app-server exited (code 1): failed to initialize sqlite state runtime') is corroborated verbatim in uc_mrfbmx2c9thvi/journal.jsonl, and the re-run's full 3/3 topic coverage matches uc_mrfboin27iy1k/result.json exactly, which the driver relayed faithfully in-chat without redoing the review itself — good process discipline (validate --strict, --json, --budget, re-run on partial coverage rather than reporting truncated results, verbatim relay). However the actual deliverable is wrong: the ground-truth planted contradictions are launch date, concurrent users, and team leadership (all three), but the workflow's own artifacts show only launch date confirmed as real; the other two were talked out of contradiction status by a verifier prompt that supplied its own excuse in advance. Good mechanics, bad (and traceably self-inflicted) answer — net a below-average run."
+      },
+      "driver": "Read the ultracodex skill (and its referenced agent-script-authoring skill) for the workflow contract, then set up the workspace-scoped CODEX_HOME (credentials, gitignored). I authored a two-phase rev"
+    },
+    {
+      "combo": "O1-oc",
+      "judge": {
+        "pass": true,
+        "score": 9,
+        "dispatchCorrect": true,
+        "budgetDiscipline": "na",
+        "violations": [
+          "Final `ultracodex org lint --json` run from the org root (depwatch) returns 2 non-blocking WARN entries, not the clean `[]` implied by the mechanical ground truth — caused by the lint tool mis-parsing the `YYYY-MM-DD`-shaped source-id token embedded in the smoke-test WATCHLIST citations (`[source:rr-adv-2026-07-09]`) as the item's own expiry date rather than the item's real leading date (2026-07-17 / 2026-08-10). Verified independently: `cd depwatch && ultracodex org lint --json` reproduces exactly these 2 WARNs today. The driver disclosed and correctly diagnosed this in its own final lint call rather than hiding it, and it is a fixture-format artifact (won't recur with real GHSA/CVE ids) rather than a structural org defect, but the deliverable is not literally lint-clean at handoff.",
+          "The literal end-user-facing chat message could not be independently inspected (no transcript artifact exists outside the sub-agent codex session logs, which are org-wake sessions, not the user conversation) — the CRITICAL experimental-pillar disclosure is corroborated only by the driver's own report text, not by an independent artifact."
+        ],
+        "notes": "Verified directly in /tmp/skillval-harness/r7/O1-oc: depwatch/coverage.toml exists with correct `[groups.<slug>]` schema (frontend: react-portalkit/motion-presets/iconset-prime/themeweave-tokens; backend: redis-ratelimit/stream-s3/edge-flags/pgpool-guard). Full 11-agent tree exists (root + 2 groups + 8 entities) with AGENTS.md/BRIEF.md/LOG.md/IDENTITY.md/THESIS.md/WATCHLIST.md/FACTS/inbox per role, matching org-creation SKILL.md Part 2 structure exactly. `ultracodex org status --json` independently reproduces the driver's claimed state (11 agents, severityHighWater material, backend+redis-ratelimit+root woke at cycle 1, others null/routine) — strong corroboration the report is not fabricated. Read the actual BRIEF/THESIS/LOG/IDENTITY content for backend/redis-ratelimit, backend, and root: genuine FACT/JUDGMENT-disciplined prose with correct [source:...] citations, honest 'unknown/placeholder' framing for un-woken entities (frontend/react-portalkit BRIEF.md is an honest PLACEHOLDER, not fabricated), inbox dirs empty (processed-then-deleted per skill discipline). templates/entity.md is genuinely customized with npm-dependency domain guidance and an urgent/material/notable/routine severity rubric keyed to 'would the owner act differently today' — verbatim-consistent with the skill's own calibration language, and AGENTS.md is correctly scaffolded from it. Build order matches org-creation SKILL.md Part 8 steps 1-6 precisely (Gate → coverage.toml+templates → init+lint → smoke-test ingest+tick → read briefs); steps 7-8 (replay backfill, daily schedule) were explicitly and correctly deferred citing the skill's own gating language. No `ultracodex schedule add` or crontab entry exists — confirmed via `crontab -l` and `ultracodex schedule ls` (empty) — consistent with the claim of not auto-scheduling an experimental pillar. `ultracodex org tick`/`org wake` have no `--budget` flag (confirmed via --help), and the driver used no `ultracodex run`/`schedule add` commands, so budget discipline is not applicable to this org-only build. The one real, verifiable discrepancy is the non-clean final lint state, which is minor, disclosed, and explained. The CRITICAL experimental-pillar warning is present in the driver's report in language that mirrors the skill's required phrasing ('experimental', 'supervised', 'did NOT auto-schedule'), and is behaviorally corroborated by the absence of any schedule/cron artifact, though I could not independently inspect the literal chat text shown to the user. Overall this is a highly faithful, diligently-verified org-creation run with genuine functional testing (NOTIFY→wake→rollup chain actually exercised and correctly reasoned about, including real tool quirks like the git-repo requirement for tick and manual-inbox-files-not-routed)."
+      },
+      "driver": "The request (\"standing coverage of 8 npm packages... an agent per package that keeps notes over time and rolls up a brief I can read\") maps to ultracodex's ORG shape (standing coverage + memory that c"
+    }
+  ]
+}

@@ -103,4 +103,4 @@ XDG_DATA_HOME=/tmp/oc-data ultracodex run <repo>/fleet/skill-validation.js \
   were driver deaths on the serve spawn-collision (concurrency contention,
   v0.6), not skill failures. Net: the skill is validated on ALL THREE
   backends — the opencode column just needed the adapter to stop asking a
-  headless server for approvals no one could give.
+  headless server for approvals no one could give. RETRY of the two spawn-crash tasks at concurrency 1: O1 (org creation) passed clean (confirming pure infra contention), W1 completed but FAILED on substance — GLM-5.2 authored a verifier prompt biased toward dismissal and missed 2 of 3 planted contradictions (dispatch correct; a model-quality miss, not a skill gap). Full-coverage opencode tally: 14/15.
