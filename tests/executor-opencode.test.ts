@@ -338,6 +338,29 @@ describe("OpencodeExecutor", () => {
     });
   });
 
+  test("idle watchdog fires despite keepalive events (only progress resets it)", async () => {
+    const cwd = tmpDir();
+    const logPath = path.join(cwd, "invocations.jsonl");
+
+    await withEnv(
+      { ...fakeEnv(logPath), ULTRACODEX_OPENCODE_IDLE_TIMEOUT_MS: "500" },
+      async () => {
+        const exec = new OpencodeExecutor(cfg(), {});
+        const { ctx } = makeCtx(new AbortController().signal);
+
+        const started = Date.now();
+        // fake emits a session.updated keepalive every 100ms but never settles.
+        const res = await exec.run({ prompt: "[[hang-keepalive]]", cwd, label: "idle-keepalive" }, ctx);
+        const elapsed = Date.now() - started;
+
+        expect(res.ok).toBe(false);
+        if (!res.ok) expect(res.error).toMatch(/idle for \d+s \(provider stall\)/);
+        expect(elapsed).toBeLessThan(30_000);
+        expect(readInvocations(logPath).some((entry) => entry.path?.endsWith("/abort"))).toBe(true);
+      },
+    );
+  });
+
   test("idle watchdog aborts a stalled turn (provider hang) without external signal", async () => {
     const cwd = tmpDir();
     const logPath = path.join(cwd, "invocations.jsonl");

@@ -21,6 +21,7 @@
 //   [[expect-system:TEXT]] fail unless request body system contains TEXT.
 //   [[slow:MS]] delay before settling the message request.
 //   [[hang]] never settle until /abort or SIGTERM.
+//   [[hang-keepalive]] stall but keep emitting non-progress SSE events.
 //   [[crash-mid-turn]] exit 1 after the turn starts.
 //   [[garbage]] return a non-JSON HTTP response body.
 //   [[usage:IN,OUT]] / [[usage2:IN,OUT]] token numbers for turn 1/2 (usageN works).
@@ -233,6 +234,18 @@ function run(http, fs, path, crypto) {
     }
 
     if (process.env.FAKE_OPENCODE_HANG === "1" || flag(prompt, "hang")) return;
+
+    // Stall the turn (never settle) while emitting non-progress keepalive
+    // events — mirrors opencode 1.17.x keeping the SSE connection warm during
+    // a provider stall. A naive idle watchdog that resets on ANY event never
+    // fires; a correct one resets only on token deltas / usage.
+    if (flag(prompt, "hang-keepalive")) {
+      const beat = setInterval(function () {
+        event("session.updated", { info: { id: session.id } });
+      }, 100);
+      beat.unref();
+      return;
+    }
 
     const settle = function () {
       const systemError = expectedSystemError(prompt, payload);

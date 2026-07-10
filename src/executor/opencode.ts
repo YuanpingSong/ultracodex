@@ -602,14 +602,18 @@ export class OpencodeExecutor implements Executor {
     let lastActivity = Date.now();
     const onEvent = (event: unknown) => {
       if (!isRecord(event) || !isRecord(event["properties"])) return;
-      lastActivity = Date.now();
       const type = event["type"];
       const properties = event["properties"];
       if (type === "message.part.delta" && typeof properties["delta"] === "string") {
+        // Only genuine progress (token deltas) resets the idle clock — NOT
+        // opencode's keepalive/session events, which otherwise keep a stalled
+        // turn's connection warm forever and defeat the watchdog.
+        lastActivity = Date.now();
         ctx.onActivity({ kind: "status", text: properties["delta"] });
         return;
       }
       if (type !== "message.updated" || !isRecord(properties["info"])) return;
+      lastActivity = Date.now();
       const tick = usageFromTokens(properties["info"]["tokens"]);
       emitUsage(addUsage(liveBase, tick));
     };
