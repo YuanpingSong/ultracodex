@@ -117,7 +117,7 @@ ultracodex schedule add nightly --daily 18:30 --until-done --budget 500k -- run 
 
 ## Orgs
 
-**Orgs scale what agents remember.**
+**Orgs scale what agents remember.** This pillar ships as **experimental** — the runtime is tested and the acceptance org is real, but the discipline is young; supervise early cycles.
 
 One analyst can't cover five hundred stocks. A research desk can: one analyst per name, each keeping their own notes, each writing a one-page brief their lead actually reads. An org is that desk, built from agents.
 
@@ -163,7 +163,7 @@ ultracodex pause|resume|skip|kill <ref>         live controls
 ultracodex logs <ref> [n]         raw runner / per-agent event logs
 ultracodex validate <script>      dual-runnability lint (--strict = portable subset)
 ultracodex schedule add|ls|pause|resume|rm      recurring runs via owned crontab lines
-ultracodex org init|tick|status|send|ask|audit|replay|lint   the org runtime
+ultracodex org init|tick|status|send|ask|audit|replay|lint   the org runtime (experimental)
 ultracodex sync-skills            static + per-workflow skills → .claude/skills/
 ultracodex doctor                 env, auth, execution profile, schedules, interactive-config divergences
 ```

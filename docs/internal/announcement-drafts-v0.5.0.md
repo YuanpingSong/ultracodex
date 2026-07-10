@@ -43,9 +43,11 @@ committed.
 Honest trade-offs: each agent boots its own Codex app-server, so per-agent
 latency is higher than upstream subagents — the point is whose meter
 runs, not speed. Pre-1.0; the app-server protocol is experimental and
-version-pinned (`doctor` reports drift). The org runtime is the newest
-surface — its acceptance test was an org watching this repo's own
-dependency tree, and that org's briefs are in the repo history.
+version-pinned (`doctor` reports drift). The org pillar ships explicitly
+experimental — the runtime is tested end to end and its acceptance test
+was an org watching this repo's own dependency tree (that org's briefs
+are in the repo history), but the discipline is young and I expect it to
+evolve with feedback.
 
 https://github.com/YuanpingSong/ultracodex · npm: `ultracodex`
 
@@ -87,7 +89,7 @@ Orgs: one analyst can't cover 500 stocks. A research desk can — one
 analyst per name, each keeping notes, each writing a one-page brief their
 lead actually reads. `ultracodex org init` builds that desk from agents.
 Memory that compounds, audits that check citations, replay with fault
-injection.
+injection. Shipping it experimental — the newest pillar, feedback wanted.
 
 **6/**
 It builds itself: every feature in v0.5.0 was built by ultracodex fleets
@@ -159,7 +161,8 @@ fleet runs, 72 agents, 1.26M output tokens, all on Codex.
 **Honest limitations:** per-agent latency is higher than native subagents
 (each agent boots a codex app-server — the trade is whose meter runs);
 pre-1.0 and pinned against codex-cli 0.144.0 (doctor reports drift); the
-org pillar is the newest surface.
+org pillar ships explicitly experimental — the runtime is tested, the
+discipline is young, and it will evolve with feedback.
 
 Apache-2.0. Would love feedback — especially from anyone who tries the
 org runtime on a domain that isn't code.

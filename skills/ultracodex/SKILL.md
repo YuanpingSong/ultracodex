@@ -1,9 +1,21 @@
 ---
 name: ultracodex
-description: Author and run multi-agent Agent Script workflows on the OpenAI Codex CLI via the ultracodex runner. Use when the user asks to run a workflow with ultracodex, orchestrate parallel agents, fan-outs, pipelines, or actor-critic / builder-verifier loops, or to offload multi-agent execution from Claude to Codex.
+description: Author and run multi-agent Agent Script workflows on the OpenAI Codex CLI (and OpenCode) via the ultracodex runner. Use when the user asks to run a workflow with ultracodex, orchestrate parallel agents, fan-outs, pipelines, or builder-verifier loops, to schedule recurring agent runs, to stand up an agent org, or to offload multi-agent execution from Claude to Codex.
 ---
 
-ultracodex executes Claude Code Workflow-tool scripts unmodified, routing each `agent()` call to an OpenAI Codex session. This file is the complete contract — assume the `ultracodex` binary is installed and authenticated; do NOT explore the CLI with --help, inspect the repo, or run doctor first (only run `ultracodex doctor` if a command fails unexpectedly).
+ultracodex executes Claude Code Workflow-tool scripts unmodified, routing each `agent()` call to an OpenAI Codex (or OpenCode) session. This file is the complete contract — assume the `ultracodex` binary is installed and authenticated; do NOT explore the CLI with --help, inspect the repo, or run doctor first (only run `ultracodex doctor` if a command fails unexpectedly).
+
+## Choosing the shape
+
+**Default to authoring a workflow.** The other shapes exist, and you should reach for them ONLY when the user's own words ask for what they do — recurrence, a packaged loop by intent, a standing org. When in doubt: a workflow.
+
+| the user asks for | reach for |
+|---|---|
+| a task done — build, review, research, migrate | **author a workflow** (the default, including loop-shaped ones) |
+| "keep iterating until it's good/passes", no bespoke roles | `ultracodex run goal` (packaged builder-verifier) |
+| "find all X", exhaustive discovery | `ultracodex run loop` (packaged until-dry) |
+| "every night / every 30m / keep it running on a schedule" | `ultracodex schedule add` wrapping a run |
+| standing coverage of many subjects with memory that compounds | an org — **experimental**; only on explicit request |
 
 ## Authoring
 
@@ -14,7 +26,7 @@ Format reference, in priority order: if the **Workflow tool's definition is in y
 ## Running
 
 ```bash
-ultracodex run <file> --json [--budget 500k] [--args '<json>']
+ultracodex run <file-or-name> --json [--budget 500k] [--args '<json>']
 ```
 
 - Blocks until the run completes; stdout is the result JSON (the script body's return value). Non-zero exit = the run failed.
@@ -22,6 +34,30 @@ ultracodex run <file> --json [--budget 500k] [--args '<json>']
 - Model/backend routing lives in `.ultracodex/config.toml`, never in the script.
 - Optional pre-check: `ultracodex validate <file> --strict`. Fix ERRORS; WARNINGS are non-blocking — do not rewrite a working script just to silence a warning.
 - The human can watch live with `ultracodex ls` / `attach <runId>` — you do not need to poll.
+
+## Packaged loops
+
+Two workflows ship in the package and resolve by name:
+
+```bash
+ultracodex run goal --json --budget 300k --args '{"task":"...","criteria":"explicit, verifier-checkable"}'
+ultracodex run loop --json --budget 300k --args '{"find":"what to find each round","verify":"optional adversarial check"}'
+```
+
+`goal` runs builder rounds gated by a skeptical verifier until the criteria hold (also: `maxRounds`, `context`, `builderModel`/`verifierModel`). `loop` runs discovery rounds until nothing fresh appears (`dryRounds`, `maxRounds`, `dedupBy`). Both return `{ done: ... }` — and any workflow that returns `{ done: true }` composes with scheduled `--until-done` runs.
+
+## Scheduling
+
+```bash
+ultracodex schedule add <name> (--every 30m | --daily 18:30) --budget 200k -- run <workflow> [--args '<json>']
+ultracodex schedule ls | pause <name> | resume <name> | rm <name>
+```
+
+One tagged crontab line per schedule, fully owned; there is no daemon. ALWAYS pass `--budget` on scheduled runs — an unattended loop with no ceiling can drain the user's quota (the CLI warns if you omit it). `--until-done` retires the schedule when the run returns `{ done: true }`; `--max-runs N` caps repetition.
+
+## Orgs (experimental)
+
+An org is a directory tree of agents with durable memory — one seat per subject, inboxes, tickets, briefs rolling up the tree — ticked by `ultracodex org tick`. Day-2 verbs: `org status --json`, `org ask <seat> "<question>"` (read-only fork), `org lint`, `org audit`, `org replay`. To design one, use the **org-creation** skill (installed alongside this one). Treat the whole pillar as experimental: interfaces and disciplines are young, so set expectations with the user and supervise early cycles rather than scheduling them unattended.
 
 ## Results
 

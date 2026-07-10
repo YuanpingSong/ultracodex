@@ -35,7 +35,7 @@ unit now runs once, runs until good, and runs forever.
 - `ULTRACODEX_CRONTAB_FILE` makes every schedule operation testable
   against a file instead of your real crontab.
 
-## Orgs
+## Orgs (experimental)
 
 - `ultracodex org init|tick|wake|send|ask|tickets|lint|status|audit|replay`
   — filesystem-routed agent organizations. Each agent is a directory
@@ -51,7 +51,9 @@ unit now runs once, runs until good, and runs forever.
   findings as inbox notifies (agents self-correct next tick); `org replay`
   re-lives ingested history with fault injection (`--pristine` for true
   counterfactuals).
-- The **org-creation skill** designs an org with you — coverage, role
+- Orgs ship as **experimental**: the runtime is tested end to end, and the
+  discipline is young — supervise early cycles. The **org-creation skill**
+  designs an org with you — coverage, role
   templates, fetcher contract, audit cadence. An Org home tab renders the
   live tree, an ops board, and a briefs reader.
 

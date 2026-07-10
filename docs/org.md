@@ -1,5 +1,9 @@
 # Org runtime
 
+> **Experimental.** The runtime is tested and the shipped example org is
+> real, but this is the newest pillar and the discipline is young —
+> interfaces and defaults may change, and early cycles deserve supervision.
+
 Orgs scale what agents remember — the state axis of agent work. An org does
 not answer context limits with a bigger window; it **shards context into many
 windows** with a disciplined interface between them: each seat is an agent
