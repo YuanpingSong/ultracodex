@@ -199,6 +199,16 @@ The agent is the unit of programming here: `agent()` is a call with a typed, val
 
 Deeper reading: [docs/loops.md](docs/loops.md) · [docs/schedule.md](docs/schedule.md) · [docs/org.md](docs/org.md) · [docs/architecture.md](docs/architecture.md) · [docs/operations.md](docs/operations.md) · [docs/skills.md](docs/skills.md) · [docs/agent-script-spec.md](docs/agent-script-spec.md) · [docs/executor-contract.md](docs/executor-contract.md) (write your own backend).
 
+## Sandboxing & trust
+
+Agents ship with safe defaults, and how strongly those defaults are *enforced* depends on the backend. Codex is the only one with an OS-level sandbox; Claude and OpenCode fall back to capability limits, which is why the three sit on a ladder.
+
+- **Codex** — an OS sandbox (macOS Seatbelt) enforces confinement below the agent. The default is `workspace-write` with **no network and approvals auto-denied**: writes stay in the project, reads are unrestricted, no egress. This holds even against a prompt-injected agent, because the boundary is the kernel rather than the model. Escalate deliberately in config (`network_access`, then `danger-full-access`) — each step is opt-in and warned.
+- **Claude** — no OS sandbox, so containment moves up to the tool allowlist. The default (`--allowedTools Read Glob Grep`) hands the agent read-only tools, so a Claude-routed agent can only read out of the box. Widen the allowlist to let it write or run shell, and it runs as your user with no OS confinement.
+- **OpenCode** — no OS sandbox and no approval gate: headless execution runs tools including shell, has network, and inherits the MCP servers from your opencode config. Treat every OpenCode route as running as yourself.
+
+The rule that follows: route work you'd be comfortable running yourself to Claude or OpenCode, and keep untrusted-content ingestion — fetched docs, third-party repos — on Codex's sandbox. `ultracodex doctor` prints each backend's real posture, and the engine journals a warning whenever a script requests a sandbox tier a backend cannot honor, so the gap between what a script asks for and what a backend enforces is always visible. Full escalation ladder and the exfiltration note: [docs/operations.md](docs/operations.md).
+
 ## Status
 
 Current release: **v0.5.0** — workflows, loops, the scheduler, and orgs, in one package. 600 hermetic tests; pinned against codex-cli 0.144.0 (gpt-5.6) and opencode 1.17.18; `ultracodex doctor` reports drift with next steps.
