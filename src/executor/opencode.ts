@@ -484,9 +484,11 @@ class OpencodeServe {
   }
 
   private async fetchRequest(method: string, path: string, body?: unknown): Promise<JsonResponse> {
-    // node:http with timeouts disabled — global fetch (undici) enforces a
-    // 300s headers timeout, which kills long provider turns (observed:
-    // uniform ~5.1m deaths on long reasoning turns).
+    // node:http with a generous FINITE timeout. Global fetch (undici)
+    // enforces 300s and killed long provider turns; no timeout at all
+    // produced indefinite hangs on turns that never return. Default 30min,
+    // overridable for pathological providers.
+    const timeoutMs = Number(process.env.ULTRACODEX_OPENCODE_TURN_TIMEOUT_MS) || 1_800_000;
     const { status, text } = await new Promise<{ status: number; text: string }>((resolve, reject) => {
       const req = http.request(`${this.baseUrl}${path}`, {
         method,
@@ -498,7 +500,9 @@ class OpencodeServe {
         res.on("end", () => resolve({ status: res.statusCode ?? 0, text: data }));
         res.on("error", reject);
       });
-      req.setTimeout(0);
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(err("OpencodeProtocolError", `request timed out after ${timeoutMs}ms: ${path}`));
+      });
       req.on("error", reject);
       req.end(body === undefined ? undefined : JSON.stringify(body));
     });
