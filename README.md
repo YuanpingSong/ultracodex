@@ -11,6 +11,11 @@
 [![npm](https://img.shields.io/npm/v/ultracodex)](https://www.npmjs.com/package/ultracodex)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
+<p align="center">
+  <img src="covers/ultracodex-cover.png" alt="ultracodex — one agent(), four pillars: Workflow, Loop, Scheduler, Org" width="49%">
+  <img src="covers/ultracodex-axes.png" alt="one agent, three axes of scale — Workflow (space), Loop (time), Org (state)" width="49%">
+</p>
+
 **Run Claude Code workflow scripts, unmodified, on your Codex subscription — and on OpenCode.** Then go further than running them: **loop** them until a skeptical verifier approves, **schedule** them with cron doing the waking, or stand up a permanent **organization** of agents that remembers. Your Claude session writes the script and reads the verified result; the heavy lifting lands on the subscription you aren't rationing.
 
 The idea underneath: the **agent is a unit of programming**. You write ordinary JavaScript and call an agent like a function — `await agent(prompt, { schema })` hands back a structured result. ultracodex abstracts the backend away, so one script runs on any of the three it supports: Codex, Claude, or OpenCode. Workflows, loops, schedules, and orgs are what you build once the agent is something you can program with.
