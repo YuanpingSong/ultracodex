@@ -12,8 +12,8 @@
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 <p align="center">
-  <img src="covers/ultracodex-cover.png" alt="ultracodex — one agent(), four pillars: Workflow, Loop, Scheduler, Org" width="49%">
-  <img src="covers/ultracodex-axes.png" alt="one agent, three axes of scale — Workflow (space), Loop (time), Org (state)" width="49%">
+  <img src="covers/ultracodex-cover.jpg" alt="ultracodex — one agent(), four pillars: Workflow, Loop, Scheduler, Org" width="49%">
+  <img src="covers/ultracodex-axes.jpg" alt="one agent, three axes of scale — Workflow (space), Loop (time), Org (state)" width="49%">
 </p>
 
 **Run Claude Code workflow scripts, unmodified, on your Codex subscription — and on OpenCode.** Then go further than running them: **loop** them until a skeptical verifier approves, **schedule** them with cron doing the waking, or stand up a permanent **organization** of agents that remembers. Your Claude session writes the script and reads the verified result; the heavy lifting lands on the subscription you aren't rationing.
