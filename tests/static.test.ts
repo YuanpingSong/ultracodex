@@ -840,7 +840,7 @@ describe("status line summary (lightweight doctor)", () => {
     const s = summarizeConfig(DEFAULT_CONFIG);
     expect(s.ok).toBe(true);
     expect(s.backend).toBe("codex");
-    expect(s.model).toBe("gpt-5.6-sol");
+    expect(s.model).toBe("gpt-6-astra");
     expect(s.extraBackends).toEqual([]);
   });
 
@@ -855,7 +855,7 @@ describe("status line summary (lightweight doctor)", () => {
     };
     const s = summarizeConfig(cfg);
     expect(s.backend).toBe("codex");
-    expect(s.model).toBe("gpt-5.6-sol");
+    expect(s.model).toBe("gpt-6-astra");
     expect(s.extraBackends).toEqual(["claude", "opencode"]);
   });
 

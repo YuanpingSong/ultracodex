@@ -248,7 +248,7 @@ describe("agent()", () => {
     const s = starts(runDir);
     expect(s[0]!.backend).toBe("claude");
     expect(s[1]!.backend).toBe("codex");
-    expect(s[1]!.model).toBe("gpt-5.6-sol"); // opus mapped via codex modelMap
+    expect(s[1]!.model).toBe("gpt-6-astra"); // opus mapped via codex modelMap
     expect(s[1]!.effort).toBe("max"); // max is native on codex ≥0.144 (identity map)
     expect(s[2]!.model).toBe("my-model"); // unknown tier passes through
     // no opts.model → journal records the backend default that will actually run

@@ -51,20 +51,21 @@ export const AGENTS_DIR = "agents";
 export const RUNNER_LOG_FILE = "runner.log";
 
 /**
- * Model map decided against the live lineup (probe 2026-07-09, codex 0.144):
- * gpt-5.6-sol (default, frontier), gpt-5.6-terra (balanced),
- * gpt-5.6-luna (fast). Efforts low|medium|high|xhigh|max|ultra are all
- * native on 0.144 — live-probed end to end, including ultra.
+ * Model map decided against the live lineup (probe 2026-09-07, codex 0.153.4):
+ * gpt-6-astra (default, frontier engineer — verified in the installed binary),
+ * gpt-5.6-terra (balanced), gpt-5.6-luna (fast). The balanced/fast tiers stay
+ * on the 5.6 lineup until GPT-6's lower tiers are confirmed present. Efforts
+ * low|medium|high|xhigh|max|ultra are all native.
  */
 export const DEFAULT_CODEX_CONFIG: CodexBackendConfig = {
   binary: "codex",
   sandbox: "workspace-write",
-  // codex's own default (model/list isDefault) — matches upstream "inherit
-  // the main-loop model" semantics for agents that don't pin a tier.
-  defaultModel: "gpt-5.6-sol",
+  // Frontier engineer tier. Agents that don't pin a tier inherit this; workflow
+  // dev-work subagents pin `fable`, so both resolve to gpt-6-astra.
+  defaultModel: "gpt-6-astra",
   modelMap: {
-    fable: "gpt-5.6-sol",
-    opus: "gpt-5.6-sol",
+    fable: "gpt-6-astra",
+    opus: "gpt-6-astra",
     sonnet: "gpt-5.6-terra",
     haiku: "gpt-5.6-luna",
     spark: "gpt-5.6-luna",
