@@ -1,4 +1,5 @@
 import os from "node:os";
+import { CLOSE_GRACE_MS } from "./appserver/client.js";
 import type {
   CodexBackendConfig,
   ClaudeBackendConfig,
@@ -32,6 +33,9 @@ export const DEFAULT_SCHEMA_RETRIES = 3;
 // Graceful shutdown: turn/interrupt → SIGTERM → SIGKILL.
 export const INTERRUPT_GRACE_MS = 5_000;
 export const SIGTERM_GRACE_MS = 5_000;
+// Abort first drains the turn, then client.close() waits before killing and
+// confirming exit. Leave 3s for exit delivery and scheduling beyond both graces.
+export const TEARDOWN_HARD_DEADLINE_MS = INTERRUPT_GRACE_MS + CLOSE_GRACE_MS + 3_000;
 
 export const RUN_ID_PREFIX = "uc_";
 

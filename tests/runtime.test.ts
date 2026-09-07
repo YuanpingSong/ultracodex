@@ -1,13 +1,16 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRuntime } from "../src/runtime.js";
 import { ClaudeExecutor } from "../src/executor/claude.js";
+import { CodexExecutor } from "../src/executor/codex.js";
+import { pidAlive } from "../src/rundir.js";
+import { fakeCodexPath } from "./helpers.js";
 import type { RuntimeDeps } from "../src/runtime.js";
 import { JournalWriter, readJournal } from "../src/journal.js";
 import { sha256Hex } from "../src/ids.js";
-import { ACTIVITY_TEXT_MAX, DEFAULT_CONFIG } from "../src/constants.js";
+import { ACTIVITY_TEXT_MAX, DEFAULT_CONFIG, TEARDOWN_HARD_DEADLINE_MS } from "../src/constants.js";
 import type {
   AgentEndEvent,
   AgentStartEvent,
@@ -34,6 +37,8 @@ const CAPABILITIES: CapabilityDescriptor = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   for (const j of journals.splice(0)) {
     try { j.close(); } catch {}
   }
@@ -740,6 +745,107 @@ fs.writeFileSync(${JSON.stringify(ready)}, "ready");
     await until(() => calls.length === 2); // slot freed only after settlement
     calls[1]!.resolve({ ok: true, text: "second", usage: usage(1) });
     expect(await p2).toBe("second");
+  });
+
+  it("keeps the slot until a codex ignoring interrupt and stdin EOF is confirmed dead", async () => {
+    const config = structuredClone(DEFAULT_CONFIG);
+    config.codex.binary = fakeCodexPath();
+    const codex = new CodexExecutor(config.codex, config.profiles);
+    let pid = 0;
+    let aliveAtNextStart: boolean | undefined;
+    let aliveAtEnd: boolean | undefined;
+    const executions: Promise<ExecutorResult>[] = [];
+    const executor: Executor = {
+      backend: codex.backend,
+      capabilities: codex.capabilities,
+      run(req, ctx) {
+        if (req.label === "B") aliveAtNextStart = pidAlive(pid);
+        const p = codex.run(req, ctx);
+        executions.push(p);
+        return p;
+      },
+    };
+    const { g, controller, runDir, journal } = makeRuntime({ executor, config, concurrency: 1 });
+    const append = journal.append.bind(journal);
+    vi.spyOn(journal, "append").mockImplementation((event) => {
+      if (event.t === "agent_end" && event.n === 1) aliveAtEnd = pidAlive(pid);
+      append(event);
+    });
+    const probe = path.join(runDir, "stubborn.pid");
+    const a = g.agent(`[[stubborn:${probe}]]`, { label: "A" });
+    const b = g.agent("[[reply:second]]", { label: "B" });
+    try {
+      await until(() => fs.existsSync(probe));
+      pid = Number(fs.readFileSync(probe, "utf8"));
+      const abortedAt = Date.now();
+      controller.skip(1);
+      await until(() => fs.existsSync(probe + ".interrupted"));
+      // The old 5s outer wait expired just as the inner 2s close began.
+      await until(() => fs.existsSync(probe + ".stdin-closed"), TEARDOWN_HARD_DEADLINE_MS);
+      expect(pidAlive(pid)).toBe(true);
+      expect(ends(runDir)).toHaveLength(0);
+      expect(starts(runDir).map((e) => e.label)).toEqual(["A"]);
+      expect(aliveAtNextStart).toBeUndefined();
+
+      expect(await a).toBeNull();
+      expect(Date.now() - abortedAt).toBeLessThan(TEARDOWN_HARD_DEADLINE_MS);
+      expect(await b).toBe("second");
+      expect(aliveAtEnd).toBe(false);
+      expect(aliveAtNextStart).toBe(false);
+      expect(pidAlive(pid)).toBe(false);
+      expect(readJournal(runDir).filter((e) => e.t === "warn")).toEqual([]);
+      const events = readJournal(runDir);
+      expect(events.findIndex((e) => e.t === "agent_start" && e.n === 2))
+        .toBeGreaterThan(events.findIndex((e) => e.t === "agent_end" && e.n === 1));
+    } finally {
+      controller.stop();
+      if (pid && pidAlive(pid)) process.kill(pid, "SIGKILL");
+      await Promise.all([a, b, ...executions]);
+    }
+  });
+
+  it("warns and releases the slot at the hard deadline if the executor never settles", async () => {
+    const { executor, calls } = deferredExecutor();
+    const { g, controller, runDir } = makeRuntime({ executor, concurrency: 1 });
+    const a = g.agent("stuck", { label: "A" });
+    const b = g.agent("next", { label: "B" });
+    await until(() => calls.length === 1);
+    calls[0]!.ctx.onUsage(usage(3));
+    vi.useFakeTimers();
+    controller.skip(1);
+    await vi.advanceTimersByTimeAsync(TEARDOWN_HARD_DEADLINE_MS - 1);
+    expect(ends(runDir)).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await a).toBeNull();
+    expect(calls).toHaveLength(2);
+    expect(ends(runDir)[0]).toMatchObject({ status: "skipped", usage: usage(3) });
+    const warning = readJournal(runDir).find((e) => e.t === "warn");
+    expect(warning).toMatchObject({
+      text: expect.stringMatching(/agent 1.*A.*teardown.*10000ms.*process may still be alive/),
+    });
+    calls[1]!.resolve({ ok: true, text: "second", usage: usage(1) });
+    expect(await b).toBe("second");
+    // An eventual late settlement must not alter the frozen interrupted usage.
+    calls[0]!.resolve({ ok: false, error: "interrupted", usage: usage(99) });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(g.budget.spent()).toBe(4);
+  });
+
+  it("retains interrupted final usage when settlement takes longer than interrupt grace", async () => {
+    const { executor, calls } = deferredExecutor();
+    const { g, controller, runDir } = makeRuntime({ executor });
+    const p = g.agent("slow teardown");
+    await until(() => calls.length === 1);
+    vi.useFakeTimers();
+    controller.skip(1);
+    await vi.advanceTimersByTimeAsync(7_000);
+    expect(ends(runDir)).toHaveLength(0);
+    calls[0]!.resolve({ ok: false, error: "interrupted", usage: usage(17, 31) });
+    expect(await p).toBeNull();
+    expect(ends(runDir)[0]).toMatchObject({ status: "skipped", usage: usage(17, 31) });
+    expect(controller.totals().usage["codex"]).toEqual(usage(17, 31));
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("drops activity/usage arriving after agent_end (no journal events past the end)", async () => {

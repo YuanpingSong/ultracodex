@@ -15,6 +15,8 @@
 //   [[collab-twice]] same child runs two turns; second drains another 400ms later.
 //   [[stall-start]]  emit start notifications but never answer turn/start.
 //   [[silent]]       accept turn/start, then emit nothing more.
+//   [[stubborn:PATH]] ignore interrupt and stdin EOF until killed; write the PID
+//                    to PATH and markers PATH.interrupted / PATH.stdin-closed.
 //   [[no-turn-completed]]  suppress the main turn/completed (inference path).
 //   [[expect-prompt:TEXT]] fail unless TEXT appears outside fake directives.
 //   [[expect-no-output-schema]] fail if turn/start carries outputSchema.
@@ -44,6 +46,8 @@ const LOGGED_OUT = process.env.FAKE_CODEX_LOGGED_OUT === "1";
 const CRASH_MID_TURN = process.env.FAKE_CODEX_CRASH_MID_TURN === "1";
 const STALL_THREAD_START = process.env.FAKE_CODEX_STALL_THREAD_START === "1";
 const REPLY_FS = process.env.FAKE_CODEX_REPLY_FILE ? await import("node:fs") : null;
+const probeFs = await import("node:fs");
+let stubbornProbe = null;
 
 if (process.env.FAKE_CODEX_ORPHAN_CHILD === "1") {
   // A long-lived child in the SAME process group: survives the leader's death
@@ -272,6 +276,13 @@ function handleTurnStart(msg) {
   send({ method: "turn/started", params: { threadId: t.id, turn: turnObj(turnId, "inProgress", { startedAt: startedAt }) } });
   if (flag(prompt, "stall-start")) return;
   send({ id: msg.id, result: { turn: turnObj(turnId, "inProgress") } });
+  const probe = directive(prompt, "stubborn");
+  if (probe !== null) {
+    stubbornProbe = probe;
+    setInterval(() => {}, 1000); // keep living even after stdin closes
+    probeFs.writeFileSync(probe, String(process.pid));
+    return;
+  }
   if (flag(prompt, "silent")) return;
 
   if (CRASH_MID_TURN) {
@@ -525,6 +536,11 @@ function handleTurnStart(msg) {
 }
 
 function handleInterrupt(msg) {
+  if (stubbornProbe !== null) {
+    probeFs.writeFileSync(stubbornProbe + ".interrupted", "");
+    send({ id: msg.id, result: {} }); // acknowledge without completing the turn
+    return;
+  }
   const p = msg.params || {};
   const active = activeTurns.get(p.turnId);
   if (active) {
@@ -639,4 +655,10 @@ process.stdin.on("data", (chunk) => {
     i = buf.indexOf("\n");
   }
 });
-process.stdin.on("end", () => process.exit(0));
+process.stdin.on("end", () => {
+  if (stubbornProbe !== null) {
+    probeFs.writeFileSync(stubbornProbe + ".stdin-closed", "");
+  } else {
+    process.exit(0);
+  }
+});

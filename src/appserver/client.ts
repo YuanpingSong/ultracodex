@@ -28,7 +28,7 @@ const OPT_OUT_NOTIFICATION_METHODS = [
   "item/reasoning/textDelta",
 ];
 
-const CLOSE_GRACE_MS = 2_000;
+export const CLOSE_GRACE_MS = 2_000;
 
 function refusalResult(method: string): unknown {
   switch (method) {

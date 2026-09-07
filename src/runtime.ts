@@ -4,8 +4,8 @@ import {
   ACTIVITY_TEXT_MAX,
   ACTIVITY_THROTTLE_MS,
   FANOUT_ITEM_CAP,
-  INTERRUPT_GRACE_MS,
   LIFETIME_AGENT_CAP,
+  TEARDOWN_HARD_DEADLINE_MS,
 } from "./constants.js";
 import { resolveClaudeModel, resolveCodexEffort, resolveCodexModel, routeBackend } from "./config.js";
 import { sha256Hex } from "./ids.js";
@@ -429,10 +429,26 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       let interruptedResult: ExecutorResult | void = undefined;
       if (ac.signal.aborted) outcome = ABORTED;
       if (outcome === ABORTED) {
-        // The executor handles the AbortSignal (interrupt → kill) and settles.
-        // Wait (bounded) for that settlement so we never tear down the
-        // worktree or free the concurrency slot under a live process.
-        interruptedResult = await Promise.race([runP, sleep(INTERRUPT_GRACE_MS)]);
+        // runP includes client.close() and confirmed process exit. Hold the
+        // worktree and slot through both inner graces, bounded against a hang.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          interruptedResult = await Promise.race([
+            runP,
+            new Promise<void>((resolve) => {
+              timer = setTimeout(resolve, TEARDOWN_HARD_DEADLINE_MS);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+        if (interruptedResult === undefined) {
+          journal.append({
+            t: "warn",
+            ts: Date.now(),
+            text: `agent ${n} (${label}): teardown exceeded ${TEARDOWN_HARD_DEADLINE_MS}ms; process may still be alive`,
+          });
+        }
       }
 
       let worktreePath: string | undefined;
@@ -632,13 +648,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => {
-    const t = setTimeout(r, ms);
-    t.unref?.();
-  });
 }
 
 function yieldMacrotask(): Promise<void> {

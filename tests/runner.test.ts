@@ -1,10 +1,14 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runnerMain } from "../src/runner.js";
 import { readJournal } from "../src/journal.js";
-import { createRunDir } from "../src/rundir.js";
+import { createRunDir, pidAlive } from "../src/rundir.js";
+import * as rundir from "../src/rundir.js";
+import { appendControl } from "../src/control.js";
+import { SIGTERM_GRACE_MS, TEARDOWN_HARD_DEADLINE_MS } from "../src/constants.js";
+import { CodexExecutor } from "../src/executor/codex.js";
 import { newRunId } from "../src/ids.js";
 import { fakeCodexPath } from "./helpers.js";
 import type {
@@ -19,6 +23,8 @@ import type {
 const dirs: string[] = [];
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   for (const d of dirs.splice(0)) {
     try {
       fs.rmSync(d, { recursive: true, force: true });
@@ -76,6 +82,14 @@ function lastEvent(runDir: string): RunEndEvent {
   const last = events.at(-1)!;
   expect(last.t).toBe("run_end");
   return last as RunEndEvent;
+}
+
+async function until(cond: () => boolean, timeoutMs = TEARDOWN_HARD_DEADLINE_MS): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond()) {
+    if (Date.now() >= deadline) throw new Error("until(): timed out");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 describe("runnerMain end-to-end", () => {
@@ -154,6 +168,69 @@ return 1
 });
 
 describe("runnerMain control", () => {
+  it("still finishes at the hard deadline with a warning when an executor never settles", async () => {
+    vi.spyOn(CodexExecutor.prototype, "run").mockImplementation(() => new Promise(() => {}));
+    const { runDir } = setupRun(`export const meta = { name: 'stuck', description: 'hard bound' }
+return await agent('never settles', { label: 'A' })
+`);
+    vi.useFakeTimers();
+    let returned = false;
+    const running = runnerMain(runDir).then(() => { returned = true; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(CodexExecutor.prototype.run).toHaveBeenCalledOnce();
+    process.emit("SIGTERM");
+    await vi.advanceTimersByTimeAsync(TEARDOWN_HARD_DEADLINE_MS - 1);
+    expect(returned).toBe(false);
+    expect(readJournal(runDir).some((e) => e.t === "run_end")).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await running;
+    const events = readJournal(runDir);
+    expect(events.find((e) => e.t === "warn" && e.text.includes("teardown")))
+      .toMatchObject({ text: expect.stringContaining("agent 1 (A)") });
+    expect(lastEvent(runDir)).toMatchObject({ status: "stopped", totals: { skipped: 1 } });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("drains a stopped agent through interrupt grace and forced close before returning", async () => {
+    const script = `export const meta = { name: 'stubborn', description: 'slow teardown' }
+return await agent('[[stubborn:' + args.probe + ']]', { label: 'A' })
+`;
+    const { runDir } = setupRun(script);
+    const probe = path.join(runDir, "stubborn.pid");
+    const optionsPath = path.join(runDir, "options.json");
+    const options = JSON.parse(fs.readFileSync(optionsPath, "utf8")) as RunOptions;
+    options.argsPath = "args.json";
+    fs.writeFileSync(optionsPath, JSON.stringify(options));
+    fs.writeFileSync(path.join(runDir, "args.json"), JSON.stringify({ probe }));
+    let returned = false;
+    const running = runnerMain(runDir).then(() => { returned = true; });
+    let pid = 0;
+    try {
+      await until(() => fs.existsSync(probe));
+      pid = Number(fs.readFileSync(probe, "utf8"));
+      appendControl(runDir, { cmd: "stop" });
+      await until(() => fs.existsSync(probe + ".interrupted"));
+      const interruptedAt = Date.now();
+      await until(() => fs.existsSync(probe + ".stdin-closed"));
+      // Stdin EOF occurs after 5s; the process still needs the 2s close grace.
+      expect(pidAlive(pid)).toBe(true);
+      expect(returned).toBe(false);
+      expect(readJournal(runDir).some((e) => e.t === "run_end")).toBe(false);
+      expect(fs.existsSync(path.join(runDir, "pid"))).toBe(true);
+      await running;
+      expect(Date.now() - interruptedAt).toBeLessThan(TEARDOWN_HARD_DEADLINE_MS);
+      expect(pidAlive(pid)).toBe(false);
+      const events = readJournal(runDir);
+      expect(events.find((e) => e.t === "agent_end")).toMatchObject({ n: 1, status: "skipped" });
+      expect(lastEvent(runDir)).toMatchObject({ status: "stopped", totals: { skipped: 1 } });
+      expect(fs.existsSync(path.join(runDir, "pid"))).toBe(false);
+    } finally {
+      appendControl(runDir, { cmd: "stop" });
+      if (pid && pidAlive(pid)) process.kill(pid, "SIGKILL");
+      await running;
+    }
+  });
+
   it("pre-written stop command → run_end stopped quickly, no result.json", async () => {
     const script = `export const meta = { name: 'slowpoke', description: 'slow agent' }
 const r = await agent('sleep [[slow:3000]]', { label: 'sleeper' })
@@ -169,6 +246,43 @@ return r
     expect(end.resultRef).toBeNull();
     expect(fs.existsSync(path.join(runDir, "result.json"))).toBe(false);
     expect(fs.existsSync(path.join(runDir, "pid"))).toBe(false);
+  });
+});
+
+describe("CLI kill drain deadline", () => {
+  it.each([true, false])("allows the full runner drain after SIGTERM, then bounds escalation (runner exits: %s)", async (exits) => {
+    const { buildProgram } = await import("../src/cli.js");
+    const { projectDir, runDir, runId } = setupRun("return null");
+    const pid = 12345;
+    fs.writeFileSync(path.join(runDir, "pid"), String(pid));
+    vi.spyOn(process, "cwd").mockReturnValue(projectDir);
+    vi.spyOn(rundir, "runnerPidAlive").mockReturnValue(true);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    let alive = true;
+    const signals: Array<{ signal: string; ts: number }> = [];
+    vi.spyOn(process, "kill").mockImplementation((target, signal) => {
+      expect(target).toBe(pid);
+      if (!alive) throw new Error("ESRCH");
+      if (typeof signal === "string") signals.push({ signal, ts: Date.now() });
+      return true;
+    });
+    vi.useFakeTimers();
+    const killing = buildProgram().parseAsync(["node", "ultracodex", "kill", runId]);
+    // waitEnded polls at 150ms; 5s control grace ends on the next poll.
+    await vi.advanceTimersByTimeAsync(SIGTERM_GRACE_MS + 100);
+    expect(signals.map((s) => s.signal)).toEqual(["SIGTERM"]);
+    await vi.advanceTimersByTimeAsync(TEARDOWN_HARD_DEADLINE_MS);
+    expect(signals.map((s) => s.signal)).toEqual(["SIGTERM"]);
+    if (exits) alive = false; // runner finished its drain and exits normally
+    await vi.advanceTimersByTimeAsync(SIGTERM_GRACE_MS + 150);
+    await killing;
+    if (exits) {
+      expect(signals.map((s) => s.signal)).toEqual(["SIGTERM"]);
+    } else {
+      expect(signals.map((s) => s.signal)).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(signals[1]!.ts - signals[0]!.ts)
+        .toBe(TEARDOWN_HARD_DEADLINE_MS + SIGTERM_GRACE_MS);
+    }
   });
 });
 

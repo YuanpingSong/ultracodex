@@ -12,6 +12,7 @@ import {
   RUNNER_LOG_FILE,
   SCRIPT_SNAPSHOT,
   SIGTERM_GRACE_MS,
+  TEARDOWN_HARD_DEADLINE_MS,
   TESTED_CODEX_VERSION,
   TESTED_OPENCODE_VERSION,
   defaultConcurrency,
@@ -911,7 +912,9 @@ async function killAction(ref: string): Promise<void> {
   } catch {
     // raced with exit
   }
-  if (await waitEnded(runDir, pid, SIGTERM_GRACE_MS)) {
+  // SIGTERM can initiate the runner's entire drain. Allow that hard deadline
+  // plus the existing signal grace for delivery and run_end finalization.
+  if (await waitEnded(runDir, pid, TEARDOWN_HARD_DEADLINE_MS + SIGTERM_GRACE_MS)) {
     process.stdout.write(`run ${runId} terminated (SIGTERM)\n`);
     return;
   }
