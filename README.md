@@ -39,7 +39,7 @@ Then, in Claude Code, the prompt is just the task:
 Claude authors the workflow, the fleet executes on Codex (watch it live with `ultracodex ls` / `attach <runId>`, or bare `ultracodex` for the TUI), and the verified result lands back in your Claude session.
 
 <a id="driving-from-the-cli"></a>
-Driving from the CLI works the same way. `run` takes a path to any Agent Script you've written, or a packaged workflow by name — the two that ship in the box are `goal` and `loop`:
+Driving from the CLI works the same way. `run` takes a path to any Agent Script you've written, or a packaged workflow by name — `goal` ships in the box:
 
 ```bash
 ultracodex run goal --budget 200k --args '{"task":"Write a limerick about cron jobs.","criteria":"5 lines, AABBA, mentions crontab, actually funny."}'
