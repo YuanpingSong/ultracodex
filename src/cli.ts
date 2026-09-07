@@ -1196,7 +1196,10 @@ async function doctorAction(): Promise<void> {
     try {
       const client = await withTimeout(startP, DOCTOR_PROBE_TIMEOUT_MS, "app-server initialize");
       try {
-        const account = await client.request<{ account: { type?: string; email?: string; planType?: string } | null }>(
+        const account = await client.request<{
+          account: { type?: string; email?: string; planType?: string } | null;
+          requiresOpenaiAuth?: boolean;
+        }>(
           "account/read",
           {},
           { timeoutMs: DOCTOR_PROBE_TIMEOUT_MS },
@@ -1206,6 +1209,7 @@ async function doctorAction(): Promise<void> {
           const who = [account.account.email, account.account.planType].filter(Boolean).join(", ");
           report(true, "auth", `logged in${who ? ` (${who})` : ""}`);
         } else {
+          if (account.requiresOpenaiAuth !== false) hardFail = true;
           report(false, "auth", "logged out", "run `codex login` (or set OPENAI_API_KEY)");
         }
       } finally {
