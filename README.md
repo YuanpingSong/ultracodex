@@ -1,6 +1,5 @@
 <p align="center">
   <a href="#workflows"><b>Workflow</b></a> 🌟
-  <a href="#loops"><b>Loop</b></a> 🌟
   <a href="#scheduler"><b>Scheduler</b></a> 🌟
   <a href="#orgs"><b>Org (experimental)</b></a>
 </p>
@@ -11,16 +10,11 @@
 [![npm](https://img.shields.io/npm/v/ultracodex)](https://www.npmjs.com/package/ultracodex)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-<p align="center">
-  <img src="covers/ultracodex-cover.jpg" alt="ultracodex — one agent(), four pillars: Workflow, Loop, Scheduler, Org" width="49%">
-  <img src="covers/ultracodex-axes.jpg" alt="one agent, three axes of scale — Workflow (space), Loop (time), Org (state)" width="49%">
-</p>
+**Run Claude Code workflow scripts, unmodified, on your Codex subscription — and on OpenCode.** Then go further than running them: **schedule** them with cron doing the waking, or stand up a permanent **organization** of agents that remembers. Your Claude session writes the script and reads the verified result; the heavy lifting lands on the subscription you aren't rationing.
 
-**Run Claude Code workflow scripts, unmodified, on your Codex subscription — and on OpenCode.** Then go further than running them: **loop** them until a skeptical verifier approves, **schedule** them with cron doing the waking, or stand up a permanent **organization** of agents that remembers. Your Claude session writes the script and reads the verified result; the heavy lifting lands on the subscription you aren't rationing.
+The idea underneath: the **agent is a unit of programming**. You write ordinary JavaScript and call an agent like a function — `await agent(prompt, { schema })` hands back a structured result. ultracodex abstracts the backend away, so one script runs on any of the three it supports: Codex, Claude, or OpenCode. Workflows, schedules, and orgs are what you build once the agent is something you can program with.
 
-The idea underneath: the **agent is a unit of programming**. You write ordinary JavaScript and call an agent like a function — `await agent(prompt, { schema })` hands back a structured result. ultracodex abstracts the backend away, so one script runs on any of the three it supports: Codex, Claude, or OpenCode. Workflows, loops, schedules, and orgs are what you build once the agent is something you can program with.
-
-Getting started is quick because your agent does the learning: a bundled skill teaches your coding agent how to drive ultracodex, so you describe the task and your agent writes and runs the workflow. One command installs it for Claude Code (`ultracodex sync-skills`); [docs/skills.md](docs/skills.md) covers codex, opencode, and any other agent. Given only that skill, a fresh agent ran all four pillars across Codex, Claude, and OpenCode ([the numbers](#status)).
+Getting started is quick because your agent does the learning: a bundled skill teaches your coding agent how to drive ultracodex, so you describe the task and your agent writes and runs the workflow. One command installs it for Claude Code (`ultracodex sync-skills`); [docs/skills.md](docs/skills.md) covers codex, opencode, and any other agent. Given only that skill, a fresh agent ran all three pillars across Codex, Claude, and OpenCode ([the numbers](#status)).
 
 ## Quickstart
 
@@ -39,10 +33,10 @@ Then, in Claude Code, the prompt is just the task:
 Claude authors the workflow, the fleet executes on Codex (watch it live with `ultracodex ls` / `attach <runId>`, or bare `ultracodex` for the TUI), and the verified result lands back in your Claude session.
 
 <a id="driving-from-the-cli"></a>
-Driving from the CLI works the same way. `run` takes a path to any Agent Script you've written, or a packaged workflow by name — `goal` ships in the box:
+Driving from the CLI works the same way. `run` takes a path to any Agent Script you've written, or a saved workflow by name. After saving your script as `workflow.js`:
 
 ```bash
-ultracodex run goal --budget 200k --args '{"task":"Write a limerick about cron jobs.","criteria":"5 lines, AABBA, mentions crontab, actually funny."}'
+ultracodex run workflow.js --json --budget 200k
 ```
 
 The example scripts live in the repo (`examples/`) once you've cloned it (see [From source](#from-source)); from a clone, `ultracodex run examples/actor-critic-loop/workflow.js --watch --budget 200k` runs one directly.
@@ -101,26 +95,13 @@ return { verified: verified.filter(v => v && v.verdict) }
 
 Everything needed to author these — or to teach **any** model to author them — ships in the box: the [authoring skill](skills/agent-script-authoring/SKILL.md) (one self-contained document, hardened against three model families; GPT-5.5 given only this file authored scripts judged comparable-or-stronger than Claude-written references on 7/7 problems) and the [examples gallery](examples/) (nine orchestration shapes ordered as a complexity ladder, distilled from a census of 58 real production workflows). Installing the skills into Claude Code, codex, opencode, or a raw prompt: [docs/skills.md](docs/skills.md).
 
-## Loops
-
-**Loops scale how long agents keep at it.** The stop condition moves out of your code and into a judgment: keep going until a skeptical verifier approves, until discovery runs dry, until a scheduled run reports done.
-
-```bash
-ultracodex run goal --args '{
-  "task": "Implement the CSV import endpoint",
-  "criteria": "Build passes. Tests pass. Malformed rows are rejected with row-level errors."
-}' --budget 250k
-```
-
-The builder works in rounds; a separate verifier checks every criterion against the work itself and rejects until it holds. The TUI folds the rounds into a trajectory — `✖ ✖ ✔ · converged after 3 rounds` — with per-round token cost, so convergence is something you watch. Loops are plain JavaScript `while`/`for` in any script; the packaged `goal` ships in the box (builds until approved — completion criteria like "the backlog is empty" work too); `budget` is the governor and pause/skip/stop work live. → [docs/loops.md](docs/loops.md)
-
 ## Scheduler
 
 **The scheduler runs workflows on your clock.**
 
 ```bash
 ultracodex schedule add digest --every 30m --budget 200k -- run digest.js
-ultracodex schedule add nightly --daily 18:30 --until-done --budget 300k -- run goal --args '…'
+ultracodex schedule add nightly --daily 18:30 --until-done --budget 300k -- run nightly-review.js
 ```
 
 `schedule add` writes one tagged crontab line and owns it completely; there is no daemon. `--until-done` retires a schedule the day its workflow returns `{ done: true }`. `--budget` caps every scheduled run — and scheduling a run without one gets a loud warning, because an unattended loop with no ceiling can drain a quota overnight. The Schedules tab shows exec-history strips, next-fire countdowns, and a run-now key. → [docs/schedule.md](docs/schedule.md)
@@ -166,7 +147,7 @@ Routing lives in config, and that is what keeps scripts portable across runtimes
 ## CLI
 
 ```
-ultracodex                        TUI home: Runs | Loops | Schedules | Org
+ultracodex                        TUI home: Runs | Schedules | Org
 ultracodex run <script|name>      [--args JSON] [--budget 500k] [--watch|--json|--detach] [--strict]
 ultracodex ls | show <ref> | attach <ref>       inspect runs (ref = unique runId prefix)
 ultracodex pause|resume|skip|kill <ref>         live controls
@@ -215,7 +196,7 @@ flowchart LR
 
 The agent is the unit of programming here: `agent()` is a call with a typed, validated return, Agent Script is the format, and the [Executor Contract](docs/executor-contract.md) is what keeps the unit portable — a capability descriptor plus a 10-assertion conformance kit that all three adapters pass. Structured output is belt-and-suspenders: schemas ride the wire where the backend supports it (Codex strict mode, OpenCode `json_schema`), degrade to a prompt contract mid-call when a provider rejects them, and are always enforced engine-side (ajv validation + repair turns on the same session). The entire test suite runs hermetically against scripted fakes of all three harnesses — no API keys in CI.
 
-Deeper reading: [docs/loops.md](docs/loops.md) · [docs/schedule.md](docs/schedule.md) · [docs/org.md](docs/org.md) · [docs/architecture.md](docs/architecture.md) · [docs/operations.md](docs/operations.md) · [docs/skills.md](docs/skills.md) · [docs/agent-script-spec.md](docs/agent-script-spec.md) · [docs/executor-contract.md](docs/executor-contract.md) (write your own backend).
+Deeper reading: [docs/schedule.md](docs/schedule.md) · [docs/org.md](docs/org.md) · [docs/architecture.md](docs/architecture.md) · [docs/operations.md](docs/operations.md) · [docs/skills.md](docs/skills.md) · [docs/agent-script-spec.md](docs/agent-script-spec.md) · [docs/executor-contract.md](docs/executor-contract.md) (write your own backend).
 
 ## Sandboxing & trust
 
@@ -236,14 +217,14 @@ The rule that follows: route work you'd be comfortable running yourself to Claud
 
 ## Status
 
-Current release: **v0.5.0** — workflows, loops, the scheduler, and orgs, in one package. 600 hermetic tests; pinned against codex-cli 0.144.0 (gpt-5.6) and opencode 1.17.18; `ultracodex doctor` reports drift with next steps.
+Current release: **v0.5.0** — workflows, the scheduler, and orgs, in one package. 600 hermetic tests; pinned against codex-cli 0.144.0 (gpt-5.6) and opencode 1.17.18; `ultracodex doctor` reports drift with next steps.
 
 The project builds itself:
 
 - The fleets that built v0.5.0: 14 runs, 72 agents, 1.26M output tokens — all on Codex, with the driving Claude session doing planning and review ([per-run ledger](docs/internal/research/v050-fleet-usage.md)).
 - This project was built twice — once by Claude fleets on the Workflow tool, once as a clean-room rebuild by Codex fleets through ultracodex, independently verified at 125/125 tests ([the record](docs/internal/acceptance-comparison.md)).
 - A controlled comparison, one `[route]` line apart: the same build script shipped the same module at 12/12 tests on every model tried — Codex (gpt-5.6-sol) in 107 s with zero Claude quota; Claude Opus 4.8 in 219 s, sonnet-5 in 237 s, and a deliberately-overkill Fable 5 in 246 s, all on the Claude meter. Capability beyond the task simply runs a pricier meter — which is why routing is a config line ([methodology and raw journals](docs/internal/research/cmp-build/README.md)).
-- Any vendor drives it: given only the installed skill, a stranger’s agent chose and ran the right pillar — workflow, loop, scheduler, or org — with dispatch correct on every run. Across 15 tasks per backend: Claude (sonnet-5) 14/15, OpenCode (GLM-5.2) 14/15, Codex (gpt-5.6-terra) 10/15. The misses were model quality (a weakly-worded verifier) or infrastructure (server-spawn contention under concurrency), never a wrong pillar or a broken command ([the campaign, with every judgment](docs/internal/research/skill-validation/README.md)).
+- Any vendor drives it: given only the installed skill, a stranger’s agent chose and ran the right pillar — workflow, scheduler, or org — with dispatch correct on every run. Across 15 tasks per backend: Claude (sonnet-5) 14/15, OpenCode (GLM-5.2) 14/15, Codex (gpt-5.6-terra) 10/15. The misses were model quality (a weakly-worded verifier) or infrastructure (server-spawn contention under concurrency), never a wrong pillar or a broken command ([the campaign, with every judgment](docs/internal/research/skill-validation/README.md)).
 - One three-vendor run shipped a real feature on this repo: OpenCode implemented it, Codex gated it, Claude adversarially reviewed it — one journal.
 - The org runtime's acceptance test ran here too: the dependency-watching org above completed its first full live cycle on the shipped runtime, briefs and audits included.
 

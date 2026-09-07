@@ -7,12 +7,11 @@ ultracodex executes Claude Code Workflow-tool scripts unmodified, routing each `
 
 ## Choosing the shape
 
-**Default to authoring a workflow.** The other shapes exist, and you should reach for them ONLY when the user's own words ask for what they do — recurrence, a packaged loop by intent, a standing org. When in doubt: a workflow.
+**Default to authoring a workflow.** The other shapes exist, and you should reach for them ONLY when the user's own words ask for what they do — recurrence or a standing org. When in doubt: a workflow.
 
 | the user asks for | reach for |
 |---|---|
-| a task done — build, review, research, migrate | **author a workflow** (the default, including loop-shaped ones) |
-| "keep iterating until it's good / until nothing is left", no bespoke roles | `ultracodex run goal` (packaged builder-verifier) |
+| a task done — build, review, research, migrate | **author a workflow** (the default) |
 | "every night / every 30m / keep it running on a schedule" | `ultracodex schedule add` wrapping a run |
 | standing coverage of many subjects with memory that compounds | an org — **experimental**; only on explicit request |
 
@@ -34,17 +33,7 @@ ultracodex run <file-or-name> --json [--budget 500k] [--args '<json>']
 - `--budget` is an output-token ceiling (integer, k/m suffixes).
 - Model/backend routing lives in `.ultracodex/config.toml`, never in the script.
 - Optional pre-check: `ultracodex validate <file> --strict`. Fix ERRORS; WARNINGS are non-blocking — do not rewrite a working script just to silence a warning.
-- Inspect a finished run with `ultracodex show <runId>` — result, per-agent lines, and a round-by-round LOOPS trajectory for iterating runs. The human can watch live with `ultracodex ls` / `attach <runId>` — you do not need to poll.
-
-## The packaged loop
-
-One reference loop ships in the package and resolves by name:
-
-```bash
-ultracodex run goal --json --budget 300k --args '{"task":"...","criteria":"explicit, verifier-checkable"}'
-```
-
-`goal` runs builder rounds gated by a skeptical verifier until the criteria hold (also: `maxRounds`, `context`, `builderModel`/`verifierModel`). The criteria carry the stop condition — completion works too ("the backlog is empty", "a fresh search finds nothing unlisted"). It returns `{ done: ... }` — and any workflow that returns `{ done: true }` composes with scheduled `--until-done` runs.
+- Inspect a finished run with `ultracodex show <runId>` — result and per-agent lines. The human can watch live with `ultracodex ls` / `attach <runId>` — you do not need to poll.
 
 ## Scheduling
 
