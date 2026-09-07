@@ -2,6 +2,54 @@
 
 All notable changes to **ultracodex**. Full history: <https://github.com/YuanpingSong/ultracodex/releases>
 
+## v0.6.0 — Solidify the core, shed the loop (2026-09-07)
+
+This release sharpens ultracodex around what it does best — running workflow
+scripts on your Codex subscription — and hardens the execution core. The Loop
+pillar is removed: it was over-promoted during the loop-engineering phase, and
+the Claude Code and Codex harnesses already provide iteration. Plain-JS `while`/
+`for` loops in your workflow scripts are unchanged — that was always just
+ordinary authoring.
+
+### Removed
+
+- **The Loop pillar.** The packaged `goal` builder-verifier workflow, the Loops
+  TUI tab / trajectory view / round inference, the `L` key, and the `show` LOOPS
+  block are gone, along with their docs and skill routing. The TUI home is now
+  three tabs — **Runs · Scheduler · Org**. Iterating in a workflow is still just
+  plain JavaScript.
+
+### Engine hardening
+
+- **Budget holds under fan-out.** The token ceiling was checked only before a
+  queue slot was acquired, so a `parallel()` fan-out could all pass the check at
+  zero spend and then run past `budget.total`. It is now rechecked after slot
+  acquisition — queued agents that arrive past the ceiling stop.
+- **Cancellation actually stops codex.** Teardown deadlines now compose, so a
+  `stop`/`skip`/`kill` holds the slot and worktree until the codex process (its
+  own process group) is confirmed dead — no orphaned processes burning quota, no
+  overlap with the next agent — bounded against a hang.
+- **Stalls recover.** `turn/start` is bounded and accepted turns get a resettable
+  inactivity watchdog, so a silent server no longer holds a slot forever.
+  Malformed/`null` protocol messages are guarded instead of crashing or being
+  silently dropped.
+- **Completion is honest.** The 250ms completion inference no longer fires after
+  an abort or while a command is still running; interrupted agents' token usage
+  is recorded instead of lost; the usage ledger freezes at `agent_end`.
+- **Valid approval replies** — server approval requests get contract-valid,
+  method-specific responses (codex 0.153.4's enums), not a universal invalid one.
+- **`doctor` is honest about auth** — it now exits non-zero when codex auth is
+  required but absent, so unattended callers don't pass and then fail every agent.
+- Subagent (collab) turns are tracked across multiple turns, so the parent no
+  longer infers success while a child is still working.
+
+### Defaults
+
+- **gpt-6-astra** is the default codex engine (frontier/`fable`/`opus` tier);
+  balanced/fast stay on the gpt-5.6 lineup.
+- **Tested against codex-cli 0.153.4** — conformance re-verified against the
+  0.153.4 app-server protocol (all depended-on surfaces intact) and live.
+
 ## v0.5.0 — Workflow · Loop · Scheduler · Org (2026-07-10)
 
 The agent is the unit of programming: `agent()` is a call with a typed, validated

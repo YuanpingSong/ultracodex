@@ -217,7 +217,7 @@ The rule that follows: route work you'd be comfortable running yourself to Claud
 
 ## Status
 
-Current release: **v0.5.0** — workflows, the scheduler, and orgs, in one package. 600 hermetic tests; pinned against codex-cli 0.144.0 (gpt-5.6) and opencode 1.17.18; `ultracodex doctor` reports drift with next steps.
+Current release: **v0.6.0** — workflows, the scheduler, and orgs, in one package. 610 hermetic tests; tested against codex-cli 0.153.4 (gpt-6-astra) and opencode 1.17.18; `ultracodex doctor` reports drift with next steps.
 
 The project builds itself:
 
