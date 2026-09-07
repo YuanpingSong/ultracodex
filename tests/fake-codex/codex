@@ -11,6 +11,9 @@
 //   [[fail:MSG]]     error notification + turn/completed status "failed".
 //   [[exec:CMD]]     commandExecution item started+completed before answering.
 //   [[collab]]       collabAgentToolCall + subagent turn; drained 150ms later.
+//   [[collab-twice]] same child runs two turns; second drains another 400ms later.
+//   [[stall-start]]  emit start notifications but never answer turn/start.
+//   [[silent]]       accept turn/start, then emit nothing more.
 //   [[no-turn-completed]]  suppress the main turn/completed (inference path).
 //   [[expect-prompt:TEXT]] fail unless TEXT appears outside fake directives.
 //   [[expect-no-output-schema]] fail if turn/start carries outputSchema.
@@ -20,7 +23,7 @@
 //   [[retry-error:MSG]]  error notification with willRetry:true, then normal completion.
 //   [[suberror:MSG]] subagent thread whose turn fails (error willRetry:false on the
 //                    SUB thread + its turn/completed failed); main turn completes.
-//   [[approval]]     server->client approval request before answering.
+//   [[approval]] / [[approval:METHOD]] server request; echo the full response.
 // Env: FAKE_CODEX_LOGGED_OUT=1  -> account/read returns {account: null, ...}
 //      FAKE_CODEX_CRASH_MID_TURN=1 -> process.exit(1) after turn/started.
 //      FAKE_CODEX_STALL_THREAD_START=1 -> never respond to thread/start.
@@ -266,7 +269,9 @@ function handleTurnStart(msg) {
   send({ method: "thread/started", params: { thread: threadObj(t) } });
   send({ method: "thread/status/changed", params: { threadId: t.id, status: { type: "active", activeFlags: [] } } });
   send({ method: "turn/started", params: { threadId: t.id, turn: turnObj(turnId, "inProgress", { startedAt: startedAt }) } });
+  if (flag(prompt, "stall-start")) return;
   send({ id: msg.id, result: { turn: turnObj(turnId, "inProgress") } });
+  if (flag(prompt, "silent")) return;
 
   if (CRASH_MID_TURN) {
     setTimeout(() => process.exit(1), 25);
@@ -350,9 +355,10 @@ function handleTurnStart(msg) {
   const slowMs = Number(directive(prompt, "slow")) || 0;
   const failMsg = directive(prompt, "fail");
   const execCmd = directive(prompt, "exec");
-  const collab = flag(prompt, "collab");
+  const collabTwice = flag(prompt, "collab-twice");
+  const collab = flag(prompt, "collab") || collabTwice;
   const suppress = flag(prompt, "no-turn-completed");
-  const approval = flag(prompt, "approval");
+  const approvalMethod = directive(prompt, "approval") ?? (flag(prompt, "approval") ? "item/commandExecution/requestApproval" : null);
   let usageIn = 100;
   let usageOut = 10;
   const usageSpec = directive(prompt, "usage");
@@ -373,7 +379,7 @@ function handleTurnStart(msg) {
     }
   };
 
-  const finishBody = (decision) => {
+  const finishBody = (approvalResponse) => {
     if (failMsg !== null) {
       const err = { message: failMsg, codexErrorInfo: "other", additionalDetails: null };
       send({ method: "error", params: { error: err, willRetry: false, threadId: t.id, turnId: turnId } });
@@ -436,7 +442,7 @@ function handleTurnStart(msg) {
       send({ method: "item/completed", params: { item: cmdItem("completed", 0, "", 5), threadId: t.id, turnId: turnId, completedAtMs: Date.now() } });
     }
 
-    const finalText = reply !== null ? reply : decision !== null ? "decision:" + decision : "ok";
+    const finalText = reply !== null ? reply : approvalResponse !== null ? JSON.stringify(approvalResponse) : "ok";
     const answer = () => {
       send({ method: "item/started", params: { item: agentMessageItem(turnId, "", "final_answer"), threadId: t.id, turnId: turnId, startedAtMs: Date.now() } });
       send({ method: "item/completed", params: { item: agentMessageItem(turnId, finalText, "final_answer"), threadId: t.id, turnId: turnId, completedAtMs: Date.now() } });
@@ -464,6 +470,18 @@ function handleTurnStart(msg) {
       setTimeout(() => {
         send({ method: "turn/completed", params: { threadId: sub.id, turn: turnObj(subTurnId, "completed", { startedAt: startedAt, completedAt: now() }) } });
         send({ method: "item/completed", params: { item: collabItem("completed"), threadId: t.id, turnId: turnId, completedAtMs: Date.now() } });
+        if (collabTwice) {
+          const secondTurnId = "fake-turn-" + ++seq;
+          send({ method: "turn/started", params: { threadId: sub.id, turn: turnObj(secondTurnId, "inProgress") } });
+          // Late completion from t1 must not clear t2's active membership.
+          send({ method: "turn/completed", params: { threadId: sub.id, turn: turnObj(subTurnId, "completed") } });
+          setTimeout(() => {
+            send({ method: "item/completed", params: { threadId: sub.id, turnId: secondTurnId, item: agentMessageItem(secondTurnId, "child second turn done", "final_answer") } });
+            send({ method: "turn/completed", params: { threadId: sub.id, turn: turnObj(secondTurnId, "completed") } });
+            tail();
+          }, 400);
+          return;
+        }
         tail();
       }, 150);
       return;
@@ -475,14 +493,14 @@ function handleTurnStart(msg) {
 
   const finish = () => {
     activeTurns.delete(turnId);
-    if (approval) {
-      const rid = ++serverReqId;
+    if (approvalMethod) {
+      const rid = "approval-" + ++serverReqId;
       pendingServerReqs.set(rid, (resp) => {
-        finishBody(resp && resp.result ? resp.result.decision : null);
+        finishBody(resp);
       });
       send({
         id: rid,
-        method: "item/commandExecution/requestApproval",
+        method: approvalMethod,
         params: { threadId: t.id, turnId: turnId, itemId: "item-approval-" + turnId, command: "rm -rf /tmp/x", cwd: t.cwd, reason: null },
       });
       return;
@@ -520,6 +538,12 @@ function handle(msg) {
   }
 
   switch (msg.method) {
+    case "fake/emit":
+      // Deterministic protocol injection/barrier for virtual-clock boundary tests.
+      for (const line of msg.params?.lines ?? []) process.stdout.write(line + "\n");
+      for (const notification of msg.params?.notifications ?? []) send(notification);
+      send({ id: msg.id, result: {} });
+      break;
     case "initialize":
       send({ id: msg.id, result: { userAgent: "fake-codex/0.142.4", codexHome: "/tmp/.codex", platformFamily: "unix", platformOs: "macos" } });
       break;

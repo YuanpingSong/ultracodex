@@ -1,7 +1,7 @@
 import type { AppServerClient } from "./client.js";
 import type { ActivityEvent, Usage } from "../types.js";
 import { ZERO_USAGE, addUsage } from "../types.js";
-import { INFER_COMPLETION_MS, INTERRUPT_GRACE_MS, VERIFICATION_COMMAND_RE } from "../constants.js";
+import { INFER_COMPLETION_MS, INTERRUPT_GRACE_MS, TURN_START_REQUEST_TIMEOUT_MS, TURN_INACTIVITY_TIMEOUT_MS, VERIFICATION_COMMAND_RE } from "../constants.js";
 
 export interface RunTurnOptions {
   client: AppServerClient;
@@ -116,6 +116,7 @@ export function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
     let usageBaseline: Usage | null = null;
     let inferTimer: NodeJS.Timeout | null = null;
     let graceTimer: NodeJS.Timeout | null = null;
+    let inactivityTimer: NodeJS.Timeout | null = null;
     let aborted = false;
     const threadIds = new Set<string>([threadId]);
     const threadTurnIds = new Map<string, string>();
@@ -128,9 +129,18 @@ export function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
       settled = true;
       if (inferTimer) clearTimeout(inferTimer);
       if (graceTimer) clearTimeout(graceTimer);
+      if (inactivityTimer) clearTimeout(inactivityTimer);
       unsubscribe();
       signal.removeEventListener("abort", onAbort);
       resolve({ status, finalText: finalAnswerText ?? lastAgentMessage, turnId, usage, error });
+    };
+
+    const resetInactivity = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        settle("failed", `turn ${turnId ?? "(unknown)"} inactive: no notifications for ${TURN_INACTIVITY_TIMEOUT_MS}ms`);
+      }, TURN_INACTIVITY_TIMEOUT_MS);
+      inactivityTimer.unref?.();
     };
 
     const scheduleInferred = () => {
@@ -263,10 +273,19 @@ export function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
     const route = (method: string, params: Params) => {
       if (settled) return;
       if (method === "thread/started" || method === "thread/name/updated") {
+        if (belongsToTurn(params)) resetInactivity();
         apply(method, params);
         return;
       }
+      // A known child can start its next turn after completing the previous one.
+      // Do this before stale-turn filtering, without replacing an active turn.
+      const childId = params?.threadId;
+      if (method === "turn/started" && childId !== threadId && threadIds.has(childId)
+        && !activeSubagentTurns.has(childId) && typeof params?.turn?.id === "string") {
+        threadTurnIds.set(childId, params.turn.id);
+      }
       if (!belongsToTurn(params)) return;
+      resetInactivity();
       apply(method, params);
     };
 
@@ -305,12 +324,13 @@ export function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
         model: opts.model,
         effort: opts.effort,
         outputSchema: opts.outputSchema ?? null,
-      })
+      }, { timeoutMs: TURN_START_REQUEST_TIMEOUT_MS })
       .then((res) => {
         if (settled) return;
         responseSeen = true;
         turnId = res?.turn?.id ?? null;
         if (turnId) threadTurnIds.set(threadId, turnId);
+        resetInactivity();
         for (const msg of buffered.splice(0)) {
           if (settled) break;
           route(msg.method, msg.params);

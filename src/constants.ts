@@ -21,6 +21,11 @@ export const ACTIVITY_TEXT_MAX = 200;
 // app-server turn completion inference (plugin's captureTurn).
 export const INFER_COMPLETION_MS = 250;
 
+// Only bounds the initial turn/start RPC response, never the running turn.
+export const TURN_START_REQUEST_TIMEOUT_MS = 60_000;
+// Accepted turns may run indefinitely; every matching notification renews this.
+export const TURN_INACTIVITY_TIMEOUT_MS = 300_000;
+
 // Schema repair attempts on the same thread.
 export const DEFAULT_SCHEMA_RETRIES = 3;
 

@@ -30,6 +30,24 @@ const OPT_OUT_NOTIFICATION_METHODS = [
 
 const CLOSE_GRACE_MS = 2_000;
 
+function refusalResult(method: string): unknown {
+  switch (method) {
+    case "item/commandExecution/requestApproval":
+    case "item/fileChange/requestApproval":
+      return { decision: "decline" };
+    case "applyPatchApproval":
+    case "execCommandApproval":
+      // Legacy ReviewDecision uses "denied", unlike the v2 approval enums.
+      return { decision: "denied" };
+    case "item/tool/requestUserInput":
+      return { answers: {} };
+    case "item/permissions/requestApproval":
+      return { permissions: {}, scope: "turn" };
+    default:
+      return undefined;
+  }
+}
+
 export class AppServerClient {
   readonly exited: Promise<number | null>;
 
@@ -188,14 +206,24 @@ export class AppServerClient {
     let msg: { id?: number; method?: string; params?: unknown; result?: unknown; error?: { code?: number; message?: string; data?: unknown } };
     try {
       msg = JSON.parse(line);
-    } catch {
+    } catch (err) {
+      console.warn("app-server: malformed JSON on stdout", err);
+      return;
+    }
+    if (msg === null || typeof msg !== "object" || Array.isArray(msg)) {
+      console.warn("app-server: ignoring non-object message on stdout");
       return;
     }
     if (msg.id !== undefined && msg.method) {
       // Server -> client request (approval asks): deny automatically, surface too.
       try {
-        this.send({ jsonrpc: "2.0", id: msg.id, result: { decision: "denied" } });
-      } catch {}
+        const result = refusalResult(msg.method);
+        this.send(result === undefined
+          ? { jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `Unsupported server request: ${msg.method}` } }
+          : { jsonrpc: "2.0", id: msg.id, result });
+      } catch (err) {
+        console.warn(`app-server: failed to reply to ${msg.method}`, err);
+      }
       this.dispatch(msg.method, msg.params);
       return;
     }
@@ -221,7 +249,9 @@ export class AppServerClient {
     for (const handler of [...this.handlers]) {
       try {
         handler(method, params);
-      } catch {}
+      } catch (err) {
+        console.warn(`app-server: notification handler failed (${method})`, err);
+      }
     }
   }
 
