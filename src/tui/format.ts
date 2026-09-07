@@ -283,3 +283,22 @@ export function windowAgents<T>(
 
   return { slice: items.slice(start, end), above, below };
 }
+
+const SPARK_BLOCKS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const;
+
+export function valueSparkline(
+  values: readonly number[],
+  options: { zeroBase?: boolean; flatGlyph?: string } = {},
+): string {
+  const finite = values.filter((value) => Number.isFinite(value)).map((value) => Math.max(0, value));
+  if (finite.length === 0) return "";
+  const min = options.zeroBase === true ? 0 : Math.min(...finite);
+  const max = Math.max(...finite);
+  if (max <= min) return finite.map(() => options.flatGlyph ?? SPARK_BLOCKS[SPARK_BLOCKS.length - 1]).join("");
+  return finite
+    .map((value) => {
+      const index = Math.round(((value - min) / (max - min)) * (SPARK_BLOCKS.length - 1));
+      return SPARK_BLOCKS[index]!;
+    })
+    .join("");
+}

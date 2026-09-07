@@ -92,8 +92,8 @@ describe("resolveScript", () => {
 
   it("resolves a packaged builtin workflow name when no local copy exists", () => {
     const projectDir = tmpProject();
-    expect(resolveScript(projectDir, "goal")).toBe(
-      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "workflows", "goal.js"),
+    expect(resolveScript(projectDir, "org-audit")).toBe(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "workflows", "org-audit.js"),
     );
   });
 
@@ -101,9 +101,9 @@ describe("resolveScript", () => {
     const projectDir = tmpProject();
     const wfDir = path.join(projectDir, ".ultracodex", "workflows");
     fs.mkdirSync(wfDir, { recursive: true });
-    const file = path.join(wfDir, "goal.js");
+    const file = path.join(wfDir, "org-audit.js");
     fs.writeFileSync(file, "// shadow");
-    expect(resolveScript(projectDir, "goal")).toBe(file);
+    expect(resolveScript(projectDir, "org-audit")).toBe(file);
   });
 
   it("prefers a real file over a same-named saved workflow", () => {
@@ -357,7 +357,7 @@ async function runCliInProc(
 
 describe("packaged builtin workflows", () => {
   it("validate --strict passes for packaged builtins by name", async () => {
-    for (const name of ["goal", "org-lint-repair", "org-audit"]) {
+    for (const name of ["org-lint-repair", "org-audit"]) {
       const res = await runCliInProc(["validate", name, "--strict"], tmpProject());
       expect(res.code).toBe(0);
       expect(res.stderr).toBe("");

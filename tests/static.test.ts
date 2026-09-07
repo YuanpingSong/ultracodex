@@ -274,126 +274,6 @@ describe("renderRunStatic — finished runs", () => {
     expect(out).toContain("✔ Summarize 3/4");
     expect(out).not.toContain("● Summarize");
   });
-
-  it("appends a LOOPS section with loop and round ledgers", () => {
-    const events: JournalEvent[] = [
-      {
-        t: "run_start",
-        ts: 0,
-        runId: "wf_7fk2qd",
-        meta: { name: "goal", description: "goal loop" },
-        scriptSha: "s",
-        argsRef: null,
-        budgetTotal: null,
-        concurrency: 4,
-      },
-      {
-        t: "agent_start",
-        ts: 0,
-        n: 1,
-        label: "goal:build-r1",
-        phase: null,
-        backend: "codex",
-        model: "gpt-5.5",
-        effort: "medium",
-        promptSha: "p1",
-        promptRef: "agents/1/prompt.md",
-        hasSchema: false,
-      },
-      {
-        t: "agent_start",
-        ts: 10_000,
-        n: 2,
-        label: "goal:verify-r1",
-        phase: null,
-        backend: "claude",
-        model: "sonnet-5",
-        effort: "medium",
-        promptSha: "p2",
-        promptRef: "agents/2/prompt.md",
-        hasSchema: false,
-      },
-      { t: "agent_end", ts: 190_000, n: 1, status: "ok", ms: 190_000, usage: u(48_900), resultRef: "build-r1.json", error: null },
-      { t: "agent_end", ts: 242_000, n: 2, status: "ok", ms: 232_000, usage: u(12_500), resultRef: "verify-r1.json", error: null },
-      {
-        t: "agent_start",
-        ts: 250_000,
-        n: 3,
-        label: "goal:build-r2",
-        phase: null,
-        backend: "codex",
-        model: "gpt-5.5",
-        effort: "medium",
-        promptSha: "p3",
-        promptRef: "agents/3/prompt.md",
-        hasSchema: false,
-      },
-      {
-        t: "agent_start",
-        ts: 260_000,
-        n: 4,
-        label: "goal:verify-r2",
-        phase: null,
-        backend: "claude",
-        model: "sonnet-5",
-        effort: "medium",
-        promptSha: "p4",
-        promptRef: "agents/4/prompt.md",
-        hasSchema: false,
-      },
-      { t: "agent_end", ts: 450_000, n: 3, status: "ok", ms: 200_000, usage: u(40_000), resultRef: "build-r2.json", error: null },
-      { t: "agent_end", ts: 478_000, n: 4, status: "ok", ms: 218_000, usage: u(12_700), resultRef: "verify-r2.json", error: null },
-      {
-        t: "agent_start",
-        ts: 480_000,
-        n: 5,
-        label: "goal:build-r3",
-        phase: null,
-        backend: "codex",
-        model: "gpt-5.5",
-        effort: "medium",
-        promptSha: "p5",
-        promptRef: "agents/5/prompt.md",
-        hasSchema: false,
-      },
-      {
-        t: "agent_start",
-        ts: 490_000,
-        n: 6,
-        label: "goal:verify-r3",
-        phase: null,
-        backend: "claude",
-        model: "sonnet-5",
-        effort: "medium",
-        promptSha: "p6",
-        promptRef: "agents/6/prompt.md",
-        hasSchema: false,
-      },
-      { t: "agent_end", ts: 650_000, n: 5, status: "ok", ms: 170_000, usage: u(25_000), resultRef: "build-r3.json", error: null },
-      { t: "agent_end", ts: 702_000, n: 6, status: "ok", ms: 212_000, usage: u(9_100), resultRef: "verify-r3.json", error: null },
-      {
-        t: "run_end",
-        ts: 710_000,
-        status: "ok",
-        resultRef: null,
-        error: null,
-        totals: { agents: 6, ok: 6, failed: 0, skipped: 0, usage: { codex: u(148_200) }, ms: 710_000 },
-      },
-    ];
-    const outputs: Record<string, string> = {
-      "verify-r1.json": JSON.stringify({ verdict: "rejected", issues: ["tests missing", "no docs"] }),
-      "verify-r2.json": JSON.stringify({ verdict: "rejected", reason: "still missing coverage" }),
-      "verify-r3.json": JSON.stringify({ verdict: "approved", summary: "done" }),
-    };
-    const out = renderRunStatic(fold(events), { color: false, readAgentOutput: (ref) => outputs[ref] ?? null });
-    const loops = out.slice(out.indexOf("LOOPS"));
-
-    expect(loops).toContain("LOOPS");
-    expect(loops).toContain("goal · ✔ converged after 3 rounds · ✖ ✖ ✔ · 148.2k tok · 11m 32s");
-    expect(loops).toContain("r1 ✖ rejected · 2 agents · 61.4k tok · 4m02s");
-    expect(loops).toContain("r2 ✖ rejected · 2 agents · 52.7k tok · 3m48s");
-    expect(loops).toContain("r3 ✔ approved · 2 agents · 34.1k tok · 3m42s");
-  });
 });
 
 describe("LaunchForm budget validation (HomeView.validateBudgetInput)", () => {
@@ -424,19 +304,19 @@ describe("HomeView workflow listing", () => {
       const dir = path.join(projectDir, ".ultracodex", "workflows");
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(
-        path.join(dir, "goal.js"),
-        "export const meta = { name: 'goal', description: 'local goal' }\n",
+        path.join(dir, "org-lint-repair.js"),
+        "export const meta = { name: 'org-lint-repair', description: 'local org-lint-repair' }\n",
         "utf8",
       );
       const workflows = loadWorkflows(projectDir);
-      const goalItems = workflows.filter((wf) => wf.name === "goal");
+      const repairItems = workflows.filter((wf) => wf.name === "org-lint-repair");
       const auditItem = workflows.find((wf) => wf.name === "org-audit");
 
-      expect(goalItems).toHaveLength(1);
-      expect(goalItems[0]?.builtin).toBeUndefined();
-      expect(goalItems[0]?.description).toBe("local goal");
+      expect(repairItems).toHaveLength(1);
+      expect(repairItems[0]?.builtin).toBeUndefined();
+      expect(repairItems[0]?.description).toBe("local org-lint-repair");
       expect(auditItem?.builtin).toBe(true);
-      expect(workflows.findIndex((wf) => wf.name === "goal")).toBeLessThan(
+      expect(workflows.findIndex((wf) => wf.name === "org-lint-repair")).toBeLessThan(
         workflows.findIndex((wf) => wf.name === "org-audit"),
       );
     } finally {

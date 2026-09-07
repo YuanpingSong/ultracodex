@@ -40,7 +40,6 @@ import { validateWorkflowScript, type ValidationIssue } from "./validate.js";
 import { resolveScript } from "./workflows.js";
 import { AppServerClient } from "./appserver/client.js";
 import { fmtDuration, fmtTokens } from "./tui/format.js";
-import { makeAgentOutputReader, readJsonOutputCapped } from "./tui/loopFiles.js";
 import { initialState, reduce, type TuiState } from "./tui/reducer.js";
 import { renderRunStatic } from "./tui/static.js";
 import { runTui } from "./tui/index.js";
@@ -823,12 +822,7 @@ async function showAction(ref: string, opts: ShowCliOpts): Promise<void> {
     if (dead) process.exitCode = 1;
     return;
   }
-  process.stdout.write(
-    renderRunStatic(state, {
-      readAgentOutput: makeAgentOutputReader(runDir),
-      runResult: readJsonOutputCapped(runDir, state.resultRef),
-    }) + "\n",
-  );
+  process.stdout.write(renderRunStatic(state) + "\n");
   if (dead) {
     process.stderr.write(`run ${runId} is dead: runner exited before run_end\n`);
     process.exitCode = 1;
