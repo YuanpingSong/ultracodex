@@ -18,7 +18,7 @@ Getting started is quick because your agent does the learning: a bundled skill t
 
 ## Quickstart
 
-Prerequisites: Node ≥ 20, the [Codex CLI](https://github.com/openai/codex) installed and authenticated (`codex login`; tested against codex-cli 0.144.0), and — for the prompt-driven flow below — a driving agent, typically [Claude Code](https://claude.ai/code). No driving agent handy? Skip to [driving from the CLI](#driving-from-the-cli). [OpenCode](https://opencode.ai) is optional (tested against 1.17.18) — one `[route]` line turns it on.
+Prerequisites: Node ≥ 20, the [Codex CLI](https://github.com/openai/codex) installed and authenticated (`codex login`; tested against codex-cli 0.153.4), and — for the prompt-driven flow below — a driving agent, typically [Claude Code](https://claude.ai/code). No driving agent handy? Skip to [driving from the CLI](#driving-from-the-cli). [OpenCode](https://opencode.ai) is optional (tested against 1.17.18) — one `[route]` line turns it on.
 
 ```bash
 npm install -g ultracodex      # or: pnpm add -g ultracodex
@@ -213,7 +213,7 @@ The rule that follows: route work you'd be comfortable running yourself to Claud
 - **Orgs are experimental.** The runtime is tested and the dependency-watching example org is real, but this is the newest pillar and its discipline is young — interfaces and defaults may change, and early cycles want supervision — do not schedule them unattended yet.
 - **OpenCode has no OS sandbox** (see above), and its server-per-call design can collide under heavy concurrency; keep concurrent OpenCode agent counts modest. Codex and Claude are the load-bearing backends.
 - **The OS sandbox is validated on macOS.** Confinement rests on macOS Seatbelt, and the nested-fleet auto-downgrade keys off codex's Seatbelt marker; on Linux, codex sandboxes differently, so live sandbox behavior there is unverified. The hermetic test suite runs everywhere.
-- **Pre-1.0, pinned to a moving target.** The codex app-server protocol is experimental and version-pinned (codex-cli 0.144.0, opencode 1.17.18); `ultracodex doctor` flags drift, but a newer backend can shift behavior under you.
+- **Pre-1.0, pinned to a moving target.** The codex app-server protocol is experimental and version-pinned (codex-cli 0.153.4, opencode 1.17.18); `ultracodex doctor` flags drift, but a newer backend can shift behavior under you.
 
 ## Status
 

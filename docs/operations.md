@@ -4,7 +4,7 @@
 
 - Node ≥ 20, pnpm.
 - OpenAI Codex CLI installed and authenticated (`codex login` or
-  `OPENAI_API_KEY`). Pinned against codex 0.142.4.
+  `OPENAI_API_KEY`). Tested against codex 0.153.4.
 - Optional: Claude Code CLI for the `claude` backend routes.
 - Optional: [OpenCode](https://opencode.ai) for the `opencode` backend routes
   (tested against 1.17.18; any provider/model configured in your opencode,
