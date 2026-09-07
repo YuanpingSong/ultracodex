@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { AppServerClient, RpcError } from "../src/appserver/client.js";
 import { runTurn, type RunTurnOptions } from "../src/appserver/turn.js";
-import { INFER_COMPLETION_MS, TURN_START_REQUEST_TIMEOUT_MS, TURN_INACTIVITY_TIMEOUT_MS } from "../src/constants.js";
+import { INFER_COMPLETION_MS, INTERRUPT_GRACE_MS, TURN_START_REQUEST_TIMEOUT_MS, TURN_INACTIVITY_TIMEOUT_MS } from "../src/constants.js";
 import { fakeCodexPath } from "./helpers.js";
 import type { ActivityEvent, Usage } from "../src/types.js";
 
@@ -429,6 +429,114 @@ describe("runTurn", () => {
     expect(result.status).toBe("completed");
     expect(result.finalText).toBe("inferred");
     expect(Date.now() - start).toBeGreaterThanOrEqual(200); // waited for the inference timer
+  });
+
+  it("infers a plain final answer at exactly 250ms without turn/completed", async () => {
+    const client = await startClient();
+    const threadId = await startThread(client);
+    vi.useFakeTimers();
+    const { promise } = turnOn(client, threadId, "[[silent]]");
+    const done = vi.fn();
+    void promise.then(done);
+    await client.request("fake/emit", { notifications: [
+      { method: "item/completed", params: { threadId, item: { type: "agentMessage", id: "final", text: "done", phase: "final_answer" } } },
+    ] });
+    expect(INFER_COMPLETION_MS).toBe(250);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(done).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await promise).toMatchObject({ status: "completed", finalText: "done" });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("waits for a command still inProgress after the final answer", async () => {
+    const client = await startClient();
+    const threadId = await startThread(client);
+    let commandCompletedAt: number | null = null;
+    client.onNotification((method, params: any) => {
+      if (method === "item/completed" && params.item.type === "commandExecution") commandCompletedAt = Date.now();
+    });
+    const { promise, activities } = turnOn(client, threadId,
+      "[[exec:echo hi]] [[exec-delay:400]] [[no-turn-completed]] [[reply:command final]]");
+    expect(await promise).toMatchObject({ status: "completed", finalText: "command final" });
+    expect(commandCompletedAt).not.toBeNull();
+    expect(Date.now() - commandCompletedAt!).toBeGreaterThanOrEqual(INFER_COMPLETION_MS - 10);
+    expect(activities.some((a) => a.text.startsWith("Command completed:"))).toBe(true);
+  });
+
+  it.each(["commandExecution", "mcpToolCall", "dynamicToolCall", "webSearch"])(
+    "checks active %s items both before scheduling and when the timer fires", async (type) => {
+      const client = await startClient();
+      const threadId = await startThread(client);
+      vi.useFakeTimers();
+      const { promise } = turnOn(client, threadId, "[[silent]]");
+      const done = vi.fn();
+      void promise.then(done);
+      const item = (id: string, status: string) => ({ type, id, status });
+      const final = { method: "item/completed", params: { threadId, item: { type: "agentMessage", id: "final", text: "done", phase: "final_answer" } } };
+      await client.request("fake/emit", { notifications: [
+        { method: "item/started", params: { threadId, item: item("first", "inProgress") } },
+        final,
+      ] });
+      await vi.advanceTimersByTimeAsync(250);
+      expect(done).not.toHaveBeenCalled();
+      await client.request("fake/emit", { notifications: [
+        { method: "item/completed", params: { threadId, item: item("first", "completed") } },
+      ] });
+      await vi.advanceTimersByTimeAsync(100);
+      // An inProgress item can arrive after inference has already been scheduled.
+      await client.request("fake/emit", { notifications: [
+        { method: "item/completed", params: { threadId, item: item("second", "inProgress") } },
+      ] });
+      await vi.advanceTimersByTimeAsync(150);
+      expect(done).not.toHaveBeenCalled();
+      await client.request("fake/emit", { notifications: [
+        { method: "item/completed", params: { threadId, item: item("second", "completed") } },
+      ] });
+      await vi.advanceTimersByTimeAsync(249);
+      expect(done).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await promise).status).toBe("completed");
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("child tool items do not block main-thread inference after the child turn completes", async () => {
+    const client = await startClient();
+    const threadId = await startThread(client);
+    vi.useFakeTimers();
+    const { promise } = turnOn(client, threadId, "[[silent]]");
+    await client.request("fake/emit", { notifications: [
+      { method: "thread/started", params: { thread: { id: "child" } } },
+      { method: "turn/started", params: { threadId: "child", turn: { id: "child-turn", status: "inProgress" } } },
+      { method: "item/started", params: { threadId: "child", item: { type: "commandExecution", id: "child-command", status: "inProgress" } } },
+      { method: "turn/completed", params: { threadId: "child", turn: { id: "child-turn", status: "completed" } } },
+      { method: "item/completed", params: { threadId, item: { type: "agentMessage", id: "final", text: "done", phase: "final_answer" } } },
+    ] });
+    await vi.advanceTimersByTimeAsync(250);
+    expect((await promise).status).toBe("completed");
+  });
+
+  it.each(["before", "after"])("never infers completed when abort arrives %s the final answer", async (when) => {
+    const client = await startClient();
+    const threadId = await startThread(client);
+    vi.useFakeTimers();
+    const { promise, ac } = turnOn(client, threadId, "[[silent]]");
+    const done = vi.fn();
+    void promise.then(done);
+    await client.request("fake/emit", {});
+    if (when === "before") ac.abort();
+    await client.request("fake/emit", { notifications: [
+      { method: "item/completed", params: { threadId, item: { type: "agentMessage", id: "final", text: "done", phase: "final_answer" } } },
+    ] });
+    await vi.advanceTimersByTimeAsync(100);
+    if (when === "after") ac.abort();
+    await client.request("fake/emit", {}); // interrupt acknowledged without terminal notification
+    await vi.advanceTimersByTimeAsync(150);
+    expect(done).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(INTERRUPT_GRACE_MS);
+    expect(await promise).toMatchObject({ status: "interrupted", finalText: "done" });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("drains pending collabs + subagent turns before inferring completion", async () => {

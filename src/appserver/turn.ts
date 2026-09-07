@@ -121,6 +121,7 @@ export function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
     const threadIds = new Set<string>([threadId]);
     const threadTurnIds = new Map<string, string>();
     const pendingCollabs = new Set<string>();
+    const activeItems = new Set<string>();
     const activeSubagentTurns = new Set<string>();
     const buffered: Array<{ method: string; params: Params }> = [];
 
@@ -144,13 +145,13 @@ export function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
     };
 
     const scheduleInferred = () => {
-      if (settled || !finalAnswerSeen) return;
-      if (pendingCollabs.size > 0 || activeSubagentTurns.size > 0) return;
+      if (settled || aborted || !finalAnswerSeen) return;
+      if (pendingCollabs.size > 0 || activeSubagentTurns.size > 0 || activeItems.size > 0) return;
       if (inferTimer) clearTimeout(inferTimer);
       inferTimer = setTimeout(() => {
         inferTimer = null;
-        if (settled || !finalAnswerSeen) return;
-        if (pendingCollabs.size > 0 || activeSubagentTurns.size > 0) return;
+        if (settled || aborted || !finalAnswerSeen) return;
+        if (pendingCollabs.size > 0 || activeSubagentTurns.size > 0 || activeItems.size > 0) return;
         settle("completed", null);
       }, INFER_COMPLETION_MS);
     };
@@ -164,6 +165,15 @@ export function runTurn(opts: RunTurnOptions): Promise<TurnResult> {
     };
 
     const recordItem = (item: Params, lifecycle: "started" | "completed", itemThreadId: string | null) => {
+      if (["commandExecution", "mcpToolCall", "dynamicToolCall", "webSearch"].includes(item.type)
+        && (itemThreadId === null || itemThreadId === threadId)) {
+        if (lifecycle === "started" || item.status === "inProgress") {
+          activeItems.add(item.id);
+        } else if (lifecycle === "completed") {
+          activeItems.delete(item.id);
+          scheduleInferred();
+        }
+      }
       if (item.type === "collabAgentToolCall") {
         if (itemThreadId === null || itemThreadId === threadId) {
           if (lifecycle === "started" || item.status === "inProgress") {

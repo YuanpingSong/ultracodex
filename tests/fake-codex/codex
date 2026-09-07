@@ -10,6 +10,7 @@
 //   [[slow:MS]]      delay before answering (interruptible via turn/interrupt).
 //   [[fail:MSG]]     error notification + turn/completed status "failed".
 //   [[exec:CMD]]     commandExecution item started+completed before answering.
+//   [[exec-delay:MS]] with exec, complete the command MS after the final answer.
 //   [[collab]]       collabAgentToolCall + subagent turn; drained 150ms later.
 //   [[collab-twice]] same child runs two turns; second drains another 400ms later.
 //   [[stall-start]]  emit start notifications but never answer turn/start.
@@ -355,6 +356,7 @@ function handleTurnStart(msg) {
   const slowMs = Number(directive(prompt, "slow")) || 0;
   const failMsg = directive(prompt, "fail");
   const execCmd = directive(prompt, "exec");
+  const execDelayMs = Number(directive(prompt, "exec-delay")) || 0;
   const collabTwice = flag(prompt, "collab-twice");
   const collab = flag(prompt, "collab") || collabTwice;
   const suppress = flag(prompt, "no-turn-completed");
@@ -424,6 +426,7 @@ function handleTurnStart(msg) {
       emitUsage(t, turnId, Number(parts[0]) || 0, Number(parts[1]) || 0);
     }
 
+    let finishExec = null;
     if (execCmd !== null) {
       const cmdItem = (status, exitCode, out, dur) => ({
         type: "commandExecution",
@@ -439,7 +442,9 @@ function handleTurnStart(msg) {
         durationMs: dur,
       });
       send({ method: "item/started", params: { item: cmdItem("inProgress", null, null, null), threadId: t.id, turnId: turnId, startedAtMs: Date.now() } });
-      send({ method: "item/completed", params: { item: cmdItem("completed", 0, "", 5), threadId: t.id, turnId: turnId, completedAtMs: Date.now() } });
+      const completeExec = () => send({ method: "item/completed", params: { item: cmdItem("completed", 0, "", execDelayMs || 5), threadId: t.id, turnId: turnId, completedAtMs: Date.now() } });
+      if (execDelayMs > 0) finishExec = completeExec;
+      else completeExec();
     }
 
     const finalText = reply !== null ? reply : approvalResponse !== null ? JSON.stringify(approvalResponse) : "ok";
@@ -488,6 +493,13 @@ function handleTurnStart(msg) {
     }
 
     answer();
+    if (finishExec) {
+      setTimeout(() => {
+        finishExec();
+        tail();
+      }, execDelayMs);
+      return;
+    }
     tail();
   };
 

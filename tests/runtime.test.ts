@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRuntime } from "../src/runtime.js";
+import { ClaudeExecutor } from "../src/executor/claude.js";
 import type { RuntimeDeps } from "../src/runtime.js";
 import { JournalWriter, readJournal } from "../src/journal.js";
 import { sha256Hex } from "../src/ids.js";
@@ -582,6 +583,64 @@ describe("control: pause / resume / skip / stop", () => {
     expect(end).toHaveLength(1);
     expect(end[0]!.status).toBe("skipped");
     expect(end[0]!.error).toBeNull();
+    expect(end[0]!.usage).toEqual(usage(9));
+    expect(g.budget.spent()).toBe(9);
+    expect(controller.totals().usage["codex"]).toEqual(usage(9));
+  });
+
+  it.each([false, true])("reconciles interrupted executor usage after grace-period settlement (prior tick: %s)", async (priorTick) => {
+    const { executor, calls } = deferredExecutor();
+    const { g, controller, runDir } = makeRuntime({ executor });
+    const p = g.agent("interrupted");
+    await until(() => calls.length === 1);
+    if (priorTick) calls[0]!.ctx.onUsage(usage(2, 1));
+    controller.skip(1);
+    await sleep(20); // let the abort win the race before the executor settles
+    expect(ends(runDir)).toHaveLength(0);
+    calls[0]!.resolve({ ok: false, error: "interrupted", usage: usage(17, 31) });
+    expect(await p).toBeNull();
+    expect(ends(runDir)).toHaveLength(1);
+    expect(ends(runDir)[0]).toMatchObject({ status: "skipped", usage: usage(17, 31) });
+    expect(g.budget.spent()).toBe(17);
+    expect(controller.totals().usage["codex"]).toEqual(usage(17, 31));
+  });
+
+  it("records Claude's final usage envelope emitted on interrupted close", async () => {
+    const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "ultracodex-claude-interrupt-"));
+    cleanups.push(fixtureDir);
+    const binary = path.join(fixtureDir, "claude.cjs");
+    const ready = path.join(fixtureDir, "ready");
+    fs.writeFileSync(binary, `#!${process.execPath}
+const fs = require("node:fs");
+process.stdin.resume();
+setInterval(() => {}, 1000);
+process.on("SIGTERM", () => {
+  process.stdout.write(JSON.stringify({
+    is_error: true, subtype: "interrupted", result: "interrupted",
+    usage: { input_tokens: 31, output_tokens: 17, cache_read_input_tokens: 5 }
+  }), () => process.exit(0));
+});
+fs.writeFileSync(${JSON.stringify(ready)}, "ready");
+`, { mode: 0o755 });
+    const config = structuredClone(DEFAULT_CONFIG);
+    config.route = [{ pattern: "*", backend: "claude" }];
+    config.claude.binary = binary;
+    config.claude.extraArgs = [];
+    const executor = new ClaudeExecutor(config.claude, {});
+    const { g, controller, runDir } = makeRuntime({ config, executors: { claude: executor } });
+    const p = g.agent("interrupt after startup");
+    try {
+      await until(() => fs.existsSync(ready));
+    } finally {
+      controller.skip(1);
+      await p;
+    }
+    expect(await p).toBeNull();
+    const expectedUsage = { ...usage(17, 31), cachedInputTokens: 5 };
+    expect(ends(runDir)).toHaveLength(1);
+    expect(ends(runDir)[0]).toMatchObject({ status: "skipped", usage: expectedUsage });
+    expect(g.budget.spent()).toBe(17);
+    expect(controller.totals().usage["claude"]).toEqual(expectedUsage);
   });
 
   it("skip on a queued agent resolves it null without dispatching", async () => {
@@ -693,9 +752,12 @@ describe("control: pause / resume / skip / stop", () => {
         return { ok: true, text: "done", usage: usage(1) };
       },
     };
-    const { g, runDir } = makeRuntime({ executor });
+    const { g, controller, runDir } = makeRuntime({ executor });
     await g.agent("quick");
     expect(ends(runDir)).toHaveLength(1);
+    const agentDirPath = path.dirname(path.join(runDir, starts(runDir)[0]!.promptRef));
+    const rawEvents = path.join(agentDirPath, "events.jsonl");
+    expect(fs.existsSync(rawEvents)).toBe(false);
 
     captured!.onActivity({ kind: "exec", text: "late activity" });
     captured!.onUsage(usage(999));
@@ -705,6 +767,10 @@ describe("control: pause / resume / skip / stop", () => {
     const endIdx = events.findIndex((e) => e.t === "agent_end");
     expect(events.slice(endIdx + 1).filter((e) => e.t === "agent_activity")).toHaveLength(0);
     expect(events.slice(endIdx + 1).filter((e) => e.t === "agent_usage")).toHaveLength(0);
+    expect(ends(runDir)[0]!.usage).toEqual(usage(1));
+    expect(g.budget.spent()).toBe(1);
+    expect(controller.totals().usage["codex"]).toEqual(usage(1));
+    expect(fs.existsSync(rawEvents)).toBe(false);
   });
 
   it("totals() folds statuses and per-backend usage ledgers", async () => {

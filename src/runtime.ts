@@ -376,12 +376,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       const execCtx: ExecutorContext = {
         signal: ac.signal,
         onActivity(ev) {
+          if (ended) return; // ignore activity after agent_end
           try {
             fs.appendFileSync(eventsPath, JSON.stringify({ ts: Date.now(), ...ev }) + "\n");
           } catch {
             // raw stream is best-effort
           }
-          if (ended) return; // never journal activity after agent_end
           actThrottle.push(() =>
             journal.append({
               t: "agent_activity",
@@ -394,8 +394,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           );
         },
         onUsage(usage) {
+          if (ended) return; // freeze usage at agent_end
           ledgerSet(backend, n, usage);
-          if (ended) return; // never journal usage after agent_end
           usageThrottle.push(() =>
             journal.append({ t: "agent_usage", ts: Date.now(), n, usage }),
           );
@@ -426,12 +426,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         .catch((err) => ({ ok: false as const, error: errMsg(err) }));
 
       let outcome = await Promise.race([runP, abortP]);
+      let interruptedResult: ExecutorResult | void = undefined;
       if (ac.signal.aborted) outcome = ABORTED;
       if (outcome === ABORTED) {
         // The executor handles the AbortSignal (interrupt → kill) and settles.
         // Wait (bounded) for that settlement so we never tear down the
         // worktree or free the concurrency slot under a live process.
-        await Promise.race([runP, sleep(INTERRUPT_GRACE_MS)]);
+        interruptedResult = await Promise.race([runP, sleep(INTERRUPT_GRACE_MS)]);
       }
 
       let worktreePath: string | undefined;
@@ -458,6 +459,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
 
       if (outcome === ABORTED) {
+        if (interruptedResult?.usage) ledgerSet(backend, n, interruptedResult.usage);
         end("skipped", ledgerGet(backend, n), null, null, worktreePath);
         return null;
       }
