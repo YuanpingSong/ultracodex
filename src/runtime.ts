@@ -285,6 +285,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
     try {
       acquired = await sem.acquire(ac.signal);
+      if (acquired && budget.total !== null && spent() >= budget.total) {
+        throw new Error(
+          `Token budget exceeded: spent ${spent()} of ${budget.total} output tokens`,
+        );
+      }
 
       // Agent-dir/prompt snapshot I/O must never throw out of agent(): degrade
       // to a warn + failed agent instead.

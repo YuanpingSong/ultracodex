@@ -495,6 +495,23 @@ describe("budget", () => {
     await expect(g.agent("second")).rejects.toThrow(/budget/i);
   });
 
+  it("rechecks the budget before executing queued parallel agents", async () => {
+    const executor = okExecutor("done", { usage: usage(120) });
+    const { g, runDir } = makeRuntime({ executor, budgetTotal: 100, concurrency: 1 });
+
+    const results = await g.parallel([
+      () => g.agent("first"),
+      () => g.agent("second"),
+      () => g.agent("third"),
+    ]);
+
+    expect(results).toEqual(["done", null, null]);
+    expect(executor.invocations).toHaveLength(1);
+    expect(executor.invocations[0]!.prompt).toBe("first");
+    expect(starts(runDir)).toHaveLength(1);
+    expect(g.budget.spent()).toBe(120);
+  });
+
   it("remaining() is Infinity when total is null", () => {
     const { g } = makeRuntime({ budgetTotal: null });
     expect(g.budget.total).toBeNull();
