@@ -1,0 +1,95 @@
+{
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "P1",
+      "category": "shutdown/concurrency",
+      "evidence": ["src/runtime.ts:429", "src/runtime.ts:436", "src/runtime.ts:496", "src/appserver/turn.ts:291", "src/appserver/client.ts:143", "src/runner.ts:160", "src/runner.ts:299", "src/cli.ts:929"],
+      "finding": "Shutdown deadlines do not compose. Runtime releases the slot and cleans the worktree after 5s, while runTurn can consume that entire 5s before client.close starts another 2s kill grace. Runner also stops draining after 5s and exits, potentially cancelling the pending kill timer. Codex runs in a separate process group; CLI escalation kills only the runner. An unresponsive backend can survive a reported stop or overlap the next agent.",
+      "test_gap": "tests/runtime.test.ts:634 covers only a 60ms shutdown; tests/runner.test.ts:289 uses a cooperative backend."
+    },
+    {
+      "id": "F2",
+      "severity": "P1",
+      "category": "budget",
+      "evidence": ["src/runtime.ts:268", "src/runtime.ts:287", "src/runtime.ts:419", "tests/runtime.test.ts:480"],
+      "finding": "Budget is checked before semaphore acquisition and never rechecked before execution. A fan-out queues calls while spent is zero; every queued call subsequently executes even after earlier calls exhaust the budget. In-memory source check: concurrency=1, budget=100, three calls consuming 120 each all ran; spent=360. Existing budget test covers sequential calls only."
+    },
+    {
+      "id": "F3",
+      "severity": "P1",
+      "category": "protocol/failure-handling",
+      "evidence": ["src/appserver/client.ts:104", "src/appserver/client.ts:186", "src/appserver/client.ts:224", "src/appserver/turn.ts:275", "src/appserver/turn.ts:302"],
+      "finding": "turn/start has no request timeout, and accepted turns have no inactivity watchdog. A live server that loses its response or terminal notification holds the concurrency slot indefinitely. Malformed JSON is silently discarded; valid JSON null throws outside the parser guard, confirmed in-memory. Notification-handler exceptions are also swallowed. Normal process crashes are handled, but malformed or stalled transports can hang or fail the entire runner.",
+      "test_gap": "tests/appserver.test.ts:309 tests process exit; tests/executor-codex.test.ts:172 tests stalled thread/start, not stalled turn/start."
+    },
+    {
+      "id": "F4",
+      "severity": "P1",
+      "category": "turn-state-machine",
+      "evidence": ["src/constants.ts:22", "src/appserver/turn.ts:136", "src/appserver/turn.ts:144", "src/appserver/turn.ts:170", "src/appserver/turn.ts:287", "src/executor/codex.ts:229"],
+      "finding": "A final_answer item becomes successful completion after 250ms without authoritative turn completion. The timer ignores aborted state and ordinary active tools. In-memory source checks returned completed both after abort and while a command remained active. Later errors/usage are discarded after unsubscribe, and executor cleanup can terminate remaining work. Runtime masks aborted success as skipped, but direct executor callers can receive success."
+    },
+    {
+      "id": "F5",
+      "severity": "P2",
+      "category": "protocol-contract",
+      "evidence": ["src/appserver/client.ts:194", "fixtures/appserver/ts/v2/CommandExecutionApprovalDecision.ts:7", "fixtures/appserver/ts/v2/ToolRequestUserInputResponse.ts:9", "fixtures/appserver/ts/v2/PermissionsRequestApprovalResponse.ts:7", "tests/appserver.test.ts:147", "tests/fake-codex/codex:480"],
+      "finding": "Every server request receives {decision:\"denied\"}. This already violates the checked-in v2 approval contract, which uses decline/cancel. User-input and permission requests require entirely different response shapes. These requests receive invalid results instead of a valid refusal or unsupported-method error. The fake merely echoes decision, and its test explicitly blesses denied; this is an existing mismatch, not a proven 0.153.4 regression."
+    },
+    {
+      "id": "F6",
+      "severity": "P2",
+      "category": "budget/accounting",
+      "evidence": ["src/runtime.ts:429", "src/runtime.ts:455", "src/runtime.ts:460", "src/runtime.ts:392", "src/executor/claude.ts:212", "tests/runtime.test.ts:552"],
+      "finding": "The abort path awaits executor settlement but discards its returned usage, recording only prior callbacks. In-memory source check: an interrupted result carrying 90 output tokens produced spent=0 and agent_end usage=0. Claude additionally returns on interruption before parsing its final usage envelope. Late callbacks mutate the ledger even after agent_end, allowing totals to disagree with finalized agent records."
+    },
+    {
+      "id": "F7",
+      "severity": "P2",
+      "category": "turn-state-machine",
+      "evidence": ["src/appserver/turn.ts:151", "src/appserver/turn.ts:196", "src/appserver/turn.ts:251", "src/appserver/turn.ts:269", "tests/appserver.test.ts:282"],
+      "finding": "Completed subagent turn IDs remain in threadTurnIds. A subsequent turn/started on that child is rejected by belongsToTurn before it can update the tracked ID. Its activity and completion are consequently dropped, and inference considers the child idle. Confirmed in-memory: main returned completed while the child's second turn remained active. Existing collab test covers one child turn only."
+    },
+    {
+      "id": "F8",
+      "severity": "P2",
+      "category": "protocol-drift-risk",
+      "evidence": ["src/constants.ts:34", "docs/operations.md:7", "tests/fake-codex/codex:524", "fixtures/appserver/probe-capture.jsonl:2", "src/appserver/client.ts:97", "src/appserver/turn.ts:26", "src/appserver/turn.ts:302", "tsconfig.json:19", "src/cli.ts:1184"],
+      "finding": "There is no enforced binary pin. Current source declares 0.144.0 tested, while operations documentation, capture, and fake retain 0.142.4; installed binary reports 0.153.4. Generated bindings are fixtures, excluded from compilation and unused by the string/unknown/any protocol boundary. Doctor only reports version drift and probes initialize/account/read, leaving turn fields and notification handling unverified.",
+      "compatibility_limit": "Current official OpenAI documentation retains turn/start, model, effort, outputSchema, and agentMessage phase values; no breaking rename was confirmed. An exact 0.153.4 generated-schema comparison was not performed.",
+      "source": "[Official OpenAI app-server documentation](https://learn.chatgpt.com/docs/app-server)"
+    },
+    {
+      "id": "F9",
+      "severity": "P2",
+      "category": "cli/auth-failure",
+      "evidence": ["src/cli.ts:1205", "src/cli.ts:1215", "src/cli.ts:1140", "src/executor/codex.ts:163"],
+      "finding": "Doctor prints an auth failure for account=null without setting hardFail, so logged-out authentication can still produce exit 0. It also ignores requiresOpenaiAuth. Actual execution performs no auth preflight; unattended callers can pass doctor and then fail every agent at turn execution."
+    }
+  ],
+  "highest_value_changes": [
+    {
+      "rank": 1,
+      "change": "Unify cancellation and process ownership. Require confirmed backend termination before releasing slots, cleaning worktrees, or sealing run_end; give the runner an explicit active-task drain. Use authoritative turn completion, with bounded reconciliation instead of unconditional 250ms success.",
+      "evidence": ["src/runtime.ts:423", "src/runner.ts:155", "src/appserver/turn.ts:136", "src/appserver/client.ts:136"],
+      "size": "3–5 engineer-days",
+      "risk": "Medium: changes completion latency and teardown ordering."
+    },
+    {
+      "rank": 2,
+      "change": "Move budget admission immediately after semaphore acquisition; reconcile final usage on every outcome, including abort; freeze finalized accounting consistently. Add queued-budget and interrupted-usage regression coverage.",
+      "evidence": ["src/runtime.ts:268", "src/runtime.ts:287", "src/runtime.ts:391", "src/runtime.ts:455"],
+      "size": "1–2 engineer-days",
+      "risk": "Low–medium: queued work will correctly stop where it previously ran."
+    },
+    {
+      "rank": 3,
+      "change": "Create one typed protocol boundary using versioned generated bindings, runtime envelope validation, method-specific server replies, and bounded RPC/turn waits. Validate the fake against those schemas and add a compatibility check for the tested binary version.",
+      "evidence": ["src/appserver/client.ts:97", "src/appserver/client.ts:186", "src/appserver/turn.ts:26", "fixtures/appserver/ts/ServerRequest.ts:19", "tests/fake-codex/codex:480"],
+      "size": "2–4 engineer-days",
+      "risk": "Medium: explicit failures will replace previously ignored protocol discrepancies."
+    }
+  ],
+  "validation": "Six isolated in-memory source checks performed with filesystem/backend dependencies stubbed. Vitest suite and live model turns were not run. No files modified."
+}

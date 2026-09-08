@@ -2,11 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  INTERRUPT_GRACE_MS,
   OPTIONS_SNAPSHOT,
   PID_FILE,
   RESULT_FILE,
   SCRIPT_SNAPSHOT,
+  TEARDOWN_HARD_DEADLINE_MS,
   WORKFLOWS_DIR_NAME,
 } from "./constants.js";
 import { loadConfig } from "./config.js";
@@ -157,7 +157,7 @@ export async function runnerMain(runDir: string): Promise<void> {
   // (bounded) for every agent_start to journal its agent_end — otherwise we
   // leak worktrees/processes and seal the journal with dangling agents.
   controller.stop();
-  await drainAgents(runDir, INTERRUPT_GRACE_MS);
+  await drainAgents(runDir, TEARDOWN_HARD_DEADLINE_MS);
 
   stopTail();
   process.off("SIGTERM", onSignal);

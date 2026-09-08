@@ -4,7 +4,7 @@
 
 - Node ≥ 20, pnpm.
 - OpenAI Codex CLI installed and authenticated (`codex login` or
-  `OPENAI_API_KEY`). Pinned against codex 0.142.4.
+  `OPENAI_API_KEY`). Tested against codex 0.153.4.
 - Optional: Claude Code CLI for the `claude` backend routes.
 - Optional: [OpenCode](https://opencode.ai) for the `opencode` backend routes
   (tested against 1.17.18; any provider/model configured in your opencode,
@@ -49,7 +49,7 @@ Schedules are manager-owned crontab lines, not resident ultracodex daemons; see
 [Scheduling runs](schedule.md).
 Org commands manage filesystem-routed agent trees; see [Org runtime](org.md).
 
-TUI home keys: `tab` cycles Runs → Loops → Schedules. Runs keeps `n` for a new
+TUI home keys: `tab` cycles Runs → Schedules → Org. Runs keeps `n` for a new
 workflow run, `r` for re-run, and `S` on a workflow to schedule it. Schedules
 uses `enter` for detail, `e` for exec-now, `p` for pause/resume, and `x` for
 remove with confirmation.

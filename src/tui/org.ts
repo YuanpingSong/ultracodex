@@ -1,5 +1,4 @@
-import { truncate } from "./format.js";
-import { valueSparkline } from "./loops.js";
+import { truncate, valueSparkline } from "./format.js";
 
 export type OrgRole = "root" | "group" | "entity";
 export type OrgSeverity = "routine" | "notable" | "material" | "urgent";

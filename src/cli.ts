@@ -12,6 +12,7 @@ import {
   RUNNER_LOG_FILE,
   SCRIPT_SNAPSHOT,
   SIGTERM_GRACE_MS,
+  TEARDOWN_HARD_DEADLINE_MS,
   TESTED_CODEX_VERSION,
   TESTED_OPENCODE_VERSION,
   defaultConcurrency,
@@ -40,7 +41,6 @@ import { validateWorkflowScript, type ValidationIssue } from "./validate.js";
 import { resolveScript } from "./workflows.js";
 import { AppServerClient } from "./appserver/client.js";
 import { fmtDuration, fmtTokens } from "./tui/format.js";
-import { makeAgentOutputReader, readJsonOutputCapped } from "./tui/loopFiles.js";
 import { initialState, reduce, type TuiState } from "./tui/reducer.js";
 import { renderRunStatic } from "./tui/static.js";
 import { runTui } from "./tui/index.js";
@@ -823,12 +823,7 @@ async function showAction(ref: string, opts: ShowCliOpts): Promise<void> {
     if (dead) process.exitCode = 1;
     return;
   }
-  process.stdout.write(
-    renderRunStatic(state, {
-      readAgentOutput: makeAgentOutputReader(runDir),
-      runResult: readJsonOutputCapped(runDir, state.resultRef),
-    }) + "\n",
-  );
+  process.stdout.write(renderRunStatic(state) + "\n");
   if (dead) {
     process.stderr.write(`run ${runId} is dead: runner exited before run_end\n`);
     process.exitCode = 1;
@@ -917,7 +912,9 @@ async function killAction(ref: string): Promise<void> {
   } catch {
     // raced with exit
   }
-  if (await waitEnded(runDir, pid, SIGTERM_GRACE_MS)) {
+  // SIGTERM can initiate the runner's entire drain. Allow that hard deadline
+  // plus the existing signal grace for delivery and run_end finalization.
+  if (await waitEnded(runDir, pid, TEARDOWN_HARD_DEADLINE_MS + SIGTERM_GRACE_MS)) {
     process.stdout.write(`run ${runId} terminated (SIGTERM)\n`);
     return;
   }
@@ -1202,7 +1199,10 @@ async function doctorAction(): Promise<void> {
     try {
       const client = await withTimeout(startP, DOCTOR_PROBE_TIMEOUT_MS, "app-server initialize");
       try {
-        const account = await client.request<{ account: { type?: string; email?: string; planType?: string } | null }>(
+        const account = await client.request<{
+          account: { type?: string; email?: string; planType?: string } | null;
+          requiresOpenaiAuth?: boolean;
+        }>(
           "account/read",
           {},
           { timeoutMs: DOCTOR_PROBE_TIMEOUT_MS },
@@ -1212,6 +1212,7 @@ async function doctorAction(): Promise<void> {
           const who = [account.account.email, account.account.planType].filter(Boolean).join(", ");
           report(true, "auth", `logged in${who ? ` (${who})` : ""}`);
         } else {
+          if (account.requiresOpenaiAuth !== false) hardFail = true;
           report(false, "auth", "logged out", "run `codex login` (or set OPENAI_API_KEY)");
         }
       } finally {

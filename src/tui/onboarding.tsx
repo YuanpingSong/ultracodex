@@ -31,30 +31,16 @@ export const RUNS_ONBOARDING: Onboarding = {
   docs: `${REPO}/tree/main/examples`,
 };
 
-export const LOOPS_ONBOARDING: Onboarding = {
-  intro:
-    "Loops keep an agent working until the result is right — builder rounds gated by a skeptical verifier, or discovery that repeats until nothing new turns up. Reach for one when “done” is a judgment, not a fixed step count. Runs that iterate appear here as convergence trajectories.",
-  art: [
-    " round 1   round 2   round 3",
-    "   ✗    →    ✗    →    ✔   converged",
-  ],
-  commands: [
-    "ultracodex run goal --budget 200k --args '{\"task\":\"…\",\"criteria\":\"…\"}'",
-    "ultracodex show <runId>          # view a run's round-by-round trajectory",
-  ],
-  docs: `${REPO}/blob/main/docs/loops.md`,
-};
-
 export const SCHEDULES_ONBOARDING: Onboarding = {
   intro:
-    "The scheduler runs a workflow on a recurring clock — one tagged crontab line it owns, no daemon. Use it for digests, nightly checks, or a loop that reports done and retires itself. Always pass --budget so an unattended run can't drain your quota.",
+    "The scheduler runs a workflow on a recurring clock — one tagged crontab line it owns, no daemon. Use it for digests, nightly checks, or a workflow that reports done and retires itself. Always pass --budget so an unattended run can't drain your quota.",
   art: [
     " ─┬───────┬───────┬──▶  every 30m",
     "  ▶       ▶       ▶      a run each tick",
   ],
   commands: [
     "ultracodex schedule add digest --every 30m --budget 200k -- run path/to/digest.js",
-    "ultracodex schedule add nightly --daily 18:30 --until-done --budget 500k -- run goal --args '{\"task\":\"…\",\"criteria\":\"…\"}'",
+    "ultracodex schedule add nightly --daily 18:30 --until-done --budget 500k -- run path/to/check.js",
     "ultracodex schedule ls",
   ],
   docs: `${REPO}/blob/main/docs/schedule.md`,

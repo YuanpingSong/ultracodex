@@ -209,7 +209,10 @@ export class ClaudeExecutor implements Executor {
       if (ctx.signal.aborted) return { failed: "interrupted" };
       ctx.onActivity({ kind: "status", text: "claude -p running" });
       const out = await runCli(this.cfg.binary, args, stdinText, req.cwd, ctx.signal);
-      if (out.interrupted || ctx.signal.aborted) return { failed: "interrupted" };
+      if (out.interrupted || ctx.signal.aborted) {
+        usage = addUsage(usage, parseEnvelope(out).usage);
+        return { failed: "interrupted" };
+      }
       if (out.spawnError !== null)
         return { failed: `failed to spawn ${this.cfg.binary}: ${out.spawnError}` };
       const env = parseEnvelope(out);

@@ -4,9 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { Box, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { JOURNAL_FILE, WORKFLOWS_DIR_NAME } from "../constants.js";
+import { WORKFLOWS_DIR_NAME } from "../constants.js";
 import { slugify } from "../ids.js";
-import { readJournal } from "../journal.js";
 import { parseMeta } from "../loader.js";
 import { listRunsReconciled, stateDir } from "../rundir.js";
 import { packageRootDir } from "../skills.js";
@@ -14,12 +13,8 @@ import type { RunSummary } from "../types.js";
 import { col } from "./colors.js";
 import { fmtDuration, fmtTokens, parseBudget, spinnerFrame, truncate } from "./format.js";
 import { useFlash, useTick } from "./hooks.js";
-import { LoopView } from "./LoopView.js";
-import { detectLoops, formatLoopListRow, type LoopInstance } from "./loops.js";
-import { makeAgentOutputReader, readJsonOutputCapped } from "./loopFiles.js";
 import { OrgView } from "./OrgView.js";
 import { isOrgProject, refreshOrgSnapshot, type OrgSnapshotLoad } from "./orgFiles.js";
-import { initialState, reduce, type TuiState } from "./reducer.js";
 import {
   execScheduleDetached,
   loadMissedScheduleWarnings,
@@ -46,17 +41,11 @@ import { loadStatus } from "./statusLine.js";
 import {
   TabOnboarding,
   RUNS_ONBOARDING,
-  LOOPS_ONBOARDING,
   SCHEDULES_ONBOARDING,
   ORG_CREATE_ONBOARDING,
 } from "./onboarding.js";
 
 const RUNS_SHOWN = 12;
-const LOOPS_SHOWN = 12;
-// The Loops tab folds runs to find loops — cheap pure work over journals — so
-// it scans well past the 12 rows the Runs tab shows; otherwise a loop in an
-// older run reads as "no loops" while `show` on that run detects it.
-const LOOPS_SCAN = 60;
 const SCHEDULES_SHOWN = 12;
 
 export interface WorkflowItem {
@@ -68,26 +57,17 @@ export interface WorkflowItem {
   builtin?: boolean;
 }
 
-interface LoopRowItem {
-  run: RunSummary;
-  loop: LoopInstance;
-  loopIndex: number;
-  loopCount: number;
-}
-
-type HomeTab = "runs" | "loops" | "schedules" | "org";
+type HomeTab = "runs" | "schedules" | "org";
 
 type Item =
   | { kind: "wf"; wf: WorkflowItem }
   | { kind: "run"; run: RunSummary }
-  | { kind: "loop"; row: LoopRowItem }
   | { kind: "schedule"; row: ScheduleRowItem };
 
 type Mode =
   | { kind: "list" }
   | { kind: "launch"; wf: WorkflowItem }
   | { kind: "scheduleForm"; wf: WorkflowItem }
-  | { kind: "loop"; runDir: string; loopId: string }
   | { kind: "scheduleDetail"; name: string }
   | { kind: "scheduleRemoveConfirm"; name: string };
 
@@ -158,45 +138,6 @@ function runGlyph(r: RunSummary): { glyph: string; color: string | undefined; di
   }
 }
 
-function foldRun(runDir: string): TuiState {
-  let state = initialState();
-  for (const event of readJournal(runDir)) state = reduce(state, event);
-  return state;
-}
-
-function journalMtimeMs(runDir: string): number | null {
-  try {
-    return fs.statSync(path.join(runDir, JOURNAL_FILE)).mtimeMs;
-  } catch {
-    return null;
-  }
-}
-
-function loadLoopRows(
-  runs: readonly RunSummary[],
-  cache: Map<string, { mtimeMs: number; loops: LoopInstance[] }>,
-): LoopRowItem[] {
-  const rows: LoopRowItem[] = [];
-  for (const run of runs) {
-    const mtimeMs = journalMtimeMs(run.runDir);
-    if (mtimeMs === null) continue;
-    let loops = cache.get(run.runId)?.mtimeMs === mtimeMs ? cache.get(run.runId)!.loops : undefined;
-    if (loops === undefined) {
-      const state = foldRun(run.runDir);
-      loops = detectLoops(
-        state,
-        makeAgentOutputReader(run.runDir),
-        undefined,
-        readJsonOutputCapped(run.runDir, state.resultRef),
-      );
-      cache.set(run.runId, { mtimeMs, loops });
-    }
-    loops.forEach((loop, loopIndex) => rows.push({ run, loop, loopIndex, loopCount: loops.length }));
-    if (rows.length >= LOOPS_SHOWN) return rows.slice(0, LOOPS_SHOWN);
-  }
-  return rows.slice(0, LOOPS_SHOWN);
-}
-
 export interface HomeViewProps {
   projectDir: string;
   onAttach: (runDir: string) => void;
@@ -205,12 +146,8 @@ export interface HomeViewProps {
 
 export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): ReactElement {
   const workflows = useMemo(() => loadWorkflows(projectDir), [projectDir]);
-  // The Runs launcher shows only the workflows YOU'VE written; the packaged
-  // builtins live on the tab they belong to — `goal` is a loop (Loops tab), the
-  // org workflows are internal to `org audit`/`tick` (Org tab). This keeps the
-  // pillars from bleeding into each other's front door.
+  // The Runs launcher shows saved workflows; packaged org workflows belong to Org.
   const userWorkflows = useMemo(() => workflows.filter((w) => !w.builtin), [workflows]);
-  const goalWf = useMemo(() => workflows.find((w) => w.builtin && w.name === "goal") ?? null, [workflows]);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const tick = useTick(2000, true);
   useEffect(() => {
@@ -226,12 +163,10 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [tab, setTab] = useState<HomeTab>("runs");
   const [selIdx, setSelIdx] = useState(0);
-  const [loopRows, setLoopRows] = useState<LoopRowItem[]>([]);
   const [scheduleRows, setScheduleRows] = useState<ScheduleRowItem[]>([]);
   const [orgEnabled, setOrgEnabled] = useState(() => isOrgProject(projectDir));
   const [orgLoad, setOrgLoad] = useState<OrgSnapshotLoad | null>(null);
   const [missedWarnings, setMissedWarnings] = useState<string[]>(() => loadMissedScheduleWarnings(projectDir));
-  const loopCache = useRef(new Map<string, { mtimeMs: number; loops: LoopInstance[] }>());
   const scheduleSnapshot = useRef<ScheduleSnapshot | null>(null);
   const orgSnapshot = useRef<OrgSnapshotLoad | null>(null);
   const [flash, showFlash] = useFlash(3000);
@@ -243,12 +178,6 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
   const status = useMemo(() => loadStatus(projectDir), [projectDir, tick]);
   const shownRuns = useMemo(() => runs.slice(0, RUNS_SHOWN), [runs]);
   const shownSchedules = useMemo(() => scheduleRows.slice(0, SCHEDULES_SHOWN), [scheduleRows]);
-  const scannedRuns = useMemo(() => runs.slice(0, LOOPS_SCAN), [runs]);
-  // Load eagerly (not gated on the loops tab) so the tab strip can show
-  // whether loops exist; loadLoopRows is mtime-cached, so idle re-runs are cheap.
-  useEffect(() => {
-    setLoopRows(loadLoopRows(scannedRuns, loopCache.current));
-  }, [scannedRuns]);
 
   // Cheap eager count of schedule spec files, for the tab strip's populated
   // state (the full schedule snapshot still loads only on the Schedules tab).
@@ -297,14 +226,9 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
           ...userWorkflows.map((wf): Item => ({ kind: "wf", wf })),
           ...shownRuns.map((run): Item => ({ kind: "run", run })),
         ]
-      : tab === "loops"
-        ? [
-            ...(goalWf ? [{ kind: "wf", wf: goalWf } as Item] : []),
-            ...loopRows.map((row): Item => ({ kind: "loop", row })),
-          ]
-        : tab === "schedules"
-          ? shownSchedules.map((row): Item => ({ kind: "schedule", row }))
-          : [];
+      : tab === "schedules"
+        ? shownSchedules.map((row): Item => ({ kind: "schedule", row }))
+        : [];
   const sel = Math.min(selIdx, Math.max(0, items.length - 1));
   const selected = items[sel];
 
@@ -380,14 +304,11 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
       else if (key.return) {
         if (!selected) return;
         if (selected.kind === "run") onAttach(selected.run.runDir);
-        else if (selected.kind === "loop")
-          setMode({ kind: "loop", runDir: selected.row.run.runDir, loopId: selected.row.loop.id });
         else if (selected.kind === "schedule")
           setMode({ kind: "scheduleDetail", name: selected.row.spec.name });
         else if (selected.wf.error) showFlash(`invalid workflow: ${selected.wf.error}`);
         else setMode({ kind: "launch", wf: selected.wf });
       } else if (input === "n") {
-        // Any launchable workflow item — the Runs launcher, or `goal` on Loops.
         if (selected?.kind === "wf" && !selected.wf.error) setMode({ kind: "launch", wf: selected.wf });
       } else if (input === "S") {
         if (selected?.kind === "wf" && !selected.wf.error) setMode({ kind: "scheduleForm", wf: selected.wf });
@@ -444,20 +365,6 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
   );
 
   const now = Date.now();
-
-  if (mode.kind === "loop") {
-    return (
-      <LoopView
-        runDir={mode.runDir}
-        initialLoopId={mode.loopId}
-        onBack={() => {
-          setTab("loops");
-          setMode({ kind: "list" });
-        }}
-        onQuit={onQuit}
-      />
-    );
-  }
 
   if (mode.kind === "scheduleDetail") {
     return (
@@ -520,7 +427,7 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
       <TabStrip
         selected={tab}
         orgEnabled={orgEnabled}
-        counts={{ runs: runs.length, loops: loopRows.length, schedules: scheduleCount }}
+        counts={{ runs: runs.length, schedules: scheduleCount }}
       />
 
       {tab === "runs" && (
@@ -566,44 +473,6 @@ export function HomeView({ projectDir, onAttach, onQuit }: HomeViewProps): React
                   {isSel ? "❯ " : "  "}
                   <Text color={g.color}>{g.glyph}</Text> {r.runId} <Text dimColor>{r.name ?? "?"}</Text> · {r.status} ·{" "}
                   {elapsed} · {r.agentsDone}/{r.agentsTotal} agents · {fmtTokens(r.outputTokens)} tok
-                </Text>
-              );
-            })}
-          </>
-        ) : tab === "loops" ? (
-          <>
-            <Text bold>Loops</Text>
-            {goalWf && (
-              <Text bold={mode.kind === "list" && sel === 0} wrap="truncate-end">
-                {mode.kind === "list" && sel === 0 ? "❯ " : "  "}
-                <Text color={col("cyan")}>▸ {goalWf.name}</Text>
-                <Text dimColor> — {goalWf.description}</Text>
-                {mode.kind === "list" && sel === 0 && <Text dimColor>   ↵ launch</Text>}
-              </Text>
-            )}
-            {loopRows.length === 0 && <TabOnboarding o={LOOPS_ONBOARDING} />}
-            {loopRows.map((row, i) => {
-              const idx = i + (goalWf ? 1 : 0);
-              const isSel = mode.kind === "list" && idx === sel;
-              const loopColor =
-                row.loop.status === "running"
-                  ? col("cyan")
-                  : row.loop.status === "converged"
-                    ? col("green")
-                    : row.loop.endedWithRejection
-                      ? col("red")
-                      : undefined;
-              const neutralEnded = row.loop.status === "ended" && !row.loop.endedWithRejection;
-              return (
-                <Text
-                  key={`${row.run.runId}:${row.loop.id}:${row.loopIndex}`}
-                  bold={isSel}
-                  color={loopColor}
-                  dimColor={neutralEnded && !isSel}
-                  wrap="truncate-end"
-                >
-                  {formatLoopListRow({ runId: row.run.runId, loop: row.loop, selected: isSel })}
-                  {row.loopCount > 1 && <Text dimColor> · loop {row.loopIndex + 1}/{row.loopCount}</Text>}
                 </Text>
               );
             })}
@@ -714,7 +583,7 @@ function TabStrip({
   orgEnabled,
 }: {
   selected: HomeTab;
-  counts: { runs: number; loops: number; schedules: number };
+  counts: { runs: number; schedules: number };
   orgEnabled: boolean;
 }): ReactElement {
   const sep = <Text dimColor> | </Text>;
@@ -722,8 +591,6 @@ function TabStrip({
     <Box marginTop={1}>
       <Text dimColor>tab ❯ </Text>
       <Tab label="Runs" active={selected === "runs"} count={counts.runs} />
-      {sep}
-      <Tab label="Loops" active={selected === "loops"} count={counts.loops} />
       {sep}
       <Tab label="Schedules" active={selected === "schedules"} count={counts.schedules} />
       {sep}
@@ -733,7 +600,7 @@ function TabStrip({
 }
 
 function nextHomeTab(tab: HomeTab, _orgEnabled: boolean): HomeTab {
-  const tabs: HomeTab[] = ["runs", "loops", "schedules", "org"];
+  const tabs: HomeTab[] = ["runs", "schedules", "org"];
   const index = tabs.indexOf(tab);
   return tabs[(index + 1) % tabs.length] ?? "runs";
 }
@@ -744,10 +611,8 @@ function footerText(tab: HomeTab, orgEnabled: boolean, runsHasItems: boolean): s
       // On a fresh install the Runs list is empty, so ↵/n/S/r have nothing to
       // act on — advertise only the keys that actually do something.
       return runsHasItems
-        ? "↑↓ select · ↵ attach/launch · n new run · S schedule · r re-run · tab loops · q quit"
-        : "tab loops · q quit";
-    case "loops":
-      return "↑↓ select · ↵ launch/open · n launch goal · S schedule · tab schedules · esc back · q quit";
+        ? "↑↓ select · ↵ attach/launch · n new run · S schedule · r re-run · tab schedules · q quit"
+        : "tab schedules · q quit";
     case "schedules":
       return `↑↓ select · ↵ detail · e exec now · p pause/resume · x remove · tab org · esc back · q quit`;
     case "org":

@@ -92,8 +92,8 @@ describe("resolveScript", () => {
 
   it("resolves a packaged builtin workflow name when no local copy exists", () => {
     const projectDir = tmpProject();
-    expect(resolveScript(projectDir, "goal")).toBe(
-      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "workflows", "goal.js"),
+    expect(resolveScript(projectDir, "org-audit")).toBe(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "workflows", "org-audit.js"),
     );
   });
 
@@ -101,9 +101,9 @@ describe("resolveScript", () => {
     const projectDir = tmpProject();
     const wfDir = path.join(projectDir, ".ultracodex", "workflows");
     fs.mkdirSync(wfDir, { recursive: true });
-    const file = path.join(wfDir, "goal.js");
+    const file = path.join(wfDir, "org-audit.js");
     fs.writeFileSync(file, "// shadow");
-    expect(resolveScript(projectDir, "goal")).toBe(file);
+    expect(resolveScript(projectDir, "org-audit")).toBe(file);
   });
 
   it("prefers a real file over a same-named saved workflow", () => {
@@ -357,7 +357,7 @@ async function runCliInProc(
 
 describe("packaged builtin workflows", () => {
   it("validate --strict passes for packaged builtins by name", async () => {
-    for (const name of ["goal", "org-lint-repair", "org-audit"]) {
+    for (const name of ["org-lint-repair", "org-audit"]) {
       const res = await runCliInProc(["validate", name, "--strict"], tmpProject());
       expect(res.code).toBe(0);
       expect(res.stderr).toBe("");
@@ -522,7 +522,7 @@ describe("show on dead runs", () => {
 });
 
 describe("doctor", () => {
-  it("pins codex protocol drift wording", async () => {
+  it.each([false, true])("pins codex protocol drift wording and auth status (logged out: %s)", async (loggedOut) => {
     const projectDir = tmpProject();
     const codexHome = path.join(projectDir, "codex-home");
     const binary = writeCodexWrapper(projectDir, "codex-cli 9.9.9 (fake)");
@@ -535,11 +535,15 @@ describe("doctor", () => {
 
     const prevCodexHome = process.env.CODEX_HOME;
     const prevCrontab = process.env.ULTRACODEX_CRONTAB_FILE;
+    const prevLoggedOut = process.env.FAKE_CODEX_LOGGED_OUT;
     process.env.CODEX_HOME = codexHome;
     process.env.ULTRACODEX_CRONTAB_FILE = path.join(projectDir, "crontab");
+    process.env.FAKE_CODEX_LOGGED_OUT = loggedOut ? "1" : "0";
     try {
       const res = await runCliInProc(["doctor"], projectDir);
-      expect(res.code).toBe(0);
+      expect(res.stdout).toContain(loggedOut ? "✖ auth: logged out" : "✔ auth: logged in (fake-account, pro)");
+      if (loggedOut) expect(res.stdout).toContain("run `codex login` (or set OPENAI_API_KEY)");
+      expect(res.code).toBe(loggedOut ? 1 : 0);
       expect(res.stdout).toContain(`not the tested pin (${TESTED_CODEX_VERSION})`);
       expect(res.stdout).toContain("the app-server protocol is experimental");
     } finally {
@@ -547,6 +551,8 @@ describe("doctor", () => {
       else process.env.CODEX_HOME = prevCodexHome;
       if (prevCrontab === undefined) delete process.env.ULTRACODEX_CRONTAB_FILE;
       else process.env.ULTRACODEX_CRONTAB_FILE = prevCrontab;
+      if (prevLoggedOut === undefined) delete process.env.FAKE_CODEX_LOGGED_OUT;
+      else process.env.FAKE_CODEX_LOGGED_OUT = prevLoggedOut;
     }
   });
 });

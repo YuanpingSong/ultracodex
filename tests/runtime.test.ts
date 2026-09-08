@@ -1,12 +1,16 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRuntime } from "../src/runtime.js";
+import { ClaudeExecutor } from "../src/executor/claude.js";
+import { CodexExecutor } from "../src/executor/codex.js";
+import { pidAlive } from "../src/rundir.js";
+import { fakeCodexPath } from "./helpers.js";
 import type { RuntimeDeps } from "../src/runtime.js";
 import { JournalWriter, readJournal } from "../src/journal.js";
 import { sha256Hex } from "../src/ids.js";
-import { ACTIVITY_TEXT_MAX, DEFAULT_CONFIG } from "../src/constants.js";
+import { ACTIVITY_TEXT_MAX, DEFAULT_CONFIG, TEARDOWN_HARD_DEADLINE_MS } from "../src/constants.js";
 import type {
   AgentEndEvent,
   AgentStartEvent,
@@ -33,6 +37,8 @@ const CAPABILITIES: CapabilityDescriptor = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   for (const j of journals.splice(0)) {
     try { j.close(); } catch {}
   }
@@ -248,7 +254,7 @@ describe("agent()", () => {
     const s = starts(runDir);
     expect(s[0]!.backend).toBe("claude");
     expect(s[1]!.backend).toBe("codex");
-    expect(s[1]!.model).toBe("gpt-5.6-sol"); // opus mapped via codex modelMap
+    expect(s[1]!.model).toBe("gpt-6-astra"); // opus mapped via codex modelMap
     expect(s[1]!.effort).toBe("max"); // max is native on codex ≥0.144 (identity map)
     expect(s[2]!.model).toBe("my-model"); // unknown tier passes through
     // no opts.model → journal records the backend default that will actually run
@@ -495,6 +501,23 @@ describe("budget", () => {
     await expect(g.agent("second")).rejects.toThrow(/budget/i);
   });
 
+  it("rechecks the budget before executing queued parallel agents", async () => {
+    const executor = okExecutor("done", { usage: usage(120) });
+    const { g, runDir } = makeRuntime({ executor, budgetTotal: 100, concurrency: 1 });
+
+    const results = await g.parallel([
+      () => g.agent("first"),
+      () => g.agent("second"),
+      () => g.agent("third"),
+    ]);
+
+    expect(results).toEqual(["done", null, null]);
+    expect(executor.invocations).toHaveLength(1);
+    expect(executor.invocations[0]!.prompt).toBe("first");
+    expect(starts(runDir)).toHaveLength(1);
+    expect(g.budget.spent()).toBe(120);
+  });
+
   it("remaining() is Infinity when total is null", () => {
     const { g } = makeRuntime({ budgetTotal: null });
     expect(g.budget.total).toBeNull();
@@ -565,6 +588,64 @@ describe("control: pause / resume / skip / stop", () => {
     expect(end).toHaveLength(1);
     expect(end[0]!.status).toBe("skipped");
     expect(end[0]!.error).toBeNull();
+    expect(end[0]!.usage).toEqual(usage(9));
+    expect(g.budget.spent()).toBe(9);
+    expect(controller.totals().usage["codex"]).toEqual(usage(9));
+  });
+
+  it.each([false, true])("reconciles interrupted executor usage after grace-period settlement (prior tick: %s)", async (priorTick) => {
+    const { executor, calls } = deferredExecutor();
+    const { g, controller, runDir } = makeRuntime({ executor });
+    const p = g.agent("interrupted");
+    await until(() => calls.length === 1);
+    if (priorTick) calls[0]!.ctx.onUsage(usage(2, 1));
+    controller.skip(1);
+    await sleep(20); // let the abort win the race before the executor settles
+    expect(ends(runDir)).toHaveLength(0);
+    calls[0]!.resolve({ ok: false, error: "interrupted", usage: usage(17, 31) });
+    expect(await p).toBeNull();
+    expect(ends(runDir)).toHaveLength(1);
+    expect(ends(runDir)[0]).toMatchObject({ status: "skipped", usage: usage(17, 31) });
+    expect(g.budget.spent()).toBe(17);
+    expect(controller.totals().usage["codex"]).toEqual(usage(17, 31));
+  });
+
+  it("records Claude's final usage envelope emitted on interrupted close", async () => {
+    const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "ultracodex-claude-interrupt-"));
+    cleanups.push(fixtureDir);
+    const binary = path.join(fixtureDir, "claude.cjs");
+    const ready = path.join(fixtureDir, "ready");
+    fs.writeFileSync(binary, `#!${process.execPath}
+const fs = require("node:fs");
+process.stdin.resume();
+setInterval(() => {}, 1000);
+process.on("SIGTERM", () => {
+  process.stdout.write(JSON.stringify({
+    is_error: true, subtype: "interrupted", result: "interrupted",
+    usage: { input_tokens: 31, output_tokens: 17, cache_read_input_tokens: 5 }
+  }), () => process.exit(0));
+});
+fs.writeFileSync(${JSON.stringify(ready)}, "ready");
+`, { mode: 0o755 });
+    const config = structuredClone(DEFAULT_CONFIG);
+    config.route = [{ pattern: "*", backend: "claude" }];
+    config.claude.binary = binary;
+    config.claude.extraArgs = [];
+    const executor = new ClaudeExecutor(config.claude, {});
+    const { g, controller, runDir } = makeRuntime({ config, executors: { claude: executor } });
+    const p = g.agent("interrupt after startup");
+    try {
+      await until(() => fs.existsSync(ready));
+    } finally {
+      controller.skip(1);
+      await p;
+    }
+    expect(await p).toBeNull();
+    const expectedUsage = { ...usage(17, 31), cachedInputTokens: 5 };
+    expect(ends(runDir)).toHaveLength(1);
+    expect(ends(runDir)[0]).toMatchObject({ status: "skipped", usage: expectedUsage });
+    expect(g.budget.spent()).toBe(17);
+    expect(controller.totals().usage["claude"]).toEqual(expectedUsage);
   });
 
   it("skip on a queued agent resolves it null without dispatching", async () => {
@@ -666,6 +747,107 @@ describe("control: pause / resume / skip / stop", () => {
     expect(await p2).toBe("second");
   });
 
+  it("keeps the slot until a codex ignoring interrupt and stdin EOF is confirmed dead", async () => {
+    const config = structuredClone(DEFAULT_CONFIG);
+    config.codex.binary = fakeCodexPath();
+    const codex = new CodexExecutor(config.codex, config.profiles);
+    let pid = 0;
+    let aliveAtNextStart: boolean | undefined;
+    let aliveAtEnd: boolean | undefined;
+    const executions: Promise<ExecutorResult>[] = [];
+    const executor: Executor = {
+      backend: codex.backend,
+      capabilities: codex.capabilities,
+      run(req, ctx) {
+        if (req.label === "B") aliveAtNextStart = pidAlive(pid);
+        const p = codex.run(req, ctx);
+        executions.push(p);
+        return p;
+      },
+    };
+    const { g, controller, runDir, journal } = makeRuntime({ executor, config, concurrency: 1 });
+    const append = journal.append.bind(journal);
+    vi.spyOn(journal, "append").mockImplementation((event) => {
+      if (event.t === "agent_end" && event.n === 1) aliveAtEnd = pidAlive(pid);
+      append(event);
+    });
+    const probe = path.join(runDir, "stubborn.pid");
+    const a = g.agent(`[[stubborn:${probe}]]`, { label: "A" });
+    const b = g.agent("[[reply:second]]", { label: "B" });
+    try {
+      await until(() => fs.existsSync(probe));
+      pid = Number(fs.readFileSync(probe, "utf8"));
+      const abortedAt = Date.now();
+      controller.skip(1);
+      await until(() => fs.existsSync(probe + ".interrupted"));
+      // The old 5s outer wait expired just as the inner 2s close began.
+      await until(() => fs.existsSync(probe + ".stdin-closed"), TEARDOWN_HARD_DEADLINE_MS);
+      expect(pidAlive(pid)).toBe(true);
+      expect(ends(runDir)).toHaveLength(0);
+      expect(starts(runDir).map((e) => e.label)).toEqual(["A"]);
+      expect(aliveAtNextStart).toBeUndefined();
+
+      expect(await a).toBeNull();
+      expect(Date.now() - abortedAt).toBeLessThan(TEARDOWN_HARD_DEADLINE_MS);
+      expect(await b).toBe("second");
+      expect(aliveAtEnd).toBe(false);
+      expect(aliveAtNextStart).toBe(false);
+      expect(pidAlive(pid)).toBe(false);
+      expect(readJournal(runDir).filter((e) => e.t === "warn")).toEqual([]);
+      const events = readJournal(runDir);
+      expect(events.findIndex((e) => e.t === "agent_start" && e.n === 2))
+        .toBeGreaterThan(events.findIndex((e) => e.t === "agent_end" && e.n === 1));
+    } finally {
+      controller.stop();
+      if (pid && pidAlive(pid)) process.kill(pid, "SIGKILL");
+      await Promise.all([a, b, ...executions]);
+    }
+  });
+
+  it("warns and releases the slot at the hard deadline if the executor never settles", async () => {
+    const { executor, calls } = deferredExecutor();
+    const { g, controller, runDir } = makeRuntime({ executor, concurrency: 1 });
+    const a = g.agent("stuck", { label: "A" });
+    const b = g.agent("next", { label: "B" });
+    await until(() => calls.length === 1);
+    calls[0]!.ctx.onUsage(usage(3));
+    vi.useFakeTimers();
+    controller.skip(1);
+    await vi.advanceTimersByTimeAsync(TEARDOWN_HARD_DEADLINE_MS - 1);
+    expect(ends(runDir)).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await a).toBeNull();
+    expect(calls).toHaveLength(2);
+    expect(ends(runDir)[0]).toMatchObject({ status: "skipped", usage: usage(3) });
+    const warning = readJournal(runDir).find((e) => e.t === "warn");
+    expect(warning).toMatchObject({
+      text: expect.stringMatching(/agent 1.*A.*teardown.*10000ms.*process may still be alive/),
+    });
+    calls[1]!.resolve({ ok: true, text: "second", usage: usage(1) });
+    expect(await b).toBe("second");
+    // An eventual late settlement must not alter the frozen interrupted usage.
+    calls[0]!.resolve({ ok: false, error: "interrupted", usage: usage(99) });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(g.budget.spent()).toBe(4);
+  });
+
+  it("retains interrupted final usage when settlement takes longer than interrupt grace", async () => {
+    const { executor, calls } = deferredExecutor();
+    const { g, controller, runDir } = makeRuntime({ executor });
+    const p = g.agent("slow teardown");
+    await until(() => calls.length === 1);
+    vi.useFakeTimers();
+    controller.skip(1);
+    await vi.advanceTimersByTimeAsync(7_000);
+    expect(ends(runDir)).toHaveLength(0);
+    calls[0]!.resolve({ ok: false, error: "interrupted", usage: usage(17, 31) });
+    expect(await p).toBeNull();
+    expect(ends(runDir)[0]).toMatchObject({ status: "skipped", usage: usage(17, 31) });
+    expect(controller.totals().usage["codex"]).toEqual(usage(17, 31));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("drops activity/usage arriving after agent_end (no journal events past the end)", async () => {
     let captured: ExecutorContext | null = null;
     const executor: Executor = {
@@ -676,9 +858,12 @@ describe("control: pause / resume / skip / stop", () => {
         return { ok: true, text: "done", usage: usage(1) };
       },
     };
-    const { g, runDir } = makeRuntime({ executor });
+    const { g, controller, runDir } = makeRuntime({ executor });
     await g.agent("quick");
     expect(ends(runDir)).toHaveLength(1);
+    const agentDirPath = path.dirname(path.join(runDir, starts(runDir)[0]!.promptRef));
+    const rawEvents = path.join(agentDirPath, "events.jsonl");
+    expect(fs.existsSync(rawEvents)).toBe(false);
 
     captured!.onActivity({ kind: "exec", text: "late activity" });
     captured!.onUsage(usage(999));
@@ -688,6 +873,10 @@ describe("control: pause / resume / skip / stop", () => {
     const endIdx = events.findIndex((e) => e.t === "agent_end");
     expect(events.slice(endIdx + 1).filter((e) => e.t === "agent_activity")).toHaveLength(0);
     expect(events.slice(endIdx + 1).filter((e) => e.t === "agent_usage")).toHaveLength(0);
+    expect(ends(runDir)[0]!.usage).toEqual(usage(1));
+    expect(g.budget.spent()).toBe(1);
+    expect(controller.totals().usage["codex"]).toEqual(usage(1));
+    expect(fs.existsSync(rawEvents)).toBe(false);
   });
 
   it("totals() folds statuses and per-backend usage ledgers", async () => {

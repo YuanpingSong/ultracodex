@@ -8,13 +8,6 @@ import {
   statusGlyph,
   truncate,
 } from "./format.js";
-import {
-  detectLoops,
-  formatLoopStatus,
-  formatLoopTotals,
-  roundVerdictLabel,
-  trajectoryStrip,
-} from "./loops.js";
 
 const NARRATOR_TAIL = 6;
 
@@ -22,8 +15,6 @@ export function renderRunStatic(
   state: TuiState,
   opts?: {
     color?: boolean;
-    readAgentOutput?: (resultRef: string) => string | null;
-    runResult?: unknown;
   },
 ): string {
   const enabled = (opts?.color ?? true) && !process.env.NO_COLOR;
@@ -109,33 +100,6 @@ export function renderRunStatic(
     for (const entry of state.narrator.slice(-NARRATOR_TAIL)) {
       const text = `${fmtClock(entry.ts)} ${entry.text}`;
       lines.push("  " + (entry.warn ? c.yellow(text) : c.dim(text)));
-    }
-  }
-
-  const loops = detectLoops(state, opts?.readAgentOutput ?? (() => null), endTs, opts?.runResult);
-  if (loops.length > 0) {
-    lines.push("");
-    lines.push(c.bold("LOOPS"));
-    for (const loop of loops) {
-      const text =
-        `  ${loop.id} · ${formatLoopStatus(loop)} · ${trajectoryStrip(loop.rounds)} · ${formatLoopTotals(loop)}`;
-      lines.push(
-        loop.status === "running"
-          ? c.cyan(text)
-          : loop.status === "converged"
-            ? c.green(text)
-            : loop.endedWithRejection
-              ? c.red(text)
-              : c.dim(text),
-      );
-      for (const round of loop.rounds) {
-        const verdictText = round.verdict.text ? ` — ${truncate(round.verdict.text, 90)}` : "";
-        lines.push(
-          `    r${round.n} ${roundVerdictLabel(round)} · ${round.agents.length} agent${
-            round.agents.length === 1 ? "" : "s"
-          } · ${fmtTokens(round.outputTokens)} tok · ${fmtDuration(round.durationMs)}${verdictText}`,
-        );
-      }
     }
   }
 

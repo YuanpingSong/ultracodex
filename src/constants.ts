@@ -1,4 +1,5 @@
 import os from "node:os";
+import { CLOSE_GRACE_MS } from "./appserver/client.js";
 import type {
   CodexBackendConfig,
   ClaudeBackendConfig,
@@ -21,17 +22,25 @@ export const ACTIVITY_TEXT_MAX = 200;
 // app-server turn completion inference (plugin's captureTurn).
 export const INFER_COMPLETION_MS = 250;
 
+// Only bounds the initial turn/start RPC response, never the running turn.
+export const TURN_START_REQUEST_TIMEOUT_MS = 60_000;
+// Accepted turns may run indefinitely; every matching notification renews this.
+export const TURN_INACTIVITY_TIMEOUT_MS = 300_000;
+
 // Schema repair attempts on the same thread.
 export const DEFAULT_SCHEMA_RETRIES = 3;
 
 // Graceful shutdown: turn/interrupt → SIGTERM → SIGKILL.
 export const INTERRUPT_GRACE_MS = 5_000;
 export const SIGTERM_GRACE_MS = 5_000;
+// Abort first drains the turn, then client.close() waits before killing and
+// confirming exit. Leave 3s for exit delivery and scheduling beyond both graces.
+export const TEARDOWN_HARD_DEADLINE_MS = INTERRUPT_GRACE_MS + CLOSE_GRACE_MS + 3_000;
 
 export const RUN_ID_PREFIX = "uc_";
 
 /** Codex CLI version this release was developed and tested against. */
-export const TESTED_CODEX_VERSION = "0.144.0";
+export const TESTED_CODEX_VERSION = "0.153.4";
 
 /** OpenCode CLI version this release was developed and tested against. */
 export const TESTED_OPENCODE_VERSION = "1.17.18";
@@ -51,20 +60,21 @@ export const AGENTS_DIR = "agents";
 export const RUNNER_LOG_FILE = "runner.log";
 
 /**
- * Model map decided against the live lineup (probe 2026-07-09, codex 0.144):
- * gpt-5.6-sol (default, frontier), gpt-5.6-terra (balanced),
- * gpt-5.6-luna (fast). Efforts low|medium|high|xhigh|max|ultra are all
- * native on 0.144 — live-probed end to end, including ultra.
+ * Model map decided against the live lineup (probe 2026-09-07, codex 0.153.4):
+ * gpt-6-astra (default, frontier engineer — verified in the installed binary),
+ * gpt-5.6-terra (balanced), gpt-5.6-luna (fast). The balanced/fast tiers stay
+ * on the 5.6 lineup until GPT-6's lower tiers are confirmed present. Efforts
+ * low|medium|high|xhigh|max|ultra are all native.
  */
 export const DEFAULT_CODEX_CONFIG: CodexBackendConfig = {
   binary: "codex",
   sandbox: "workspace-write",
-  // codex's own default (model/list isDefault) — matches upstream "inherit
-  // the main-loop model" semantics for agents that don't pin a tier.
-  defaultModel: "gpt-5.6-sol",
+  // Frontier engineer tier. Agents that don't pin a tier inherit this; workflow
+  // dev-work subagents pin `fable`, so both resolve to gpt-6-astra.
+  defaultModel: "gpt-6-astra",
   modelMap: {
-    fable: "gpt-5.6-sol",
-    opus: "gpt-5.6-sol",
+    fable: "gpt-6-astra",
+    opus: "gpt-6-astra",
     sonnet: "gpt-5.6-terra",
     haiku: "gpt-5.6-luna",
     spark: "gpt-5.6-luna",
